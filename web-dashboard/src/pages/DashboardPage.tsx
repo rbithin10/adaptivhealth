@@ -82,28 +82,28 @@ const DashboardPage: React.FC = () => {
     {
       title: 'Total Patients',
       value: stats.totalPatients,
-      icon: <People sx={{ fontSize: 40 }} />,
+      icon: <Users size={40} />,
       color: '#0066FF',
       bgColor: '#E3F2FD',
     },
     {
       title: 'Active Monitoring',
       value: stats.activeMonitoring,
-      icon: <FavoriteOutlined sx={{ fontSize: 40 }} />,
+      icon: <Heart size={40} />,
       color: '#00C853',
       bgColor: '#E8F5E9',
     },
     {
       title: 'Critical Alerts',
       value: stats.criticalAlerts,
-      icon: <Warning sx={{ fontSize: 40 }} />,
+      icon: <AlertTriangle size={40} />,
       color: '#FF1744',
       bgColor: '#FFEBEE',
     },
     {
       title: 'Avg Heart Rate',
       value: `${stats.avgHeartRate} BPM`,
-      icon: <TrendingUp sx={{ fontSize: 40 }} />,
+      icon: <TrendingUp size={40} />,
       color: '#9C27B0',
       bgColor: '#F3E5F5',
     },
@@ -361,10 +361,10 @@ const DashboardPage: React.FC = () => {
           }}
         >
           <p style={{ ...typography.body, margin: '0 0 8px 0' }}>
-            <strong>Backend Status:</strong> Connected to http://localhost:8001
+            <strong>Backend Status:</strong> Connected to http://localhost:8000
           </p>
           <p style={{ ...typography.caption, margin: 0 }}>
-            API Documentation: Visit http://localhost:8001/docs for interactive testing
+            API Documentation: Visit http://localhost:8000/docs for interactive testing
           </p>
         </div>
       </main>

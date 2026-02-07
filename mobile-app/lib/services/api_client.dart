@@ -9,7 +9,7 @@ import 'package:dio/dio.dart';
 
 class ApiClient {
   // Server address. Change this for your own backend.
-  static const String baseUrl = 'http://localhost:8001/api/v1';
+  static const String baseUrl = 'http://localhost:8000/api/v1';
 
   // One HTTP client shared by the whole app.
   final Dio _dio;
@@ -25,6 +25,15 @@ class ApiClient {
   }
 
   // Create the Dio client with default settings.
+  // Flutter web requires the backend to have CORS enabled:
+  // from fastapi.middleware.cors import CORSMiddleware
+  // app.add_middleware(
+  //     CORSMiddleware,
+  //     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
+  //     allow_credentials=True,
+  //     allow_methods=["*"],
+  //     allow_headers=["*"],
+  // )
   static Dio _createDio() {
     return Dio(
       BaseOptions(
@@ -32,10 +41,6 @@ class ApiClient {
         // Stop requests from hanging too long.
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 10),
-        contentType: 'application/json',
-        headers: {
-          'Content-Type': 'application/json',
-        },
       ),
     );
   }
@@ -77,10 +82,14 @@ class ApiClient {
     try {
       final response = await _dio.post(
         '/login',
-        data: FormData.fromMap({
+        data: {
           'username': email,  // FastAPI OAuth2 uses 'username'
           'password': password,
-        }),
+        },
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          headers: {'Content-Type': Headers.formUrlEncodedContentType},
+        ),
       );
       
       // Save the token so future requests are authenticated.

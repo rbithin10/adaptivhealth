@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import init_db, check_db_connection
 from app.api import auth, user, vital_signs, predict
+from app.services.ml_prediction import load_ml_model
 
 # Configure logging
 logging.basicConfig(
@@ -53,15 +54,11 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("Cannot connect to database")
     
     # Load ML model (Massoud's trained Random Forest)
-    try:
-        from app.services.ml_prediction import get_ml_service
-        ml_service = get_ml_service()
-        if ml_service.is_loaded:
-            logger.info("ML model loaded successfully")
-        else:
-            logger.warning("ML model not loaded - prediction endpoints will be unavailable")
-    except Exception as e:
-        logger.warning(f"ML model loading failed (non-fatal): {e}")
+    # Uses absolute paths and joblib for production safety
+    if load_ml_model():
+        logger.info("ML model loaded successfully at startup")
+    else:
+        logger.error("ML model failed to load - prediction endpoints will return 503")
     
     logger.info("Adaptive Health API started successfully")
     
@@ -91,11 +88,12 @@ app = FastAPI(
 # =============================================================================
 
 # CORS middleware for web dashboard and mobile app
+# Using regex to allow any localhost/127.0.0.1 port for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
