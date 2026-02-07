@@ -438,7 +438,7 @@ async def get_user_latest_vitals(
     Clinician/Admin access only.
     """
     # Check access permissions
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -471,7 +471,7 @@ async def get_user_vitals_summary(
     
     Clinician/Admin access only.
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -500,7 +500,7 @@ async def get_user_vitals_history(
     
     Clinician/Admin access only.
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -119,11 +119,12 @@ async def update_my_profile(
     Only allows updating safe profile fields.
     """
     # Only change fields the user actually sent.
-    # Update fields
+    # Whitelist allowed fields to prevent privilege escalation
+    allowed_fields = {"name", "age", "gender", "phone"}
     update_data = user_data.dict(exclude_unset=True)
     
     for field, value in update_data.items():
-        if hasattr(current_user, field):
+        if field in allowed_fields and hasattr(current_user, field):
             setattr(current_user, field, value)
     
     # If age changes, update max heart rate too.
@@ -221,7 +222,7 @@ async def get_user(
     
     Admin/Clinician access only.
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     
     if not user:
         raise HTTPException(
@@ -250,7 +251,7 @@ async def update_user(
     
     Admin access only.
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     
     if not user:
         raise HTTPException(
@@ -258,11 +259,12 @@ async def update_user(
             detail="User not found"
         )
     
-    # Update fields
+    # Update fields - whitelist to prevent unsafe attribute modification
+    allowed_fields = {"name", "age", "gender", "phone"}
     update_data = user_data.dict(exclude_unset=True)
     
     for field, value in update_data.items():
-        if hasattr(user, field):
+        if field in allowed_fields and hasattr(user, field):
             setattr(user, field, value)
     
     # Recalculate max HR if age changed
@@ -304,8 +306,7 @@ async def create_user(
     # Create user
     user = User(
         email=user_data.email,
-        hashed_password=hashed_password,
-        name=user_data.name,
+        full_name=user_data.name,
         age=user_data.age,
         gender=user_data.gender,
         phone=user_data.phone,
@@ -314,7 +315,15 @@ async def create_user(
         is_verified=user_data.is_verified
     )
     
+    # Create separate auth credential (matches register endpoint pattern)
+    from app.models.auth_credential import AuthCredential
+    auth_cred = AuthCredential(
+        user=user,
+        hashed_password=hashed_password
+    )
+    
     db.add(user)
+    db.add(auth_cred)
     db.commit()
     db.refresh(user)
     
@@ -334,7 +343,7 @@ async def deactivate_user(
     
     Admin access only. Soft delete for audit compliance.
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     
     if not user:
         raise HTTPException(
@@ -367,7 +376,7 @@ async def get_user_medical_history(
     
     Admin/Clinician access only. Returns decrypted medical data.
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     
     if not user:
         raise HTTPException(

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 pwd_context = CryptContext(
     schemes=["pbkdf2_sha256"],
     deprecated="auto",
-    pbkdf2_sha256__default_rounds=200000  # OWASP recommended minimum
+    pbkdf2_sha256__default_rounds=600000  # OWASP recommended minimum
 )
 
 # =============================================================================

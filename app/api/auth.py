@@ -7,7 +7,7 @@ This file handles sign up, login, and token refresh.
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 
 from app.database import get_db
@@ -96,7 +96,6 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
         # DESIGN: Locks for N minutes after M failed attempts
         # Gives user time to recover password before trying again
         if auth_cred.failed_login_attempts >= settings.max_login_attempts:
-            from datetime import timedelta
             auth_cred.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.lockout_duration_minutes)
             logger.warning(f"Account locked for user {user.user_id} due to failed attempts")
         
@@ -467,7 +466,7 @@ async def confirm_password_reset(
     
     auth_cred.hashed_password = hashed_password
     auth_cred.failed_login_attempts = 0  # Reset failed attempts
-    auth_cred.account_locked_until = None  # Unlock account if locked
+    auth_cred.locked_until = None  # Unlock account if locked
     
     db.commit()
     

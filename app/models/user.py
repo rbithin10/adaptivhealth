@@ -143,6 +143,10 @@ class User(Base):
         """Alias for max_safe_hr."""
         return self.max_safe_hr
 
+    @max_heart_rate.setter
+    def max_heart_rate(self, value):
+        self.max_safe_hr = value
+
     # -------------------------------------------------------------------------
     # Methods
     # -------------------------------------------------------------------------
