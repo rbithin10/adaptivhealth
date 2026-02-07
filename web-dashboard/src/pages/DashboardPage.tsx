@@ -63,8 +63,9 @@ const DashboardPage: React.FC = () => {
         const users = Array.isArray(usersResponse) ? usersResponse : (usersResponse as any)?.users ?? [];
         const totalPatients = users.length;
 
-        // Count patients with recent activity (active monitoring)
-        const activeMonitoring = Math.min(totalPatients, Math.ceil(totalPatients * 0.3));
+        // Estimate active monitoring as a fraction of total patients
+        const ACTIVE_MONITORING_RATIO = 0.3;
+        const activeMonitoring = Math.min(totalPatients, Math.ceil(totalPatients * ACTIVE_MONITORING_RATIO));
 
         setStats({
           totalPatients,

@@ -59,7 +59,7 @@ const PatientDetailPage: React.FC = () => {
         if (Array.isArray(vitals) && vitals.length > 0) {
           const latest = vitals[0];
           setLatestVitals({
-            id: Number(latest.vital_id) || 1,
+            id: Number(latest.vital_id ?? 1),
             heart_rate: latest.heart_rate,
             spo2: latest.spo2 ?? 98,
             systolic_bp: latest.systolic_bp ?? 120,

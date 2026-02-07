@@ -91,6 +91,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _resetTab() {
+    setState(() { _currentTabIndex = 0; });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -275,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(
                   builder: (context) => WorkoutScreen(apiClient: widget.apiClient),
                 ),
-              ).then((_) => setState(() { _currentTabIndex = 0; }));
+              ).then((_) => _resetTab());
               break;
             case 2:
               Navigator.push(
@@ -283,19 +287,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(
                   builder: (context) => RecoveryScreen(apiClient: widget.apiClient),
                 ),
-              ).then((_) => setState(() { _currentTabIndex = 0; }));
+              ).then((_) => _resetTab());
               break;
             case 3:
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('History: Check your vitals trends in the web dashboard')),
               );
-              setState(() { _currentTabIndex = 0; });
+              _resetTab();
               break;
             case 4:
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Profile settings coming soon')),
               );
-              setState(() { _currentTabIndex = 0; });
+              _resetTab();
               break;
           }
         },
@@ -564,13 +568,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
 /// Simple sparkline painter that draws a demo heart rate trend line.
 class _SparklinePainter extends CustomPainter {
+  // Typical heart rate display range (BPM)
+  static const double minDisplayHR = 60.0;
+  static const double maxDisplayHR = 100.0;
+
   @override
   void paint(Canvas canvas, Size size) {
     // Sample HR data points representing a typical day trend
     final dataPoints = [68, 72, 70, 75, 82, 90, 85, 78, 74, 71, 73, 76];
-    final minVal = 60.0;
-    final maxVal = 100.0;
-    final range = maxVal - minVal;
+    final range = maxDisplayHR - minDisplayHR;
 
     final paint = Paint()
       ..color = AdaptivColors.primary
@@ -596,7 +602,7 @@ class _SparklinePainter extends CustomPainter {
 
     for (int i = 0; i < dataPoints.length; i++) {
       final x = i * stepX;
-      final y = padding + drawHeight - ((dataPoints[i] - minVal) / range) * drawHeight;
+      final y = padding + drawHeight - ((dataPoints[i] - minDisplayHR) / range) * drawHeight;
       if (i == 0) {
         path.moveTo(x, y);
         fillPath.moveTo(x, size.height);
