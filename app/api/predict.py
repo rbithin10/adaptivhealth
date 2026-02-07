@@ -11,11 +11,15 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import logging
 import time
+from datetime import datetime, timedelta, timezone
+import json
 
 from app.database import get_db
 from app.models.user import User
 from app.models.activity import ActivitySession
 from app.models.risk_assessment import RiskAssessment
+from app.models.vital_signs import VitalSignRecord
+from app.models.recommendation import ExerciseRecommendation
 from app.services.ml_prediction import get_ml_service, MLPredictionService
 from app.api.auth import get_current_user, get_current_doctor_user
 
@@ -54,6 +58,166 @@ class RiskPredictionResponse(BaseModel):
     inference_time_ms: float = Field(..., description="Prediction time in ms")
     model_info: Dict[str, Any] = Field(..., description="Model details")
     features_used: Optional[Dict[str, float]] = Field(None, description="Engineered features")
+
+
+class RiskAssessmentComputeResponse(BaseModel):
+    assessment_id: int
+    user_id: int
+    risk_score: float
+    risk_level: str
+    confidence: float | None = None
+    inference_time_ms: float | None = None
+    drivers: list[str] = []
+    based_on: dict[str, Any] = {}
+
+
+class RecommendationResponse(BaseModel):
+    recommendation_id: int
+    user_id: int
+    title: str
+    suggested_activity: str
+    intensity_level: str
+    duration_minutes: int
+    target_heart_rate_min: int | None = None
+    target_heart_rate_max: int | None = None
+    description: str | None = None
+    warnings: str | None = None
+    created_at: str | None = None
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def _get_recent_vitals_window(
+    db: Session, user_id: int, window_minutes: int = 30
+) -> list[VitalSignRecord]:
+    since = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    return (
+        db.query(VitalSignRecord)
+        .filter(
+            VitalSignRecord.user_id == user_id,
+            VitalSignRecord.timestamp >= since,
+            VitalSignRecord.is_valid == True
+        )
+        .order_by(VitalSignRecord.timestamp.asc())
+        .all()
+    )
+
+
+def _aggregate_session_features_from_vitals(vitals: list[VitalSignRecord]) -> dict[str, Any]:
+    """
+    Convert raw vitals into the session-style fields the ML model expects.
+    If only 1 reading exists, we still produce a valid feature set.
+    """
+    if not vitals:
+        raise ValueError("No vitals to aggregate")
+
+    hrs = [v.heart_rate for v in vitals]
+    spo2s = [v.spo2 for v in vitals if v.spo2 is not None]
+
+    start = vitals[0].timestamp
+    end = vitals[-1].timestamp
+    duration_minutes = max(1, int((end - start).total_seconds() / 60)) if start and end else 10
+
+    avg_hr = int(sum(hrs) / len(hrs))
+    peak_hr = int(max(hrs))
+    min_hr = int(min(hrs))
+    avg_spo2 = int(sum(spo2s) / len(spo2s)) if spo2s else 97
+
+    activity_type = vitals[-1].activity_type or "walking"
+
+    # Recovery time is not directly observable from a vitals window.
+    # For MVP, use a safe default or infer from phase if you store it.
+    recovery_time_minutes = 5
+
+    return {
+        "avg_heart_rate": avg_hr,
+        "peak_heart_rate": peak_hr,
+        "min_heart_rate": min_hr,
+        "avg_spo2": avg_spo2,
+        "duration_minutes": duration_minutes,
+        "recovery_time_minutes": recovery_time_minutes,
+        "activity_type": activity_type,
+        "start_time": start.isoformat() if start else None,
+        "end_time": end.isoformat() if end else None,
+        "points": len(vitals),
+        "latest_hr": vitals[-1].heart_rate,
+        "latest_spo2": vitals[-1].spo2
+    }
+
+
+def _build_drivers(user: User, features: dict[str, Any]) -> list[str]:
+    """
+    Human-readable explanations so the AI feels real in UI.
+    Keep it short and decisive.
+    """
+    drivers = []
+
+    baseline = user.baseline_hr or 72
+    max_safe = user.max_safe_hr or (220 - (user.age or 55))
+
+    peak = features["peak_heart_rate"]
+    avg = features["avg_heart_rate"]
+    spo2 = features["avg_spo2"]
+
+    if peak > max_safe:
+        drivers.append(f"Peak heart rate exceeded safe limit ({peak} > {max_safe}).")
+    if avg - baseline >= 25:
+        drivers.append(f"Average heart rate elevated vs baseline ({avg} vs {baseline}).")
+    if spo2 <= 92:
+        drivers.append(f"Average SpO₂ is low ({spo2}%).")
+    if features["duration_minutes"] >= 45 and peak > int(0.8 * max_safe):
+        drivers.append("Sustained high intensity for long duration.")
+
+    if not drivers:
+        drivers.append("Vitals are within expected safe limits.")
+
+    return drivers
+
+
+def _generate_recommendation_payload(
+    user: User, risk_level: str, risk_score: float, drivers: list[str]
+) -> dict[str, Any]:
+    baseline = user.baseline_hr or 72
+    max_safe = user.max_safe_hr or (220 - (user.age or 55))
+
+    # Target zone logic (simple but credible)
+    if risk_level in ("critical", "high"):
+        return {
+            "title": "Recovery & Monitoring",
+            "suggested_activity": "Rest and light breathing",
+            "intensity_level": "low",
+            "duration_minutes": 10,
+            "target_heart_rate_min": None,
+            "target_heart_rate_max": min(max_safe - 20, baseline + 20),
+            "description": "Stop intense activity. Sit down, hydrate, and do slow breathing.",
+            "warnings": "If symptoms persist or worsen, contact a healthcare provider.",
+        }
+
+    if risk_level == "moderate":
+        return {
+            "title": "Low-Intensity Session",
+            "suggested_activity": "Walking",
+            "intensity_level": "low",
+            "duration_minutes": 15,
+            "target_heart_rate_min": baseline + 10,
+            "target_heart_rate_max": min(int(0.75 * max_safe), baseline + 35),
+            "description": "Reduce intensity today. Aim for a steady pace and monitor how you feel.",
+            "warnings": "Pause if dizziness, chest pain, or unusual breathlessness occurs.",
+        }
+
+    # low
+    return {
+        "title": "Continue Safe Training",
+        "suggested_activity": "Walking / Light cardio",
+        "intensity_level": "moderate",
+        "duration_minutes": 20,
+        "target_heart_rate_min": baseline + 15,
+        "target_heart_rate_max": min(int(0.80 * max_safe), baseline + 45),
+        "description": "You are in a safe zone. Keep steady effort and stay hydrated.",
+        "warnings": "Monitor for symptoms. Avoid sudden spikes in intensity.",
+    }
 
 
 # =============================================================================
@@ -343,3 +507,294 @@ async def get_my_risk_history(
             for a in assessments
         ]
     }
+
+
+# =============================================================================
+# New Risk Assessment & Recommendation Endpoints
+# =============================================================================
+
+@router.post("/risk-assessments/compute", response_model=RiskAssessmentComputeResponse)
+async def compute_my_risk_assessment(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    service = get_ml_service()
+    if not service.is_loaded:
+        raise HTTPException(status_code=503, detail="ML model not loaded")
+
+    vitals = _get_recent_vitals_window(db, current_user.user_id, window_minutes=30)
+    if not vitals:
+        raise HTTPException(status_code=404, detail="No recent vitals found")
+
+    features = _aggregate_session_features_from_vitals(vitals)
+    drivers = _build_drivers(current_user, features)
+
+    start_time = time.time()
+    result = service.predict_risk(
+        age=current_user.age or 55,
+        baseline_hr=current_user.baseline_hr or 72,
+        max_safe_hr=current_user.max_safe_hr or (220 - (current_user.age or 55)),
+        avg_heart_rate=features["avg_heart_rate"],
+        peak_heart_rate=features["peak_heart_rate"],
+        min_heart_rate=features["min_heart_rate"],
+        avg_spo2=features["avg_spo2"],
+        duration_minutes=features["duration_minutes"],
+        recovery_time_minutes=features["recovery_time_minutes"],
+        activity_type=features["activity_type"]
+    )
+    inference_ms = (time.time() - start_time) * 1000
+
+    # Store risk assessment
+    ra = RiskAssessment(
+        user_id=current_user.user_id,
+        risk_level=result["risk_level"],
+        risk_score=result["risk_score"],
+        confidence=result.get("confidence"),
+        inference_time_ms=round(inference_ms, 2),
+        model_name=result.get("model_info", {}).get("name"),
+        model_version=result.get("model_info", {}).get("version"),
+        input_heart_rate=features["avg_heart_rate"],
+        input_spo2=features["avg_spo2"],
+        input_blood_pressure_sys=vitals[-1].systolic_bp,
+        input_blood_pressure_dia=vitals[-1].diastolic_bp,
+        input_hrv=vitals[-1].hrv,
+        primary_concern=drivers[0] if drivers else None,
+        risk_factors_json=json.dumps(drivers),
+        assessment_type="vitals_window",
+        generated_by="cloud_ai"
+    )
+    db.add(ra)
+    db.commit()
+    db.refresh(ra)
+
+    # Generate & store recommendation (linked)
+    rec_payload = _generate_recommendation_payload(current_user, ra.risk_level, ra.risk_score, drivers)
+    rec = ExerciseRecommendation(
+        user_id=current_user.user_id,
+        title=rec_payload["title"],
+        suggested_activity=rec_payload["suggested_activity"],
+        intensity_level=rec_payload["intensity_level"],
+        duration_minutes=rec_payload["duration_minutes"],
+        target_heart_rate_min=rec_payload["target_heart_rate_min"],
+        target_heart_rate_max=rec_payload["target_heart_rate_max"],
+        description=rec_payload["description"],
+        warnings=rec_payload["warnings"],
+        based_on_risk_assessment_id=ra.assessment_id,
+        model_name=ra.model_name,
+        confidence_score=ra.confidence,
+        generated_by="cloud_ai"
+    )
+    db.add(rec)
+    db.commit()
+
+    return RiskAssessmentComputeResponse(
+        assessment_id=ra.assessment_id,
+        user_id=current_user.user_id,
+        risk_score=ra.risk_score,
+        risk_level=ra.risk_level,
+        confidence=ra.confidence,
+        inference_time_ms=ra.inference_time_ms,
+        drivers=drivers,
+        based_on={"window_minutes": 30, "points": features["points"], "activity_type": features["activity_type"]}
+    )
+
+
+@router.post("/patients/{user_id}/risk-assessments/compute", response_model=RiskAssessmentComputeResponse)
+async def compute_patient_risk_assessment(
+    user_id: int,
+    current_user: User = Depends(get_current_doctor_user),
+    db: Session = Depends(get_db)
+):
+    patient = db.query(User).filter(User.user_id == user_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    service = get_ml_service()
+    if not service.is_loaded:
+        raise HTTPException(status_code=503, detail="ML model not loaded")
+
+    vitals = _get_recent_vitals_window(db, user_id, window_minutes=30)
+    if not vitals:
+        raise HTTPException(status_code=404, detail="No recent vitals found")
+
+    features = _aggregate_session_features_from_vitals(vitals)
+    drivers = _build_drivers(patient, features)
+
+    start_time = time.time()
+    result = service.predict_risk(
+        age=patient.age or 55,
+        baseline_hr=patient.baseline_hr or 72,
+        max_safe_hr=patient.max_safe_hr or (220 - (patient.age or 55)),
+        avg_heart_rate=features["avg_heart_rate"],
+        peak_heart_rate=features["peak_heart_rate"],
+        min_heart_rate=features["min_heart_rate"],
+        avg_spo2=features["avg_spo2"],
+        duration_minutes=features["duration_minutes"],
+        recovery_time_minutes=features["recovery_time_minutes"],
+        activity_type=features["activity_type"]
+    )
+    inference_ms = (time.time() - start_time) * 1000
+
+    ra = RiskAssessment(
+        user_id=user_id,
+        risk_level=result["risk_level"],
+        risk_score=result["risk_score"],
+        confidence=result.get("confidence"),
+        inference_time_ms=round(inference_ms, 2),
+        model_name=result.get("model_info", {}).get("name"),
+        model_version=result.get("model_info", {}).get("version"),
+        input_heart_rate=features["avg_heart_rate"],
+        input_spo2=features["avg_spo2"],
+        input_blood_pressure_sys=vitals[-1].systolic_bp,
+        input_blood_pressure_dia=vitals[-1].diastolic_bp,
+        input_hrv=vitals[-1].hrv,
+        primary_concern=drivers[0] if drivers else None,
+        risk_factors_json=json.dumps(drivers),
+        assessment_type="vitals_window",
+        generated_by="cloud_ai"
+    )
+    db.add(ra)
+    db.commit()
+    db.refresh(ra)
+
+    rec_payload = _generate_recommendation_payload(patient, ra.risk_level, ra.risk_score, drivers)
+    rec = ExerciseRecommendation(
+        user_id=user_id,
+        title=rec_payload["title"],
+        suggested_activity=rec_payload["suggested_activity"],
+        intensity_level=rec_payload["intensity_level"],
+        duration_minutes=rec_payload["duration_minutes"],
+        target_heart_rate_min=rec_payload["target_heart_rate_min"],
+        target_heart_rate_max=rec_payload["target_heart_rate_max"],
+        description=rec_payload["description"],
+        warnings=rec_payload["warnings"],
+        based_on_risk_assessment_id=ra.assessment_id,
+        model_name=ra.model_name,
+        confidence_score=ra.confidence,
+        generated_by="cloud_ai"
+    )
+    db.add(rec)
+    db.commit()
+
+    return RiskAssessmentComputeResponse(
+        assessment_id=ra.assessment_id,
+        user_id=user_id,
+        risk_score=ra.risk_score,
+        risk_level=ra.risk_level,
+        confidence=ra.confidence,
+        inference_time_ms=ra.inference_time_ms,
+        drivers=drivers,
+        based_on={"window_minutes": 30, "points": features["points"], "activity_type": features["activity_type"]}
+    )
+
+
+@router.get("/risk-assessments/latest")
+async def get_my_latest_risk_assessment(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    ra = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == current_user.user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+    if not ra:
+        raise HTTPException(status_code=404, detail="No risk assessments found")
+
+    drivers = json.loads(ra.risk_factors_json) if ra.risk_factors_json else []
+    return {
+        "assessment_id": ra.assessment_id,
+        "user_id": ra.user_id,
+        "risk_score": ra.risk_score,
+        "risk_level": ra.risk_level,
+        "confidence": ra.confidence,
+        "assessment_date": ra.assessment_date.isoformat() if ra.assessment_date else None,
+        "drivers": drivers
+    }
+
+
+@router.get("/patients/{user_id}/risk-assessments/latest")
+async def get_patient_latest_risk_assessment(
+    user_id: int,
+    current_user: User = Depends(get_current_doctor_user),
+    db: Session = Depends(get_db)
+):
+    ra = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+    if not ra:
+        raise HTTPException(status_code=404, detail="No risk assessments found")
+
+    drivers = json.loads(ra.risk_factors_json) if ra.risk_factors_json else []
+    return {
+        "assessment_id": ra.assessment_id,
+        "user_id": ra.user_id,
+        "risk_score": ra.risk_score,
+        "risk_level": ra.risk_level,
+        "confidence": ra.confidence,
+        "assessment_date": ra.assessment_date.isoformat() if ra.assessment_date else None,
+        "drivers": drivers
+    }
+
+
+@router.get("/recommendations/latest", response_model=RecommendationResponse)
+async def get_my_latest_recommendation(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    rec = (
+        db.query(ExerciseRecommendation)
+        .filter(ExerciseRecommendation.user_id == current_user.user_id)
+        .order_by(desc(ExerciseRecommendation.created_at))
+        .first()
+    )
+    if not rec:
+        raise HTTPException(status_code=404, detail="No recommendations found")
+
+    return RecommendationResponse(
+        recommendation_id=rec.recommendation_id,
+        user_id=rec.user_id,
+        title=rec.title,
+        suggested_activity=rec.suggested_activity,
+        intensity_level=rec.intensity_level,
+        duration_minutes=rec.duration_minutes,
+        target_heart_rate_min=rec.target_heart_rate_min,
+        target_heart_rate_max=rec.target_heart_rate_max,
+        description=rec.description,
+        warnings=rec.warnings,
+        created_at=rec.created_at.isoformat() if rec.created_at else None
+    )
+
+
+@router.get("/patients/{user_id}/recommendations/latest", response_model=RecommendationResponse)
+async def get_patient_latest_recommendation(
+    user_id: int,
+    current_user: User = Depends(get_current_doctor_user),
+    db: Session = Depends(get_db)
+):
+    rec = (
+        db.query(ExerciseRecommendation)
+        .filter(ExerciseRecommendation.user_id == user_id)
+        .order_by(desc(ExerciseRecommendation.created_at))
+        .first()
+    )
+    if not rec:
+        raise HTTPException(status_code=404, detail="No recommendations found")
+
+    return RecommendationResponse(
+        recommendation_id=rec.recommendation_id,
+        user_id=rec.user_id,
+        title=rec.title,
+        suggested_activity=rec.suggested_activity,
+        intensity_level=rec.intensity_level,
+        duration_minutes=rec.duration_minutes,
+        target_heart_rate_min=rec.target_heart_rate_min,
+        target_heart_rate_max=rec.target_heart_rate_max,
+        description=rec.description,
+        warnings=rec.warnings,
+        created_at=rec.created_at.isoformat() if rec.created_at else None
+    )
