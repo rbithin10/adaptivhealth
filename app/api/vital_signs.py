@@ -51,13 +51,13 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
         logger.info(f"Checking vitals for alerts: user {user_id}")
         
         # Collect all alerts to create
-        alerts_to_create = []
+        new_alerts = []
         
         # Check for high heart rate (critical threshold: >180 BPM)
         if vital_data.heart_rate > 180:
             logger.warning(f"High heart rate alert for user {user_id}: {vital_data.heart_rate} BPM")
             
-            alerts_to_create.append(Alert(
+            new_alerts.append(Alert(
                 user_id=user_id,
                 alert_type=AlertType.HIGH_HEART_RATE.value,
                 severity=SeverityLevel.CRITICAL.value,
@@ -76,7 +76,7 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
         if vital_data.spo2 and vital_data.spo2 < 90:
             logger.warning(f"Low oxygen alert for user {user_id}: {vital_data.spo2}%")
             
-            alerts_to_create.append(Alert(
+            new_alerts.append(Alert(
                 user_id=user_id,
                 alert_type=AlertType.LOW_SPO2.value,
                 severity=SeverityLevel.CRITICAL.value,
@@ -93,12 +93,11 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
         
         # Check for high blood pressure (warning threshold: systolic >160 or diastolic >100)
         if vital_data.blood_pressure_systolic and vital_data.blood_pressure_systolic > 160:
-            logger.warning(f"High blood pressure alert for user {user_id}: {vital_data.blood_pressure_systolic}/{vital_data.blood_pressure_diastolic} mmHg")
-            
             # Include both systolic and diastolic in trigger value for context
             bp_display = f"{vital_data.blood_pressure_systolic}/{vital_data.blood_pressure_diastolic or 'N/A'} mmHg"
+            logger.warning(f"High blood pressure alert for user {user_id}: {bp_display}")
             
-            alerts_to_create.append(Alert(
+            new_alerts.append(Alert(
                 user_id=user_id,
                 alert_type=AlertType.HIGH_BLOOD_PRESSURE.value,
                 severity=SeverityLevel.WARNING.value,
@@ -113,10 +112,10 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
             ))
         
         # Bulk insert all alerts in a single transaction
-        if alerts_to_create:
-            db.add_all(alerts_to_create)
+        if new_alerts:
+            db.add_all(new_alerts)
             db.commit()
-            logger.info(f"Created {len(alerts_to_create)} alert(s) for user {user_id}")
+            logger.info(f"Created {len(new_alerts)} alert(s) for user {user_id}")
             
     finally:
         db.close()

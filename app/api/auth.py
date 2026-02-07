@@ -395,11 +395,9 @@ async def request_password_reset(
         # Log token for development only (DO NOT do this in production)
         # In production, send via email instead
         from app.config import settings
+        logger.info(f"Password reset requested for: {reset_data.email}")
         if settings.environment == "development" or settings.debug:
-            logger.info(f"Password reset requested for: {reset_data.email}")
             logger.info(f"Reset token (DEV ONLY - would be sent via email): {reset_token}")
-        else:
-            logger.info(f"Password reset requested for: {reset_data.email}")
         
         # In production, this would send an email with the reset link
         # Example: https://app.adaptivhealth.com/reset-password?token={reset_token}
