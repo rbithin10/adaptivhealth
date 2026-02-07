@@ -37,9 +37,10 @@ class TestUserProfile:
         resp = client.put(
             "/api/v1/users/me",
             headers={"Authorization": f"Bearer {patient_token}"},
-            json={"name": "Hacker"},
+            json={"name": "Hacker", "role": "admin"},
         )
-        assert resp.status_code == 200
+        # Request may succeed (role field ignored) or be rejected
+        assert resp.status_code in (200, 422)
 
         # Verify role is still patient (not escalated)
         from app.models.user import User

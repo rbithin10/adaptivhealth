@@ -80,8 +80,8 @@ class TestVitalSigns:
         assert resp.status_code == 200
         assert resp.json()["records_created"] == 3
 
-    def test_batch_skips_invalid(self, client, patient_token):
-        """Batch skips records outside the 30-250 BPM range checked by the endpoint."""
+    def test_batch_submit_all_valid(self, client, patient_token):
+        """All records within valid range are created."""
         resp = client.post(
             "/api/v1/vitals/batch",
             headers={"Authorization": f"Bearer {patient_token}"},
