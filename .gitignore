@@ -143,4 +143,5 @@ Thumbs.db
 
 # Project specific
 adaptiv_health.db
-.envtest_adaptivhealth.db
+.env
+test_adaptivhealth.db
