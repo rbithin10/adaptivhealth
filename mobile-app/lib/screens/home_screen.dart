@@ -213,11 +213,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHomeTab() {
     return FutureBuilder<Map<String, dynamic>>(
       future: Future.wait([_userFuture, _vitalsFuture, _riskFuture])
-          .then((results) => {
+          .then((results) => ({
             'user': results[0],
             'vitals': results[1],
             'risk': results[2],
-          }),
+          })),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -246,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Container(
           // Appealing gradient background for patient dashboard
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -411,6 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+        ),
         );
       },
     );

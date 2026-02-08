@@ -211,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Container(
         // Professional gradient background for login
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -288,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error_outline, color: AdaptivColors.critical),
+                        const Icon(Icons.error_outline, color: AdaptivColors.critical),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -537,6 +537,9 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+      ),
     );
   }
-}
+}  
+  
+

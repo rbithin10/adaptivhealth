@@ -376,7 +376,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                       // Gender dropdown
                       DropdownButtonFormField<String>(
-                        value: _selectedGender.isEmpty ? null : _selectedGender,
+                        initialValue: _selectedGender.isEmpty ? null : _selectedGender,
                         decoration: InputDecoration(
                           labelText: 'Gender (optional)',
                           prefixIcon: const Icon(Icons.people_outlined),
