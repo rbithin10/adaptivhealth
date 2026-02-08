@@ -31,5 +31,5 @@ if ml_service.is_loaded:
     print("\n✅ /api/v1/predict/risk endpoint should now work!")
 else:
     print("❌ FAILED: Model did not load")
-    print("   Check that ml_models/ folder has all required files")
+    print("   Check that model/ folder has all required files")
     print(f"   Expected location: {ml_service.model}")

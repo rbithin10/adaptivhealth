@@ -191,7 +191,10 @@ def _generate_recommendation_payload(
             "duration_minutes": 10,
             "target_heart_rate_min": None,
             "target_heart_rate_max": min(max_safe - 20, baseline + 20),
-            "description": "Stop intense activity. Sit down, hydrate, and do slow breathing.",
+            "description": (
+                "Stop intense activity. Sit down, hydrate, and do slow breathing. "
+                "Eat potassium-rich foods and avoid caffeine."
+            ),
             "warnings": "If symptoms persist or worsen, contact a healthcare provider.",
         }
 
@@ -203,7 +206,10 @@ def _generate_recommendation_payload(
             "duration_minutes": 15,
             "target_heart_rate_min": baseline + 10,
             "target_heart_rate_max": min(int(0.75 * max_safe), baseline + 35),
-            "description": "Reduce intensity today. Aim for a steady pace and monitor how you feel.",
+            "description": (
+                "Reduce intensity today. Aim for a steady pace and monitor how you feel. "
+                "A heart-healthy meal after: grilled fish with vegetables and whole grains."
+            ),
             "warnings": "Pause if dizziness, chest pain, or unusual breathlessness occurs.",
         }
 
@@ -215,7 +221,10 @@ def _generate_recommendation_payload(
         "duration_minutes": 20,
         "target_heart_rate_min": baseline + 15,
         "target_heart_rate_max": min(int(0.80 * max_safe), baseline + 45),
-        "description": "You are in a safe zone. Keep steady effort and stay hydrated.",
+        "description": (
+            "You are in a safe zone. Keep steady effort and stay hydrated. "
+            "Refuel with lean protein, fruits, and plenty of water."
+        ),
         "warnings": "Monitor for symptoms. Avoid sudden spikes in intensity.",
     }
 

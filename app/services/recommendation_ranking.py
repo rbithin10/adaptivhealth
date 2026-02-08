@@ -18,14 +18,20 @@ RECOMMENDATION_VARIANTS = {
             "suggested_activity": "Rest and light breathing",
             "intensity_level": "low",
             "duration_minutes": 10,
-            "description": "Stop intense activity. Sit down, hydrate, and do slow breathing.",
+            "description": (
+                "Stop intense activity. Sit down, hydrate, and do slow breathing. "
+                "Eat potassium-rich foods (bananas, sweet potatoes) and avoid caffeine."
+            ),
         },
         "B": {
             "title": "Guided Recovery",
             "suggested_activity": "Seated breathing exercises",
             "intensity_level": "low",
             "duration_minutes": 15,
-            "description": "Follow guided breathing: inhale 4s, hold 4s, exhale 6s. Stay seated.",
+            "description": (
+                "Follow guided breathing: inhale 4s, hold 4s, exhale 6s. Stay seated. "
+                "Hydrate with water and have a light snack with omega-3 (walnuts, fish)."
+            ),
         },
     },
     "moderate": {
@@ -34,14 +40,20 @@ RECOMMENDATION_VARIANTS = {
             "suggested_activity": "Walking",
             "intensity_level": "low",
             "duration_minutes": 15,
-            "description": "Reduce intensity today. Aim for a steady pace and monitor how you feel.",
+            "description": (
+                "Reduce intensity today. Aim for a steady pace and monitor how you feel. "
+                "Consider a heart-healthy meal afterwards: grilled fish with vegetables."
+            ),
         },
         "B": {
             "title": "Gentle Movement",
             "suggested_activity": "Stretching and light yoga",
             "intensity_level": "low",
             "duration_minutes": 20,
-            "description": "Focus on gentle stretches and deep breathing to aid recovery.",
+            "description": (
+                "Focus on gentle stretches and deep breathing to aid recovery. "
+                "Fuel up with whole grains, lean protein, and plenty of water."
+            ),
         },
     },
     "low": {
@@ -50,14 +62,20 @@ RECOMMENDATION_VARIANTS = {
             "suggested_activity": "Walking / Light cardio",
             "intensity_level": "moderate",
             "duration_minutes": 20,
-            "description": "You are in a safe zone. Keep steady effort and stay hydrated.",
+            "description": (
+                "You are in a safe zone. Keep steady effort and stay hydrated. "
+                "A post-workout smoothie with fruit and protein supports recovery."
+            ),
         },
         "B": {
             "title": "Progress Your Workout",
             "suggested_activity": "Brisk walking or cycling",
             "intensity_level": "moderate",
             "duration_minutes": 25,
-            "description": "Your vitals are great! Try increasing pace slightly for extra benefit.",
+            "description": (
+                "Your vitals are great! Try increasing pace slightly for extra benefit. "
+                "Refuel with a balanced meal: lean protein, vegetables, and whole grains."
+            ),
         },
     },
 }

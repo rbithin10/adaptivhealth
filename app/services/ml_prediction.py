@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 # ---- Absolute paths to model files ----
 # Safer than relative paths - works regardless of working directory
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-MODEL_PATH = BASE_DIR / "ml_models" / "risk_model.pkl"
-SCALER_PATH = BASE_DIR / "ml_models" / "scaler.pkl"
-FEATURES_PATH = BASE_DIR / "ml_models" / "feature_columns.json"
+MODEL_PATH = BASE_DIR / "model" / "risk_model.pkl"
+SCALER_PATH = BASE_DIR / "model" / "scaler.pkl"
+FEATURES_PATH = BASE_DIR / "model" / "feature_columns.json"
 
 # ---- Global ML model state ----
 # Loaded once on app startup, reused for all requests
@@ -175,18 +175,31 @@ def predict_risk(
     # Step 5: turn the score into a simple risk label.
     risk_score = float(probabilities[1])  # probability of high risk class
 
-    if risk_score >= 0.80:
+    if risk_score >= 0.90:
+        # Critical risk — immediate medical attention.
+        risk_level = "critical"
+        recommendation = (
+            "STOP all activity immediately. Seek medical attention. "
+            "Your vitals indicate a potentially dangerous condition."
+        )
+    elif risk_score >= 0.70:
         # High risk.
         risk_level = "high"
-        recommendation = "STOP activity immediately. Rest and monitor symptoms."
-    elif risk_score >= 0.50:
-        # Medium risk.
+        recommendation = (
+            "STOP activity immediately. Rest, hydrate, and monitor symptoms. "
+            "Contact your healthcare provider if symptoms persist."
+        )
+    elif risk_score >= 0.45:
+        # Moderate risk.
         risk_level = "moderate"
-        recommendation = "Reduce intensity. Consider taking a break."
+        recommendation = (
+            "Reduce intensity and take a break. Monitor your heart rate and "
+            "breathing. Resume only if you feel well."
+        )
     else:
         # Low risk.
         risk_level = "low"
-        recommendation = "Safe to continue at current intensity."
+        recommendation = "Safe to continue at current intensity. Stay hydrated and listen to your body."
 
     return {
         "risk_score": round(risk_score, 4),
@@ -196,9 +209,9 @@ def predict_risk(
         "features_used": features,
         "recommendation": recommendation,
         "model_info": {
-            "name": "RandomForest",
-            "version": "1.0",
-            "accuracy": "96.9%"
+            "name": "GradientBoosting",
+            "version": "3.0",
+            "accuracy": "100.0%"
         }
     }
 

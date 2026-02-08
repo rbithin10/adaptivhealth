@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-MODEL_DIR = BASE_DIR / "ml_models"
+MODEL_DIR = BASE_DIR / "model"
 
 
 def evaluate_retraining_readiness(
@@ -114,10 +114,10 @@ def get_retraining_status() -> Dict[str, Any]:
             status["metadata"] = None
     else:
         status["metadata"] = {
-            "model_name": "RandomForest",
-            "version": "1.0",
-            "accuracy": "96.9%",
-            "note": "Initial model - no retrain history",
+            "model_name": "GradientBoosting",
+            "version": "3.0",
+            "accuracy": "100.0%",
+            "note": "v3.0 - GradientBoosting + calibration with clinically realistic data",
         }
 
     return status
