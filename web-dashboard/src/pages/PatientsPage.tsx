@@ -41,7 +41,7 @@ const PatientsPage: React.FC = () => {
 
   const filteredPatients = patients.filter((patient) => {
     const matchesSearch =
-      patient.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (patient.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       patient.user_id.toString().includes(searchTerm);
     // TODO: Add risk level filtering once we have risk data
     // const matchesFilter = filterRisk === 'all' || patient.riskLevel === filterRisk;
