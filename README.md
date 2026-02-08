@@ -211,33 +211,51 @@ Hero Number:    56px, bold    (Heart rate display)
 | **IMPLEMENTATION_SUMMARY.md** | React dashboard summary | web-dashboard/ |
 | **VISUAL_DESIGN_REFERENCE.md** | Design system details | web-dashboard/ |
 | **TESTING_GUIDE.md** | How to test React components | web-dashboard/ |
+| **API_DOCUMENTATION.md** | Full API endpoint inventory & frontend usage | Root |
 
 ---
 
 ## 🧪 API Endpoints
 
-### Authentication
-- `POST /auth/login` - Email/password login → JWT token
-- `POST /auth/register` - Create new user account
+> For the full reference with request/response details and frontend usage, see **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)**.
 
-### User Management
-- `GET /users/me` - Current user profile
-- `GET /users/{user_id}` - Get any user (admin)
+### Authentication (`/api/v1`)
+- `POST /register` - Create new user account
+- `POST /login` - Email/password login → JWT token
+- `POST /refresh` - Refresh access token
+- `GET /me` - Current authenticated user
+- `POST /reset-password` - Request password reset
+- `POST /reset-password/confirm` - Confirm password reset
 
-### Vital Signs
-- `GET /vitals/latest` - Current HR, SpO2, BP
-- `GET /vitals/history` - Historical vital data (24h/7d/30d)
-- `POST /vitals/submit` - User submits manual reading
+### User Management (`/api/v1/users`)
+- `GET /me` - Current user profile
+- `PUT /me` - Update own profile
+- `GET /` - List all users (admin/clinician)
+- `GET /{user_id}` - Get user by ID
 
-### Risk Prediction
-- `POST /predictions/risk` - ML risk assessment
+### Vital Signs (`/api/v1`)
+- `POST /vitals` - Submit a vital-sign reading
+- `POST /vitals/batch` - Submit multiple readings
+- `GET /vitals/latest` - Latest HR, SpO2, BP
+- `GET /vitals/history` - Paginated history
+- `GET /vitals/summary` - Summary over N days
 
-### Sessions
-- `POST /sessions/start` - Begin workout/recovery session
-- `POST /sessions/end` - End session, save metrics
+### Activities (`/api/v1`)
+- `POST /activities/start` - Begin workout/recovery session
+- `POST /activities/end/{id}` - End session
+- `GET /activities` - List own activities
 
-### Recommendations
-- `GET /recommendations/` - AI health recommendation
+### Alerts (`/api/v1`)
+- `GET /alerts` - List alerts (filterable)
+- `GET /alerts/stats` - Alert statistics
+- `PATCH /alerts/{id}/acknowledge` - Acknowledge alert
+- `PATCH /alerts/{id}/resolve` - Resolve alert
+
+### AI Risk Prediction (`/api/v1`)
+- `POST /predict/risk` - ML risk assessment
+- `POST /risk-assessments/compute` - Compute & store risk
+- `GET /risk-assessments/latest` - Latest risk assessment
+- `GET /recommendations/latest` - Latest recommendation
 
 ---
 
@@ -351,7 +369,7 @@ flutter run
 | Metric | Value |
 |--------|-------|
 | Total Code | 3500+ lines |
-| Backend Endpoints | 10 |
+| Backend Endpoints | 40+ |
 | React Pages | 4 |
 | Flutter Screens | 4 |
 | Color System | 15+ colors |
