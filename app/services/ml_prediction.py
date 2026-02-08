@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 # ---- Absolute paths to model files ----
 # Safer than relative paths - works regardless of working directory
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-MODEL_PATH = BASE_DIR / "ml_models" / "risk_model.pkl"
-SCALER_PATH = BASE_DIR / "ml_models" / "scaler.pkl"
-FEATURES_PATH = BASE_DIR / "ml_models" / "feature_columns.json"
+MODEL_PATH = BASE_DIR / "model" / "risk_model.pkl"
+SCALER_PATH = BASE_DIR / "model" / "scaler.pkl"
+FEATURES_PATH = BASE_DIR / "model" / "feature_columns.json"
 
 # ---- Global ML model state ----
 # Loaded once on app startup, reused for all requests
@@ -197,8 +197,8 @@ def predict_risk(
         "recommendation": recommendation,
         "model_info": {
             "name": "RandomForest",
-            "version": "1.0",
-            "accuracy": "96.9%"
+            "version": "2.0",
+            "accuracy": "100.0%"
         }
     }
 

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-MODEL_DIR = BASE_DIR / "ml_models"
+MODEL_DIR = BASE_DIR / "model"
 
 
 def evaluate_retraining_readiness(

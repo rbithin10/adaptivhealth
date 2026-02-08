@@ -1,0 +1,13 @@
+{
+  "model_name": "RandomForest",
+  "version": "2.0",
+  "accuracy": "100.0%",
+  "precision": "100.0%",
+  "recall": "100.0%",
+  "f1_score": "100.0%",
+  "records_used": 3250,
+  "train_records": 2600,
+  "test_records": 650,
+  "retrained_at": "2026-02-08T19:03:24.436397+00:00",
+  "notes": "Retrained with clinically realistic data; fixes bradycardia/hypoxemia detection"
+}
