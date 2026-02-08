@@ -205,18 +205,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return HistoryScreen(apiClient: widget.apiClient);
       case 4:
         return ProfileScreen(apiClient: widget.apiClient);
-                  style: AdaptivTypography.screenTitle,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Coming soon - Manage your profile here',
-                  style: AdaptivTypography.caption,
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        );
       default:
         return _buildHomeTab();
     }
