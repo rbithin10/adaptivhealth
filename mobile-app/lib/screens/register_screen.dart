@@ -77,11 +77,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         name: _nameController.text.trim(),
         age: _ageController.text.isNotEmpty
             ? int.parse(_ageController.text)
-            : 0,
-        gender: _selectedGender.isNotEmpty ? _selectedGender : 'prefer not to say',
+            : null,
+        gender: _selectedGender.isNotEmpty ? _selectedGender : null,
         phone: _phoneController.text.trim().isNotEmpty
             ? _phoneController.text.trim()
-            : '',
+            : null,
       );
 
       setState(() {

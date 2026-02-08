@@ -108,21 +108,23 @@ class ApiClient {
     required String email,
     required String password,
     required String name,
-    required int age,
-    required String gender,
-    required String phone,
+    int? age,
+    String? gender,
+    String? phone,
   }) async {
     try {
+      final data = <String, dynamic>{
+        'email': email,
+        'password': password,
+        'name': name,
+      };
+      if (age != null) data['age'] = age;
+      if (gender != null) data['gender'] = gender;
+      if (phone != null && phone.isNotEmpty) data['phone'] = phone;
+
       final response = await _dio.post(
         '/register',
-        data: {
-          'email': email,
-          'password': password,
-          'name': name,
-          'age': age,
-          'gender': gender,
-          'phone': phone,
-        },
+        data: data,
       );
       return response.data;
     } on DioException catch (e) {
