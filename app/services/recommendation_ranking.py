@@ -147,6 +147,11 @@ def record_recommendation_outcome(
 
 
 def _assign_variant(user_id: int) -> str:
-    """Deterministically assign A or B based on user_id."""
-    hash_val = hashlib.md5(str(user_id).encode()).hexdigest()
+    """Deterministically assign A or B based on user_id.
+
+    MD5 is used here solely for fast, deterministic bucketing — not for
+    any security purpose. It provides a uniform distribution of users
+    across variants, which is all that A/B assignment requires.
+    """
+    hash_val = hashlib.md5(str(user_id).encode()).hexdigest()  # noqa: S324
     return "A" if int(hash_val, 16) % 2 == 0 else "B"
