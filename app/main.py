@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import init_db, check_db_connection
-from app.api import auth, user, vital_signs, predict, activity, alert
+from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml
 from app.services.ml_prediction import load_ml_model
 
 # Configure logging
@@ -235,6 +235,13 @@ app.include_router(
     predict.router,
     prefix="/api/v1",
     tags=["AI Risk Prediction"]
+)
+
+# Advanced ML routes
+app.include_router(
+    advanced_ml.router,
+    prefix="/api/v1",
+    tags=["Advanced ML"]
 )
 
 
