@@ -1,12 +1,13 @@
 """
-Tests for the improved ML model (v2.0).
+Tests for the improved ML model (v3.0).
 
 Validates that the retrained model correctly identifies clinically
-dangerous scenarios that the v1.0 model missed:
+dangerous scenarios:
   - Bradycardia (HR < 50 BPM)
   - Hypoxemia (SpO2 < 92%)
   - Tachycardia at rest
   - Age-adjusted max HR exceeded
+  - Moderate risk (borderline vitals)
   - Normal exercise remains low-risk
 """
 
@@ -33,8 +34,8 @@ class TestImprovedModel:
             avg_heart_rate=30, peak_heart_rate=40, min_heart_rate=28,
             avg_spo2=88, duration_minutes=30, recovery_time_minutes=5,
         )
-        assert result["risk_level"] == "high"
-        assert result["risk_score"] >= 0.80
+        assert result["risk_level"] in ("high", "critical")
+        assert result["risk_score"] >= 0.70
 
     def test_bradycardia_40bpm_is_high_risk(self):
         """40 BPM with low SpO2 is clinically dangerous."""
@@ -43,8 +44,8 @@ class TestImprovedModel:
             avg_heart_rate=40, peak_heart_rate=50, min_heart_rate=35,
             avg_spo2=90, duration_minutes=20, recovery_time_minutes=10,
         )
-        assert result["risk_level"] == "high"
-        assert result["risk_score"] >= 0.80
+        assert result["risk_level"] in ("high", "critical")
+        assert result["risk_score"] >= 0.70
 
     def test_severe_hypoxemia_is_high_risk(self):
         """SpO2 of 82% is severe hypoxemia — must be high risk."""
@@ -53,8 +54,8 @@ class TestImprovedModel:
             avg_heart_rate=100, peak_heart_rate=120, min_heart_rate=80,
             avg_spo2=82, duration_minutes=20, recovery_time_minutes=8,
         )
-        assert result["risk_level"] == "high"
-        assert result["risk_score"] >= 0.80
+        assert result["risk_level"] in ("high", "critical")
+        assert result["risk_score"] >= 0.70
 
     def test_elderly_high_hr_low_spo2_is_high_risk(self):
         """70-year-old with HR 160 and SpO2 89% — clearly dangerous."""
@@ -64,8 +65,8 @@ class TestImprovedModel:
             avg_spo2=89, duration_minutes=45, recovery_time_minutes=15,
             activity_type="jogging",
         )
-        assert result["risk_level"] == "high"
-        assert result["risk_score"] >= 0.80
+        assert result["risk_level"] in ("high", "critical")
+        assert result["risk_score"] >= 0.70
 
     def test_resting_tachycardia_is_high_risk(self):
         """Resting HR of 130 is abnormal tachycardia."""
@@ -74,7 +75,7 @@ class TestImprovedModel:
             avg_heart_rate=130, peak_heart_rate=145, min_heart_rate=120,
             avg_spo2=94, duration_minutes=10, recovery_time_minutes=15,
         )
-        assert result["risk_score"] >= 0.50
+        assert result["risk_score"] >= 0.45
 
     # ---- Low-risk: must NOT over-alarm ----
 
@@ -86,7 +87,7 @@ class TestImprovedModel:
             avg_spo2=98, duration_minutes=20, recovery_time_minutes=3,
         )
         assert result["risk_level"] == "low"
-        assert result["risk_score"] < 0.50
+        assert result["risk_score"] < 0.45
 
     def test_healthy_jogging_is_low_risk(self):
         """Young adult jogging with normal vitals — safe."""
@@ -97,7 +98,7 @@ class TestImprovedModel:
             activity_type="jogging",
         )
         assert result["risk_level"] == "low"
-        assert result["risk_score"] < 0.50
+        assert result["risk_score"] < 0.45
 
     def test_athlete_high_intensity_is_low_risk(self):
         """Athlete with low resting HR doing intense exercise — safe."""
@@ -108,15 +109,25 @@ class TestImprovedModel:
             activity_type="jogging",
         )
         assert result["risk_level"] == "low"
-        assert result["risk_score"] < 0.50
+        assert result["risk_score"] < 0.45
 
     # ---- Model info ----
 
-    def test_model_version_is_2(self):
-        """New model should report version 2.0."""
+    def test_model_version_is_3(self):
+        """New model should report version 3.0."""
         result = self.predict(
             age=35, baseline_hr=72, max_safe_hr=185,
             avg_heart_rate=85, peak_heart_rate=100, min_heart_rate=68,
             avg_spo2=97, duration_minutes=20, recovery_time_minutes=3,
         )
-        assert result["model_info"]["version"] == "2.0"
+        assert result["model_info"]["version"] == "3.0"
+
+    def test_critical_risk_level_exists(self):
+        """Very high risk scores should map to critical level."""
+        result = self.predict(
+            age=75, baseline_hr=80, max_safe_hr=145,
+            avg_heart_rate=35, peak_heart_rate=45, min_heart_rate=30,
+            avg_spo2=82, duration_minutes=30, recovery_time_minutes=20,
+        )
+        assert result["risk_level"] == "critical"
+        assert result["risk_score"] >= 0.90

@@ -2,8 +2,8 @@
 Advanced ML/AI routes.
 
 Endpoints for anomaly detection, trend forecasting, baseline optimization,
-recommendation ranking, natural language alerts, retraining readiness, and
-prediction explainability.
+recommendation ranking, natural language alerts, retraining readiness,
+prediction explainability, and AI health coaching.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -35,6 +35,11 @@ from app.services.retraining_pipeline import (
     get_retraining_status,
 )
 from app.services.explainability import explain_prediction
+from app.services.health_coaching import (
+    generate_coaching_plan,
+    generate_exercise_plan,
+    generate_diet_guidance,
+)
 from app.services.ml_prediction import (
     get_ml_service,
     predict_risk as ml_predict_risk,
@@ -423,3 +428,112 @@ async def explain_risk_prediction(
     )
 
     return explanation
+
+
+# =============================================================================
+# AI Health Coaching — Exercise Plans & Diet Guidance
+# =============================================================================
+
+@router.get("/coaching/plan")
+async def get_coaching_plan(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get a personalised AI coaching plan with exercise and diet guidance.
+
+    Uses the patient's latest risk assessment and profile to generate:
+    - Weekly exercise schedule with target heart rate zones
+    - Heart-healthy diet recommendations
+    - Personalised coaching message
+    """
+    ra = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == current_user.user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+
+    risk_level = ra.risk_level if ra else "low"
+    risk_score = ra.risk_score if ra else 0.1
+
+    plan = generate_coaching_plan(
+        risk_level=risk_level,
+        risk_score=risk_score,
+        age=current_user.age or 55,
+        baseline_hr=current_user.baseline_hr,
+        max_safe_hr=current_user.max_safe_hr,
+        avg_spo2=ra.input_spo2 if ra else None,
+        avg_heart_rate=ra.input_heart_rate if ra else None,
+        recovery_time_minutes=None,
+    )
+
+    plan["user_id"] = current_user.user_id
+    return plan
+
+
+@router.get("/coaching/exercise-plan")
+async def get_exercise_plan(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get a personalised exercise plan based on current risk level.
+
+    The plan adapts intensity, duration, and activity type to the patient's
+    cardiovascular state so they can exercise safely and improve over time.
+    """
+    ra = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == current_user.user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+
+    risk_level = ra.risk_level if ra else "low"
+    risk_score = ra.risk_score if ra else 0.1
+
+    plan = generate_exercise_plan(
+        risk_level=risk_level,
+        risk_score=risk_score,
+        age=current_user.age or 55,
+        baseline_hr=current_user.baseline_hr,
+        max_safe_hr=current_user.max_safe_hr,
+        avg_spo2=ra.input_spo2 if ra else None,
+    )
+
+    plan["user_id"] = current_user.user_id
+    return plan
+
+
+@router.get("/coaching/diet-guidance")
+async def get_diet_guidance(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get heart-healthy diet guidance based on current risk level.
+
+    Provides meal suggestions, foods to avoid, and nutritional priorities
+    tailored to the patient's cardiovascular risk and age.
+    """
+    ra = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == current_user.user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+
+    risk_level = ra.risk_level if ra else "low"
+    risk_score = ra.risk_score if ra else 0.1
+
+    guidance = generate_diet_guidance(
+        risk_level=risk_level,
+        risk_score=risk_score,
+        age=current_user.age or 55,
+        avg_spo2=ra.input_spo2 if ra else None,
+        avg_heart_rate=ra.input_heart_rate if ra else None,
+    )
+
+    guidance["user_id"] = current_user.user_id
+    return guidance

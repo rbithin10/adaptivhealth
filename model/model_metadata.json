@@ -1,13 +1,13 @@
 {
-  "model_name": "RandomForest",
-  "version": "2.0",
+  "model_name": "GradientBoosting",
+  "version": "3.0",
   "accuracy": "100.0%",
   "precision": "100.0%",
   "recall": "100.0%",
   "f1_score": "100.0%",
-  "records_used": 3250,
-  "train_records": 2600,
-  "test_records": 650,
-  "retrained_at": "2026-02-08T19:03:24.436397+00:00",
-  "notes": "Retrained with clinically realistic data; fixes bradycardia/hypoxemia detection"
+  "records_used": 4150,
+  "train_records": 3320,
+  "test_records": 830,
+  "retrained_at": "2026-02-08T22:46:04.565990+00:00",
+  "notes": "v3.0: GradientBoosting + calibration; 15 clinical scenarios; better moderate-risk detection; diet & coaching guidance"
 }
