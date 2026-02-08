@@ -90,7 +90,7 @@ async def end_activity_session(
         )
     
     # Update fields
-    update_data = activity_data.dict(exclude_unset=True)
+    update_data = activity_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         if hasattr(activity, field):
             setattr(activity, field, value)
