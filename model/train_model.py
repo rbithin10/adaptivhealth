@@ -5,7 +5,7 @@ v2.0 fixed critical failures (30 BPM classified as low-risk, etc.).
 
 v3.0 improvements:
   - Gradient Boosting ensemble for better probability calibration
-  - 5,500+ training samples across 15 clinical scenarios
+  - 4,150+ training samples across 15 clinical scenarios
   - Better moderate-risk coverage (borderline SpO2, mild tachycardia)
   - Hypertension-related risk scenarios
   - Multi-factor gradual decline patterns
