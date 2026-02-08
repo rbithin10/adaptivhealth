@@ -17,6 +17,7 @@ class ApiClient {
   // Login token saved in memory.
   // Note: This will reset if the app restarts.
   static String? _authToken;
+  static String? _refreshToken;
 
   ApiClient({
     Dio? dio,
@@ -62,9 +63,34 @@ class ApiClient {
         // Handle errors returned by the server.
         onError: (error, handler) async {
           // 401 means the token is not valid anymore.
-          if (error.response?.statusCode == 401) {
+          if (error.response?.statusCode == 401 &&
+              _refreshToken != null &&
+              !(error.requestOptions.extra['_retried'] ?? false)) {
+            // Try refreshing the token once
+            try {
+              final refreshResp = await _dio.post(
+                '/refresh',
+                data: {'refresh_token': _refreshToken},
+                options: Options(extra: {'_retried': true}),
+              );
+              final newToken = refreshResp.data['access_token'];
+              _authToken = newToken;
+              if (refreshResp.data['refresh_token'] != null) {
+                _refreshToken = refreshResp.data['refresh_token'];
+              }
+              // Retry the original request with new token
+              error.requestOptions.headers['Authorization'] = 'Bearer $newToken';
+              error.requestOptions.extra['_retried'] = true;
+              final retryResponse = await _dio.fetch(error.requestOptions);
+              return handler.resolve(retryResponse);
+            } catch (_) {
+              // Refresh failed — clear tokens
+              _authToken = null;
+              _refreshToken = null;
+            }
+          } else if (error.response?.statusCode == 401) {
             _authToken = null;
-            // In a real app, you would redirect to Login here.
+            _refreshToken = null;
           }
           return handler.next(error);
         },
@@ -96,6 +122,37 @@ class ApiClient {
       final accessToken = response.data['access_token'];
       _authToken = accessToken;
       
+      // Store refresh token if provided
+      if (response.data['refresh_token'] != null) {
+        _refreshToken = response.data['refresh_token'];
+      }
+      
+      return response.data;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Request password reset email.
+  Future<Map<String, dynamic>> requestPasswordReset(String email) async {
+    try {
+      final response = await _dio.post(
+        '/reset-password',
+        data: {'email': email},
+      );
+      return response.data;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Confirm password reset with token.
+  Future<Map<String, dynamic>> confirmPasswordReset(String token, String newPassword) async {
+    try {
+      final response = await _dio.post(
+        '/reset-password/confirm',
+        data: {'token': token, 'new_password': newPassword},
+      );
       return response.data;
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -133,9 +190,10 @@ class ApiClient {
     }
   }
 
-  /// Logout by clearing the local token.
+  /// Logout by clearing the local tokens.
   Future<void> logout() async {
     _authToken = null;
+    _refreshToken = null;
   }
 
   // ===================================
@@ -342,6 +400,41 @@ class ApiClient {
   Future<Map<String, dynamic>> getRecommendation() async {
     try {
       final response = await _dio.get('/recommendations/latest');
+      return response.data;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  // ============ Consent Endpoints ============
+
+  /// Get current consent/sharing status
+  Future<Map<String, dynamic>> getConsentStatus() async {
+    try {
+      final response = await _dio.get('/consent/status');
+      return response.data;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Request to disable data sharing with clinicians
+  Future<Map<String, dynamic>> requestDisableSharing({String? reason}) async {
+    try {
+      final response = await _dio.post(
+        '/consent/disable',
+        data: {'reason': reason},
+      );
+      return response.data;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Re-enable data sharing
+  Future<Map<String, dynamic>> enableSharing() async {
+    try {
+      final response = await _dio.post('/consent/enable');
       return response.data;
     } on DioException catch (e) {
       throw _handleDioError(e);

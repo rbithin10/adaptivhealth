@@ -34,6 +34,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _phoneController;
   String? _selectedGender;
 
+  // Consent state
+  String _shareState = 'SHARING_ON';
+  bool _consentLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _ageController = TextEditingController();
     _phoneController = TextEditingController();
     _loadProfile();
+    _loadConsentStatus();
   }
 
   @override
@@ -72,6 +77,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _loadConsentStatus() async {
+    try {
+      final status = await widget.apiClient.getConsentStatus();
+      if (mounted) {
+        setState(() {
+          _shareState = status['share_state'] ?? 'SHARING_ON';
+        });
+      }
+    } catch (_) {
+      // Consent endpoint may not be available
+    }
+  }
+
+  Future<void> _toggleSharing() async {
+    setState(() => _consentLoading = true);
+    try {
+      if (_shareState == 'SHARING_ON') {
+        await widget.apiClient.requestDisableSharing(reason: 'User toggled off');
+        setState(() => _shareState = 'SHARING_DISABLE_REQUESTED');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Disable request submitted. A clinician will review it.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else if (_shareState == 'SHARING_OFF') {
+        await widget.apiClient.enableSharing();
+        setState(() => _shareState = 'SHARING_ON');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Data sharing re-enabled.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      setState(() => _consentLoading = false);
     }
   }
 
@@ -401,6 +456,75 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ],
                           ),
                         ],
+
+                        const SizedBox(height: 24),
+
+                        // Data Sharing Toggle
+                        Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          _shareState == 'SHARING_ON' ? Icons.share : Icons.lock_outline,
+                                          color: _shareState == 'SHARING_ON' ? AdaptivColors.primary : Colors.orange,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text('Share with Clinic', style: AdaptivTypography.caption),
+                                            Text(
+                                              _shareState == 'SHARING_ON'
+                                                  ? 'Enabled'
+                                                  : _shareState == 'SHARING_DISABLE_REQUESTED'
+                                                      ? 'Pending approval'
+                                                      : 'Disabled',
+                                              style: AdaptivTypography.body.copyWith(
+                                                color: _shareState == 'SHARING_ON' ? Colors.green : Colors.orange,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    _consentLoading
+                                        ? const SizedBox(
+                                            width: 24, height: 24,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          )
+                                        : Switch(
+                                            value: _shareState == 'SHARING_ON',
+                                            onChanged: _shareState == 'SHARING_DISABLE_REQUESTED'
+                                                ? null
+                                                : (_) => _toggleSharing(),
+                                            activeColor: AdaptivColors.primary,
+                                          ),
+                                  ],
+                                ),
+                                if (_shareState == 'SHARING_DISABLE_REQUESTED')
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      'Your request to disable sharing is pending clinician approval.',
+                                      style: AdaptivTypography.caption.copyWith(color: Colors.orange),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),

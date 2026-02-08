@@ -45,11 +45,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;      // Show loading spinner during request
   bool _showPassword = false;   // Show or hide password
   String? _errorMessage;        // Show error to user
+  bool _showForgotPassword = false; // Forgot password view
+  final _resetEmailController = TextEditingController();
+  String? _resetMessage;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _resetEmailController.dispose();
     super.dispose();
   }
 
@@ -90,6 +94,120 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_showForgotPassword) {
+      return Scaffold(
+        backgroundColor: AdaptivColors.white,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 60),
+                  Text(
+                    'Reset Password',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: AdaptivColors.text900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Enter your email to receive a reset link',
+                    style: AdaptivTypography.body,
+                  ),
+                  const SizedBox(height: 32),
+                  if (_errorMessage != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AdaptivColors.criticalUltralight,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AdaptivColors.criticalLight),
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: AdaptivTypography.caption.copyWith(color: AdaptivColors.critical),
+                      ),
+                    ),
+                  if (_resetMessage != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F5E9),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF81C784)),
+                      ),
+                      child: Text(
+                        _resetMessage!,
+                        style: AdaptivTypography.caption.copyWith(color: const Color(0xFF2E7D32)),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _resetEmailController,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : () async {
+                        final email = _resetEmailController.text.trim();
+                        if (email.isEmpty || !email.contains('@')) {
+                          setState(() => _errorMessage = 'Please enter a valid email');
+                          return;
+                        }
+                        setState(() { _isLoading = true; _errorMessage = null; _resetMessage = null; });
+                        try {
+                          await widget.apiClient.requestPasswordReset(email);
+                          setState(() => _resetMessage = 'If the email exists, a reset link has been sent.');
+                        } catch (e) {
+                          setState(() => _errorMessage = e.toString());
+                        } finally {
+                          setState(() => _isLoading = false);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: AdaptivColors.primary,
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(AdaptivColors.white)))
+                          : Text('Send Reset Link', style: AdaptivTypography.button),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showForgotPassword = false;
+                        _errorMessage = null;
+                        _resetMessage = null;
+                      });
+                    },
+                    child: Text(
+                      'Back to Login',
+                      style: AdaptivTypography.body.copyWith(color: AdaptivColors.primary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AdaptivColors.white,
       body: SafeArea(
@@ -240,7 +358,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {
-                            // TODO: Implement forgot password flow
+                            setState(() {
+                              _showForgotPassword = true;
+                              _errorMessage = null;
+                              _resetMessage = null;
+                            });
                           },
                           child: Text(
                             'Forgot password?',

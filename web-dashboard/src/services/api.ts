@@ -65,9 +65,27 @@ class ApiService {
     // Response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
-      (error: AxiosError) => {
-        if (error.response?.status === 401) {
+      async (error: AxiosError) => {
+        const originalRequest = error.config as any;
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true;
+          const refreshToken = localStorage.getItem('refresh_token');
+          if (refreshToken) {
+            try {
+              const resp = await this.client.post('/refresh', { refresh_token: refreshToken });
+              const newToken = resp.data.access_token;
+              localStorage.setItem('token', newToken);
+              if (resp.data.refresh_token) {
+                localStorage.setItem('refresh_token', resp.data.refresh_token);
+              }
+              originalRequest.headers.Authorization = `Bearer ${newToken}`;
+              return this.client(originalRequest);
+            } catch {
+              // Refresh failed — fall through to logout
+            }
+          }
           localStorage.removeItem('token');
+          localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
           window.location.href = '/login';
         }
@@ -103,6 +121,25 @@ class ApiService {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
+  }
+
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    const response = await this.client.post('/reset-password', { email });
+    return response.data;
+  }
+
+  async confirmPasswordReset(token: string, newPassword: string): Promise<{ message: string }> {
+    const response = await this.client.post('/reset-password/confirm', {
+      token,
+      new_password: newPassword,
+    });
+    return response.data;
+  }
+
+  logout(): void {
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
   }
 
   async register(userData: {
@@ -471,6 +508,61 @@ class ApiService {
       `/activities/${sessionId}`,
       data
     );
+    return response.data;
+  }
+
+  // =========================================================================
+  // Consent / Data Sharing
+  // =========================================================================
+
+  async getConsentStatus(): Promise<any> {
+    const response = await this.client.get('/consent/status');
+    return response.data;
+  }
+
+  async getPendingConsentRequests(): Promise<any> {
+    const response = await this.client.get('/consent/pending');
+    return response.data;
+  }
+
+  async reviewConsentRequest(
+    patientId: number,
+    decision: 'approve' | 'reject',
+    reason?: string
+  ): Promise<any> {
+    const response = await this.client.post(`/consent/${patientId}/review`, {
+      decision,
+      reason,
+    });
+    return response.data;
+  }
+
+  // =========================================================================
+  // Admin - User Management
+  // =========================================================================
+
+  async adminResetUserPassword(userId: number, newPassword: string): Promise<any> {
+    const response = await this.client.post(`/users/${userId}/reset-password`, {
+      new_password: newPassword,
+    });
+    return response.data;
+  }
+
+  async createUser(userData: {
+    email: string;
+    password: string;
+    name: string;
+    role: string;
+    age?: number;
+    gender?: string;
+    phone?: string;
+  }): Promise<any> {
+    const response = await this.client.post('/users/', userData);
+    return response.data;
+  }
+
+  async deactivateUser(userId: number): Promise<any> {
+    const response = await this.client.delete(`/users/${userId}`);
     return response.data;
   }
 }

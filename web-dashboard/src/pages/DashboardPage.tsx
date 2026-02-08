@@ -56,6 +56,7 @@ const DashboardPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [alertStats, setAlertStats] = useState<AlertStatsResponse | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
+  const [pendingConsent, setPendingConsent] = useState<any[]>([]);
   const [hrTrendData, setHrTrendData] = useState<
     Array<{ day: string; avgHR: number; minHR: number; maxHR: number }>
   >([]);
@@ -69,14 +70,33 @@ const DashboardPage: React.FC = () => {
 
   const loadDashboardData = async () => {
     try {
-      const [user, usersList, statsResponse, alertsResponse, vitalsSummary] =
+      const user = await api.getCurrentUser();
+      setCurrentUser(user);
+
+      // Redirect admin to admin page
+      const role = (user as any).role || (user as any).user_role;
+      if (role === 'admin') {
+        navigate('/admin');
+        return;
+      }
+
+      const [usersList, statsResponse, alertsResponse, vitalsSummary] =
         await Promise.all([
-          api.getCurrentUser(),
           api.getAllUsers(1, 200),
           api.getAlertStats(),
           api.getAlerts(1, 5),
           api.getVitalSignsSummary(),
         ]);
+
+      // Load pending consent requests for clinicians
+      if (role === 'clinician') {
+        try {
+          const consentResp = await api.getPendingConsentRequests();
+          setPendingConsent(consentResp.pending_requests || []);
+        } catch {
+          // consent endpoint may not be available
+        }
+      }
 
       console.log('Dashboard data loaded:', {
         user,
@@ -147,8 +167,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    api.logout();
     navigate('/login');
   };
 
@@ -471,6 +490,70 @@ const DashboardPage: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Pending Consent Requests (Clinician only) */}
+        {pendingConsent.length > 0 && (
+          <div
+            style={{
+              backgroundColor: colors.neutral.white,
+              border: `1px solid #FF9800`,
+              borderRadius: '12px',
+              padding: '24px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              marginBottom: '32px',
+            }}
+          >
+            <h3 style={{ ...typography.sectionTitle, color: '#E65100' }}>
+              Pending Consent Requests ({pendingConsent.length})
+            </h3>
+            <p style={{ ...typography.caption, marginBottom: '16px' }}>
+              These patients have requested to disable data sharing. Review each request.
+            </p>
+            {pendingConsent.map((req: any) => (
+              <div
+                key={req.user_id}
+                style={{
+                  padding: '12px 16px', borderRadius: '8px', backgroundColor: '#FFF3E0',
+                  marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <div>
+                  <div style={{ ...typography.body, fontWeight: 600 }}>
+                    {req.full_name || req.email} — Opt-out requested (pending approval)
+                  </div>
+                  {req.reason && <div style={typography.caption}>Reason: {req.reason}</div>}
+                  {req.requested_at && <div style={typography.caption}>Requested: {new Date(req.requested_at).toLocaleString()}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={async () => {
+                      await api.reviewConsentRequest(req.user_id, 'approve');
+                      setPendingConsent(prev => prev.filter(p => p.user_id !== req.user_id));
+                    }}
+                    style={{
+                      padding: '6px 14px', borderRadius: '6px', border: 'none',
+                      backgroundColor: '#4CAF50', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await api.reviewConsentRequest(req.user_id, 'reject');
+                      setPendingConsent(prev => prev.filter(p => p.user_id !== req.user_id));
+                    }}
+                    style={{
+                      padding: '6px 14px', borderRadius: '6px', border: 'none',
+                      backgroundColor: '#f44336', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
+                    }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Backend Status */}
         <div
