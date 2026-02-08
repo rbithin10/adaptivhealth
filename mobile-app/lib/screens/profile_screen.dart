@@ -209,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 16),
                         Text(
                           'Failed to load profile',
-                          style: AdaptivTypography.bodyBold,
+                          style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
                         Text(

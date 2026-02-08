@@ -736,7 +736,7 @@ Start all services:
 ```bash
 # Terminal 1: Backend
 .venv\Scripts\activate
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 
 # Terminal 2: Web Dashboard
 cd web-dashboard

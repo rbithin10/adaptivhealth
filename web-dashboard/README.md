@@ -6,7 +6,7 @@ Healthcare provider dashboard for monitoring patient cardiovascular health with 
 
 ### Prerequisites
 - Node.js 16+ and npm
-- Backend server running on http://localhost:8000
+- Backend server running on http://localhost:8080
 
 ### Installation
 
@@ -51,7 +51,7 @@ src/
 
 ## 🔗 Backend Integration
 
-The dashboard connects to your FastAPI backend at `http://localhost:8000`.
+The dashboard connects to your FastAPI backend at `http://localhost:8080`.
 
 Make sure the backend is running before starting the dashboard.
 

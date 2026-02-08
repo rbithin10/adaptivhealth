@@ -224,11 +224,11 @@ pytest tests/test_rbac_consent.py -v
 1. **Admin creates patient account:**
    ```bash
    # Login as admin
-   curl -X POST http://localhost:8000/api/v1/login \
+   curl -X POST http://localhost:8080/api/v1/login \
      -d "username=admin@test.com&password=Admin1234"
    
    # Create patient (with admin token)
-   curl -X POST http://localhost:8000/api/v1/users/ \
+   curl -X POST http://localhost:8080/api/v1/users/ \
      -H "Authorization: Bearer <admin_token>" \
      -H "Content-Type: application/json" \
      -d '{
@@ -241,13 +241,13 @@ pytest tests/test_rbac_consent.py -v
 
 2. **Patient logs in:**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/login \
+   curl -X POST http://localhost:8080/api/v1/login \
      -d "username=patient@test.com&password=TempPass123"
    ```
 
 3. **Verify /register is blocked without admin:**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/register \
+   curl -X POST http://localhost:8080/api/v1/register \
      -H "Content-Type: application/json" \
      -d '{"email":"test@test.com","password":"Pass1234","name":"Test"}'
    ```
@@ -260,21 +260,21 @@ pytest tests/test_rbac_consent.py -v
 1. **Attempt 3 failed logins:**
    ```bash
    # Attempt 1
-   curl -X POST http://localhost:8000/api/v1/login \
+   curl -X POST http://localhost:8080/api/v1/login \
      -d "username=patient@test.com&password=WrongPass1"
    
    # Attempt 2
-   curl -X POST http://localhost:8000/api/v1/login \
+   curl -X POST http://localhost:8080/api/v1/login \
      -d "username=patient@test.com&password=WrongPass2"
    
    # Attempt 3
-   curl -X POST http://localhost:8000/api/v1/login \
+   curl -X POST http://localhost:8080/api/v1/login \
      -d "username=patient@test.com&password=WrongPass3"
    ```
 
 2. **Verify lockout:**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/login \
+   curl -X POST http://localhost:8080/api/v1/login \
      -d "username=patient@test.com&password=TempPass123"
    ```
    **Expected:** 423 Account Locked
@@ -292,7 +292,7 @@ pytest tests/test_rbac_consent.py -v
 
 1. **Patient requests disable:**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/consent/disable \
+   curl -X POST http://localhost:8080/api/v1/consent/disable \
      -H "Authorization: Bearer <patient_token>" \
      -H "Content-Type: application/json" \
      -d '{"reason": "Privacy preference"}'
@@ -300,13 +300,13 @@ pytest tests/test_rbac_consent.py -v
 
 2. **Clinician views pending requests:**
    ```bash
-   curl -X GET http://localhost:8000/api/v1/consent/pending \
+   curl -X GET http://localhost:8080/api/v1/consent/pending \
      -H "Authorization: Bearer <clinician_token>"
    ```
 
 3. **Clinician approves:**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/consent/review/2 \
+   curl -X POST http://localhost:8080/api/v1/consent/review/2 \
      -H "Authorization: Bearer <clinician_token>" \
      -H "Content-Type: application/json" \
      -d '{"decision":"approve","reason":"Patient request honored"}'
@@ -314,7 +314,7 @@ pytest tests/test_rbac_consent.py -v
 
 4. **Verify vitals blocked:**
    ```bash
-   curl -X GET http://localhost:8000/api/v1/vitals/user/2/latest \
+   curl -X GET http://localhost:8080/api/v1/vitals/user/2/latest \
      -H "Authorization: Bearer <clinician_token>"
    ```
    **Expected:** 403 Patient has disabled data sharing
@@ -349,7 +349,7 @@ pytest tests/test_rbac_consent.py -v
 5. **Copy token from logs**
 6. **Use token to reset password via API:**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/reset-password/confirm \
+   curl -X POST http://localhost:8080/api/v1/reset-password/confirm \
      -H "Content-Type: application/json" \
      -d '{"token":"<token_from_logs>","new_password":"NewPass789"}'
    ```
@@ -362,11 +362,11 @@ pytest tests/test_rbac_consent.py -v
 **Admin blocked from PHI:**
 ```bash
 # Login as admin
-curl -X POST http://localhost:8000/api/v1/login \
+curl -X POST http://localhost:8080/api/v1/login \
   -d "username=admin@test.com&password=Admin1234"
 
 # Try to access patient vitals (should fail)
-curl -X GET http://localhost:8000/api/v1/vitals/user/2/latest \
+curl -X GET http://localhost:8080/api/v1/vitals/user/2/latest \
   -H "Authorization: Bearer <admin_token>"
 ```
 **Expected:** 403 Admin users cannot access patient health data
@@ -429,8 +429,8 @@ flutter build web
 ### ☑️ Verify 1: Backend Health
 
 ```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/api/v1/predict/status
+curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/predict/status
 ```
 **Expected:** Both return 200 OK
 

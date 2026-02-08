@@ -315,11 +315,11 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     
-    logger.info(f"Starting server on 0.0.0.0:8000")
+    logger.info(f"Starting server on 0.0.0.0:8080")
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8080,
         reload=settings.debug,
         log_level="info"
     )

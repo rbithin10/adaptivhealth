@@ -565,10 +565,10 @@ const DashboardPage: React.FC = () => {
           }}
         >
           <p style={{ ...typography.body, margin: '0 0 8px 0' }}>
-            <strong>Backend Status:</strong> Connected to http://localhost:8000
+            <strong>Backend Status:</strong> Connected to http://localhost:8080
           </p>
           <p style={{ ...typography.caption, margin: 0 }}>
-            API Documentation: Visit http://localhost:8000/docs for interactive testing
+            API Documentation: Visit http://localhost:8080/docs for interactive testing
           </p>
         </div>
       </main>

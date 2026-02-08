@@ -552,20 +552,20 @@ const MyComponent = () => {
 
 ```bash
 # Login
-curl -X POST http://localhost:8000/api/v1/login \
+curl -X POST http://localhost:8080/api/v1/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "username=user@example.com&password=SecurePass123"
 
 # Get current user (with token)
-curl -X GET http://localhost:8000/api/v1/users/me \
+curl -X GET http://localhost:8080/api/v1/users/me \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 
 # Compute risk assessment
-curl -X POST http://localhost:8000/api/v1/risk-assessments/compute \
+curl -X POST http://localhost:8080/api/v1/risk-assessments/compute \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 
 # Get vitals history with pagination
-curl -X GET "http://localhost:8000/api/v1/vitals/history?page=1&per_page=50" \
+curl -X GET "http://localhost:8080/api/v1/vitals/history?page=1&per_page=50" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 

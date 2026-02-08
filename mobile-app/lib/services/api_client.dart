@@ -9,7 +9,7 @@ import 'package:dio/dio.dart';
 
 class ApiClient {
   // Server address. Change this for your own backend.
-  static const String baseUrl = 'http://localhost:8000/api/v1';
+  static const String baseUrl = 'http://localhost:8080/api/v1';
 
   // One HTTP client shared by the whole app.
   final Dio _dio;
