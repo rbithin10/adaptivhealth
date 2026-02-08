@@ -13,6 +13,7 @@ import 'theme/theme.dart';
 import 'theme/colors.dart';
 import 'services/api_client.dart';
 import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() {
@@ -38,6 +39,7 @@ class AdaptivHealthApp extends StatefulWidget {
 class _AdaptivHealthAppState extends State<AdaptivHealthApp> {
   late ApiClient _apiClient;
   bool? _isLoggedIn;
+  bool _showRegister = false;
 
   @override
   void initState() {
@@ -79,10 +81,24 @@ class _AdaptivHealthAppState extends State<AdaptivHealthApp> {
               ? HomeScreen(
                   apiClient: _apiClient,
                 )
-              : LoginScreen(
-                  apiClient: _apiClient,
-                  onLoginSuccess: _handleLoginSuccess,
-                ),
+              : _showRegister
+                  ? RegisterScreen(
+                      apiClient: _apiClient,
+                      onBackToLogin: () {
+                        setState(() {
+                          _showRegister = false;
+                        });
+                      },
+                    )
+                  : LoginScreen(
+                      apiClient: _apiClient,
+                      onLoginSuccess: _handleLoginSuccess,
+                      onNavigateToRegister: () {
+                        setState(() {
+                          _showRegister = true;
+                        });
+                      },
+                    ),
       debugShowCheckedModeBanner: false,
     );
   }
