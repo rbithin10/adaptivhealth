@@ -19,10 +19,14 @@ class LoginScreen extends StatefulWidget {
   // Called when login succeeds so the app can show Home.
   final VoidCallback onLoginSuccess;
 
+  // Called when user taps "Sign up" to show the Register screen.
+  final VoidCallback? onNavigateToRegister;
+
   const LoginScreen({
     super.key,
     required this.apiClient,
     required this.onLoginSuccess,
+    this.onNavigateToRegister,
   });
 
   @override
@@ -291,7 +295,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     TextButton(
                       onPressed: () {
-                        // TODO: Navigate to signup screen
+                        widget.onNavigateToRegister?.call();
                       },
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,

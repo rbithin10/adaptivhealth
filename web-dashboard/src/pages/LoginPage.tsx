@@ -17,7 +17,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { FavoriteOutlined } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 
 const LoginPage: React.FC = () => {
@@ -115,6 +115,13 @@ const LoginPage: React.FC = () => {
               {loading ? <CircularProgress size={24} /> : 'Login'}
             </Button>
           </form>
+
+          <Typography variant="body2" color="text.secondary" textAlign="center" mt={2}>
+            Don't have an account?{' '}
+            <Link to="/register" style={{ color: '#1976d2', textDecoration: 'none' }}>
+              Sign up
+            </Link>
+          </Typography>
 
           <Typography variant="body2" color="text.secondary" textAlign="center" mt={2}>
             Demo credentials: test@example.com / Pass1234
