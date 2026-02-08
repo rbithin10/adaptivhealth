@@ -384,7 +384,7 @@ def train():
         max_depth=12,
         min_samples_split=5,
         min_samples_leaf=3,
-        class_weight="balanced",   # Penalise missing a high-risk case
+        class_weight="balanced",   # Penalize missing a high-risk case
         random_state=42,
         n_jobs=-1,
     )
