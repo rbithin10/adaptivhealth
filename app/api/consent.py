@@ -8,6 +8,27 @@ State machine:
   SHARING_DISABLE_REQUESTED → clinician approves → SHARING_OFF
   SHARING_DISABLE_REQUESTED → clinician rejects → SHARING_ON
   SHARING_OFF → patient re-enables → SHARING_ON
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 30
+# SCHEMAS.............................. Line 45
+#
+# ENDPOINTS - PATIENT (consent management)
+#   - GET /consent/status.............. Line 55  (View consent status)
+#   - POST /consent/disable............ Line 70  (Request disable sharing)
+#   - POST /consent/enable............. Line 116 (Re-enable sharing)
+#
+# ENDPOINTS - CLINICIAN (consent review)
+#   - GET /consent/pending............. Line 148 (List pending requests)
+#   - POST /consent/{id}/review........ Line 176 (Approve/reject request)
+#
+# BUSINESS CONTEXT:
+# - HIPAA compliance: patients control data sharing
+# - Clinicians must review disable requests before data is hidden
+# - Alerts created when sharing state changes
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -52,6 +73,12 @@ class ReviewRequest(BaseModel):
 # Patient endpoints
 # =============================================================================
 
+# =============================================
+# GET_MY_CONSENT_STATUS - Current sharing state
+# Used by: Mobile app settings, consent screen
+# Returns: ConsentStatusResponse with state + history
+# Roles: ALL authenticated users (own status)
+# =============================================
 @router.get("/consent/status", response_model=ConsentStatusResponse)
 async def get_my_consent_status(
     current_user: User = Depends(get_current_user),
@@ -67,6 +94,12 @@ async def get_my_consent_status(
     )
 
 
+# =============================================
+# REQUEST_SHARING_DISABLE - Patient opts out
+# Used by: Mobile app privacy settings
+# Returns: Success message (creates pending request)
+# Roles: PATIENT (own consent only)
+# =============================================
 @router.post("/consent/disable")
 async def request_sharing_disable(
     body: DisableRequest,
@@ -113,6 +146,12 @@ async def request_sharing_disable(
     return {"message": "Sharing disable request submitted. A clinician will review it."}
 
 
+# =============================================
+# ENABLE_SHARING - Patient re-enables sharing
+# Used by: Mobile app privacy settings
+# Returns: Success message (immediate effect)
+# Roles: PATIENT (own consent only)
+# =============================================
 @router.post("/consent/enable")
 async def enable_sharing(
     current_user: User = Depends(get_current_user),
@@ -145,6 +184,12 @@ async def enable_sharing(
 # Clinician endpoints
 # =============================================================================
 
+# =============================================
+# LIST_PENDING_REQUESTS - Consent queue
+# Used by: Clinician dashboard consent review
+# Returns: List of pending disable requests
+# Roles: CLINICIAN, ADMIN
+# =============================================
 @router.get("/consent/pending")
 async def list_pending_requests(
     current_user: User = Depends(get_current_user),
@@ -173,6 +218,12 @@ async def list_pending_requests(
     }
 
 
+# =============================================
+# REVIEW_CONSENT_REQUEST - Approve/reject opt-out
+# Used by: Clinician dashboard consent queue
+# Returns: Success message with new state
+# Roles: CLINICIAN only
+# =============================================
 @router.post("/consent/{patient_id}/review")
 async def review_consent_request(
     patient_id: int,

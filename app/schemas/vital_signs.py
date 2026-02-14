@@ -4,6 +4,29 @@ Vital signs data validation.
 Defines what heart rate, blood pressure, and other vital sign data
 looks like when sent to the API. Checks that all numbers are reasonable
 (like heart rate is between 30 and 250 BPM).
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# REQUEST SCHEMAS
+#   - VitalSignBase.................... Line 35  (Common fields)
+#   - VitalSignCreate.................. Line 60  (Single reading input)
+#   - VitalSignBatchCreate............. Line 75  (Batch sync input)
+#
+# RESPONSE SCHEMAS
+#   - VitalSignResponse................ Line 90  (Single reading output)
+#   - VitalSignsSummary................ Line 115 (Aggregated stats)
+#   - VitalSignsHistoryResponse........ Line 135 (Paginated history)
+#   - VitalSignsStats.................. Line 150 (Min/max/avg per metric)
+#   - RealTimeVitals................... Line 170 (WebSocket format)
+#
+# UTILITY SCHEMAS
+#   - VitalSignsExportRequest.......... Line 185 (Data export params)
+#
+# BUSINESS CONTEXT:
+# - Field ranges match medical validity
+# - Batch sync for offline data
+# =============================================================================
 """
 
 from pydantic import BaseModel, Field, field_validator

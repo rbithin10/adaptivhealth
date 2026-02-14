@@ -2,6 +2,36 @@
 Risk prediction routes.
 
 These endpoints use the AI model to estimate heart risk.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 30
+# REQUEST/RESPONSE SCHEMAS............. Line 55
+#
+# ENDPOINTS - PUBLIC/SYSTEM
+#   - GET /predict/status.............. Line 227 (Model health check)
+#
+# ENDPOINTS - ML PREDICTION
+#   - POST /predict/risk............... Line 245 (Predict from manual input)
+#   - GET /predict/user/{id}/risk...... Line 317 (Clinician predict for patient)
+#   - GET /predict/my-risk............. Line 405 (Patient's own prediction)
+#
+# ENDPOINTS - RISK ASSESSMENT (stored records)
+#   - POST /risk-assessments/compute... Line 518 (Compute & store patient risk)
+#   - POST /patients/{id}/risk-....... Line 604 (Clinician compute for patient)
+#   - GET /risk-assessments/latest..... Line 695 (Patient's latest assessment)
+#   - GET /patients/{id}/risk-......... Line 721 (Clinician view patient risk)
+#
+# ENDPOINTS - RECOMMENDATIONS
+#   - GET /recommendations/latest...... Line 753 (Patient's exercise recommendation)
+#   - GET /patients/{id}/recommend..... Line 782 (Clinician view patient rec)
+#
+# BUSINESS CONTEXT:
+# - ML model predicts cardiac risk from vitals + activity
+# - Risk levels: LOW (<0.3), MODERATE (0.3-0.6), HIGH (>0.6)
+# - Used to generate personalized exercise recommendations
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,12 +67,12 @@ router = APIRouter()
 class RiskPredictionRequest(BaseModel):
     """Input data for risk prediction."""
     age: int = Field(..., ge=18, le=100, description="Patient age")
-    baseline_hr: int = Field(..., ge=40, le=100, description="Resting heart rate")
+    baseline_hr: int = Field(..., ge=25, le=110, description="Resting HR. Beta-blockers/sleep: 25-40 OK")
     max_safe_hr: int = Field(..., ge=100, le=220, description="Maximum safe heart rate")
-    avg_heart_rate: int = Field(..., ge=40, le=220, description="Average HR during session")
+    avg_heart_rate: int = Field(..., ge=25, le=220, description="Average HR during session")
     peak_heart_rate: int = Field(..., ge=40, le=250, description="Peak HR during session")
-    min_heart_rate: int = Field(..., ge=30, le=200, description="Minimum HR during session")
-    avg_spo2: int = Field(..., ge=70, le=100, description="Average SpO2 during session")
+    min_heart_rate: int = Field(..., ge=20, le=200, description="Minimum HR during session")
+    avg_spo2: int = Field(..., ge=85, le=100, description="Average SpO2 during session")
     duration_minutes: int = Field(..., ge=1, le=300, description="Session duration in minutes")
     recovery_time_minutes: int = Field(..., ge=1, le=60, description="Recovery time in minutes")
     activity_type: str = Field(default="walking", description="Activity type")
@@ -224,6 +254,12 @@ def _generate_recommendation_payload(
 # Endpoints
 # =============================================================================
 
+# =============================================
+# CHECK_MODEL_STATUS - ML model health check
+# Used by: System monitoring, deployment checks
+# Returns: Model ready status and feature count
+# Roles: PUBLIC (no auth required)
+# =============================================
 @router.get("/predict/status")
 async def check_model_status():
     """Check if the ML model is loaded and ready."""
@@ -242,6 +278,12 @@ async def check_model_status():
         }
 
 
+# =============================================
+# PREDICT_RISK - Core ML prediction endpoint
+# Used by: Mobile app during activity sessions
+# Returns: RiskPredictionResponse with score + recommendation
+# Roles: ALL authenticated users
+# =============================================
 @router.post("/predict/risk", response_model=RiskPredictionResponse)
 async def predict_risk(
     request: RiskPredictionRequest,
@@ -314,6 +356,12 @@ async def predict_risk(
     )
 
 
+# =============================================
+# PREDICT_USER_RISK_FROM_LATEST_SESSION - Clinician patient check
+# Used by: Clinician dashboard patient detail view
+# Returns: Risk prediction from patient's latest activity session
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/predict/user/{user_id}/risk")
 async def predict_user_risk_from_latest_session(
     user_id: int,
@@ -402,6 +450,12 @@ async def predict_user_risk_from_latest_session(
         "inference_time_ms": round(inference_ms, 2)
     }
 
+# =============================================
+# GET_MY_RISK_HISTORY - Patient's own risk trend
+# Used by: Mobile app history/trends view
+# Returns: List of recent risk assessments
+# Roles: ALL authenticated users (own data only)
+# =============================================
 @router.get("/predict/my-risk")
 async def get_my_risk_history(
     current_user: User = Depends(get_current_user),
@@ -515,6 +569,12 @@ async def get_my_risk_history(
 # New Risk Assessment & Recommendation Endpoints
 # =============================================================================
 
+# =============================================
+# COMPUTE_MY_RISK_ASSESSMENT - Patient self-assessment
+# Used by: Mobile app "Check My Risk" button
+# Returns: RiskAssessmentComputeResponse with drivers
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.post("/risk-assessments/compute", response_model=RiskAssessmentComputeResponse)
 async def compute_my_risk_assessment(
     current_user: User = Depends(get_current_user),
@@ -601,6 +661,12 @@ async def compute_my_risk_assessment(
     )
 
 
+# =============================================
+# COMPUTE_PATIENT_RISK_ASSESSMENT - Clinician computes for patient
+# Used by: Clinician dashboard patient detail view
+# Returns: RiskAssessmentComputeResponse with drivers
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.post("/patients/{user_id}/risk-assessments/compute", response_model=RiskAssessmentComputeResponse)
 async def compute_patient_risk_assessment(
     user_id: int,
@@ -692,6 +758,12 @@ async def compute_patient_risk_assessment(
     )
 
 
+# =============================================
+# GET_MY_LATEST_RISK_ASSESSMENT - Patient's most recent
+# Used by: Mobile app home screen risk card
+# Returns: Latest risk assessment with drivers
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/risk-assessments/latest")
 async def get_my_latest_risk_assessment(
     current_user: User = Depends(get_current_user),
@@ -718,6 +790,12 @@ async def get_my_latest_risk_assessment(
     }
 
 
+# =============================================
+# GET_PATIENT_LATEST_RISK_ASSESSMENT - Clinician view
+# Used by: Clinician dashboard patient card
+# Returns: Patient's latest risk assessment
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/patients/{user_id}/risk-assessments/latest")
 async def get_patient_latest_risk_assessment(
     user_id: int,
@@ -750,6 +828,12 @@ async def get_patient_latest_risk_assessment(
     }
 
 
+# =============================================
+# GET_MY_LATEST_RECOMMENDATION - Patient's exercise guidance
+# Used by: Mobile app home screen recommendation card
+# Returns: Latest exercise recommendation
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/recommendations/latest", response_model=RecommendationResponse)
 async def get_my_latest_recommendation(
     current_user: User = Depends(get_current_user),
@@ -779,6 +863,12 @@ async def get_my_latest_recommendation(
     )
 
 
+# =============================================
+# GET_PATIENT_LATEST_RECOMMENDATION - Clinician view
+# Used by: Clinician dashboard patient detail
+# Returns: Patient's latest exercise recommendation
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/patients/{user_id}/recommendations/latest", response_model=RecommendationResponse)
 async def get_patient_latest_recommendation(
     user_id: int,

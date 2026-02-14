@@ -4,7 +4,26 @@ ADAPTIV HEALTH - Risk Assessment Model
 =============================================================================
 Stores AI-generated cardiovascular risk evaluations.
 New table added to AWS RDS via migration script.
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - RiskLevel........................ Line 35  (low, moderate, high, critical)
+#
+# CLASS: RiskAssessment (SQLAlchemy Model)
+#   - Primary Key...................... Line 50  (assessment_id)
+#   - Foreign Key...................... Line 55  (user_id → users)
+#   - Risk Score....................... Line 60  (0.0-1.0 float)
+#   - Risk Factors JSON................ Line 70  (driver contributions)
+#   - Metadata......................... Line 80  (model_version, inference_time)
+#   - Relationships.................... Line 90  (user)
+#
+# BUSINESS CONTEXT:
+# - ML model output storage
+# - Risk trends over time
+# - Audit trail for predictions
+# =============================================================================
 """
 
 from enum import Enum

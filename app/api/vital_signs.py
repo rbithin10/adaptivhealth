@@ -2,6 +2,36 @@
 Vital signs routes.
 
 This file saves heart data from devices and lets the app read it back.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 35
+# HELPER FUNCTIONS
+#   - check_vitals_for_alerts.......... Line 72  (Background alert checker)
+#   - calculate_vitals_summary......... Line 165 (Stats calculation)
+#
+# ENDPOINTS - PATIENT (own data)
+#   --- SUBMIT VITALS ---
+#   - POST /vitals..................... Line 239 (Submit single reading)
+#   - POST /vitals/batch............... Line 332 (Submit multiple readings)
+#
+#   --- READ VITALS ---
+#   - GET /vitals/latest............... Line 402 (Most recent reading)
+#   - GET /vitals/summary.............. Line 432 (Aggregated stats)
+#   - GET /vitals/history.............. Line 457 (Time-series data)
+#
+# ENDPOINTS - CLINICIAN (patient data)
+#   - GET /vitals/user/{id}/latest..... Line 510 (Patient's latest)
+#   - GET /vitals/user/{id}/summary.... Line 551 (Patient's stats)
+#   - GET /vitals/user/{id}/history.... Line 586 (Patient's history)
+#
+# BUSINESS CONTEXT:
+# - Patients sync vitals from wearables (Fitbit, Apple Watch)
+# - Mobile app shows latest readings on home screen
+# - Clinician dashboard shows patient vitals with time trends
+# - Alerts auto-create when thresholds exceeded (HR>180, SpO2<90)
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
@@ -33,6 +63,12 @@ router = APIRouter()
 # Helper Functions
 # =============================================================================
 
+# =============================================
+# CHECK_VITALS_FOR_ALERTS - Background task for threshold monitoring
+# Used by: Called after every vital submission
+# Returns: None (creates Alert records in DB)
+# Triggers: HR>180 (critical), SpO2<90 (critical), BP>160 (warning)
+# =============================================
 def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
     """
     Background task to check vital signs for alerts.
@@ -121,6 +157,11 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
         db.close()
 
 
+# =============================================
+# CALCULATE_VITALS_SUMMARY - Aggregates stats over date range
+# Used by: Summary endpoints, dashboard charts
+# Returns: VitalSignsSummary with avg/min/max HR, SpO2, alert count
+# =============================================
 def calculate_vitals_summary(
     db: Session,
     user_id: int,
@@ -187,6 +228,14 @@ def calculate_vitals_summary(
 # Vital Signs Endpoints
 # =============================================================================
 
+# --- ENDPOINTS: PATIENT SUBMITS VITALS ---
+
+# =============================================
+# SUBMIT_VITALS - Patient submits single reading from wearable
+# Used by: Mobile app syncing from Fitbit/Apple Watch
+# Returns: VitalSignResponse with recorded data
+# Roles: PATIENT (own data only)
+# =============================================
 @router.post("/vitals", response_model=VitalSignResponse)
 async def submit_vitals(
     vital_data: VitalSignCreate,
@@ -274,6 +323,12 @@ async def submit_vitals(
     return new_vital
 
 
+# =============================================
+# SUBMIT_VITALS_BATCH - Patient submits multiple readings at once
+# Used by: Mobile app bulk sync (offline data, historical imports)
+# Returns: Count of records successfully created
+# Roles: PATIENT (own data only)
+# =============================================
 @router.post("/vitals/batch")
 async def submit_vitals_batch(
     batch_data: VitalSignBatchCreate,
@@ -336,6 +391,14 @@ async def submit_vitals_batch(
     }
 
 
+# --- ENDPOINTS: PATIENT READS OWN VITALS ---
+
+# =============================================
+# GET_LATEST_VITALS - Patient's most recent reading
+# Used by: Mobile app home screen (heart rate ring display)
+# Returns: VitalSignResponse with HR, SpO2, BP, timestamp
+# Roles: PATIENT (own data)
+# =============================================
 @router.get("/vitals/latest", response_model=VitalSignResponse)
 async def get_latest_vitals(
     current_user: User = Depends(get_current_user),
@@ -360,6 +423,12 @@ async def get_latest_vitals(
     return latest
 
 
+# =============================================
+# GET_VITALS_SUMMARY - Aggregated stats for time period
+# Used by: Mobile app dashboard cards, trend indicators
+# Returns: Avg/min/max HR, SpO2, alert count
+# Roles: PATIENT (own data)
+# =============================================
 @router.get("/vitals/summary")
 async def get_vitals_summary(
     days: int = Query(7, ge=1, le=90, description="Number of days to summarize"),
@@ -379,6 +448,12 @@ async def get_vitals_summary(
     return summary
 
 
+# =============================================
+# GET_VITALS_HISTORY - Time-series data for charts
+# Used by: Mobile app trend graphs, dashboard analytics
+# Returns: Paginated list of VitalSignResponse + summary
+# Roles: PATIENT (own data)
+# =============================================
 @router.get("/vitals/history", response_model=VitalSignsHistoryResponse)
 async def get_vitals_history(
     days: int = Query(7, ge=1, le=90, description="Number of days of history"),
@@ -426,6 +501,12 @@ async def get_vitals_history(
 # Clinician/Admin Endpoints
 # =============================================================================
 
+# =============================================
+# GET_USER_LATEST_VITALS - Clinician view of patient's latest reading
+# Used by: Clinician dashboard patient detail view
+# Returns: VitalSignResponse with most recent values
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/vitals/user/{user_id}/latest", response_model=VitalSignResponse)
 async def get_user_latest_vitals(
     user_id: int,
@@ -461,6 +542,12 @@ async def get_user_latest_vitals(
     return latest
 
 
+# =============================================
+# GET_USER_VITALS_SUMMARY - Clinician view of patient stats
+# Used by: Clinician dashboard, patient summary cards
+# Returns: Aggregated min/max/avg for each vital type
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/vitals/user/{user_id}/summary")
 async def get_user_vitals_summary(
     user_id: int,
@@ -490,6 +577,12 @@ async def get_user_vitals_summary(
     return summary
 
 
+# =============================================
+# GET_USER_VITALS_HISTORY - Clinician view of patient trends
+# Used by: Clinician dashboard charts, detailed patient analysis
+# Returns: Paginated VitalSignsHistoryResponse
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/vitals/user/{user_id}/history", response_model=VitalSignsHistoryResponse)
 async def get_user_vitals_history(
     user_id: int,

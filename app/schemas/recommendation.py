@@ -1,5 +1,22 @@
 """
 Exercise Recommendation Schemas for API validation and responses.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - IntensityLevel................... Line 25  (low, moderate, high)
+#   - RecommendationType............... Line 35  (exercise, rest, consult)
+#
+# SCHEMAS
+#   - RecommendationBase............... Line 45  (Common fields)
+#   - RecommendationCreate............. Line 60  (New recommendation input)
+#   - RecommendationResponse........... Line 70  (Full recommendation output)
+#
+# BUSINESS CONTEXT:
+# - Personalized exercise guidance
+# - Risk-adjusted workout targets
+# =============================================================================
 """
 
 from pydantic import BaseModel, Field

@@ -3,6 +3,20 @@ Personalized baseline optimization service.
 
 Auto-adjusts a patient's baseline heart rate based on recent resting data,
 improving the accuracy of risk calculations over time.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# FUNCTIONS
+#   - compute_optimized_baseline()..... Line 25  (Main entry point)
+#   - _calculate_ema()................. Line 75  (Exponential moving avg)
+#   - _filter_outliers()............... Line 90  (Remove noise)
+#
+# BUSINESS CONTEXT:
+# - Personalizes baseline HR over time
+# - Uses EMA to prevent sudden jumps
+# - Called by advanced_ml.py /baseline-optimization endpoint
+# =============================================================================
 """
 
 import logging

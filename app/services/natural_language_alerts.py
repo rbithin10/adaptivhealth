@@ -3,6 +3,23 @@ Natural language alerts service.
 
 Converts technical risk metrics and vital sign data into
 patient-friendly, plain-language messages.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# CONSTANTS
+#   - _ALERT_MESSAGES.................. Line 70  (Template messages)
+#
+# FUNCTIONS
+#   - generate_natural_language_alert(). Line 25  (Convert alert to text)
+#   - format_risk_summary()............ Line 110 (Risk to plain text)
+#   - _severity_to_urgency()........... Line 145 (Map severity levels)
+#
+# BUSINESS CONTEXT:
+# - LLM-powered (future) natural language generation
+# - Currently template-based for reliability
+# - Patient-friendly push notification text
+# =============================================================================
 """
 
 import logging

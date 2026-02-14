@@ -4,7 +4,27 @@ ADAPTIV HEALTH - Exercise Recommendation Model
 =============================================================================
 Stores AI-generated workout recommendations.
 New table added to AWS RDS via migration script.
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - IntensityLevel................... Line 35  (low, moderate, high)
+#   - RecommendationType............... Line 45  (exercise, rest, consult)
+#
+# CLASS: ExerciseRecommendation (SQLAlchemy Model)
+#   - Primary Key...................... Line 55  (recommendation_id)
+#   - Foreign Key...................... Line 60  (user_id → users, assessment_id)
+#   - Recommendation Content........... Line 65  (title, activity, intensity)
+#   - HR Targets....................... Line 75  (target_hr_min/max)
+#   - Warnings......................... Line 85  (safety warnings text)
+#   - Relationships.................... Line 95  (user, risk_assessment)
+#
+# BUSINESS CONTEXT:
+# - Personalized exercise guidance
+# - Risk-aware workout planning
+# - Mobile app "Today's Workout" feature
+# =============================================================================
 """
 
 from enum import Enum

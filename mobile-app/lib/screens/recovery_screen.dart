@@ -78,9 +78,20 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           ),
         ),
       ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _sessionFuture,
-        builder: (context, snapshot) {
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/recovery_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.white.withOpacity(0.85),
+              BlendMode.lighten,
+            ),
+          ),
+        ),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _sessionFuture,
+          builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -248,6 +259,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
             ),
           );
         },
+      ),
       ),
     );
   }

@@ -1,5 +1,24 @@
 """
 Alert Schemas for API validation and responses.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - AlertType........................ Line 25  (high_hr, low_spo2, etc.)
+#   - SeverityLevel.................... Line 40  (info, warning, critical)
+#
+# SCHEMAS
+#   - AlertBase........................ Line 50  (Common fields)
+#   - AlertCreate...................... Line 60  (New alert input)
+#   - AlertUpdate...................... Line 70  (Resolution input)
+#   - AlertResponse.................... Line 80  (Full alert output)
+#   - AlertListResponse................ Line 95  (Paginated list)
+#
+# BUSINESS CONTEXT:
+# - Alert management for patient safety
+# - Threshold-triggered notifications
+# =============================================================================
 """
 
 from pydantic import BaseModel, Field

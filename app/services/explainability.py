@@ -4,6 +4,21 @@ Explainability service.
 Provides SHAP-like feature importance explanations for ML predictions.
 Uses tree-based feature importance from the Random Forest model
 and per-prediction contribution analysis.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# FUNCTIONS
+#   - compute_feature_importance()..... Line 30  (Per-prediction importance)
+#   - explain_prediction()............. Line 90  (Full explanation builder)
+#   - _estimate_contributions()........ Line 130 (Contribution calculation)
+#   - _normalize_contributions()....... Line 160 (Scale to sum=1.0)
+#
+# BUSINESS CONTEXT:
+# - SHAP-like explanations for transparency
+# - "Why this risk?" feature for mobile app
+# - Uses Random Forest built-in importance
+# =============================================================================
 """
 
 import logging

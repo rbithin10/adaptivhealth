@@ -3,6 +3,20 @@ Anomaly detection service.
 
 Detects unusual vital sign patterns beyond simple threshold checks
 using statistical methods (Z-score, rolling window analysis).
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# FUNCTIONS
+#   - detect_anomalies()............... Line 25  (Main entry point)
+#   - _z_score_detect()................ Line 95  (Z-score calculation)
+#   - _calculate_stats()............... Line 110 (Mean/std helper)
+#
+# BUSINESS CONTEXT:
+# - Statistical anomaly detection beyond fixed thresholds
+# - Z-score >2 indicates unusual reading
+# - Called by advanced_ml.py /anomaly-detection endpoint
+# =============================================================================
 """
 
 import logging

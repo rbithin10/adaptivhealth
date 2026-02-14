@@ -1,4 +1,4 @@
-﻿/*
+/*
 Register page.
 
 A form where new users create an account by entering their email,

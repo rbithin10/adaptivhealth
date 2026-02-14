@@ -2,6 +2,21 @@
 Trend forecasting service.
 
 Predicts future risk over weeks using linear regression on historical vitals.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# FUNCTIONS
+#   - forecast_trends()................ Line 25  (Main entry point)
+#   - _linear_regression()............. Line 100 (Slope/intercept calc)
+#   - _parse_timestamp()............... Line 130 (Timestamp helper)
+#   - _predict_direction()............. Line 145 (Trend classification)
+#
+# BUSINESS CONTEXT:
+# - Linear regression forecasting for risk trends
+# - Predicts "improving", "stable", or "declining" direction
+# - Called by advanced_ml.py /trend-forecast endpoint
+# =============================================================================
 """
 
 from datetime import datetime

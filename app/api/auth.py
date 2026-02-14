@@ -2,6 +2,37 @@
 Authentication routes.
 
 This file handles sign up, login, and token refresh.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.......................... Line 20
+# HELPER FUNCTIONS
+#   - authenticate_user............ Line 45  (Validates email/password)
+#   - get_current_user............. Line 120 (JWT token -> User object)
+#   - get_current_admin_user....... Line 175 (Admin role check)
+#   - check_clinician_phi_access... Line 195 (PHI consent check)
+#   - get_current_doctor_user...... Line 215 (Clinician role check)
+#
+# ENDPOINTS
+#   --- USER REGISTRATION ---
+#   - POST /register............... Line 245 (Admin creates new user)
+#
+#   --- LOGIN & TOKENS ---
+#   - POST /login.................. Line 320 (Get JWT tokens)
+#   - POST /refresh................ Line 355 (Refresh expired token)
+#   - GET /me...................... Line 395 (Get current user info)
+#
+#   --- PASSWORD RESET ---
+#   - POST /reset-password......... Line 405 (Request reset email)
+#   - POST /reset-password/confirm. Line 450 (Set new password)
+#
+# BUSINESS CONTEXT:
+# - Patients use /login on mobile app to authenticate
+# - Clinicians use /login on dashboard to access patient data
+# - Admins use /register to onboard new users
+# - Password reset flow used by all roles via mobile/web
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
@@ -36,6 +67,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
 # Helper Functions
 # =============================================================================
 
+# =============================================
+# AUTHENTICATE_USER - Validates email and password for login
+# Used by: Mobile app login, Dashboard login
+# Returns: User object if credentials valid
+# Raises: 401 (bad credentials), 403 (deactivated), 423 (locked)
+# =============================================
 def authenticate_user(db: Session, email: str, password: str) -> User:
     """
     Authenticate a user by email and password.
@@ -116,6 +153,12 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
     return user
 
 
+# =============================================
+# GET_CURRENT_USER - Extracts user from JWT token
+# Used by: ALL protected endpoints (dependency injection)
+# Returns: User object from database
+# Raises: 401 if token invalid, 403 if account deactivated
+# =============================================
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
@@ -166,6 +209,12 @@ def get_current_user(
     return user
 
 
+# =============================================
+# GET_CURRENT_ADMIN_USER - Ensures user is admin
+# Used by: Admin-only endpoints (user creation, system config)
+# Returns: User object if admin role
+# Raises: 403 if not admin
+# =============================================
 def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """
     Dependency to ensure current user has admin role.
@@ -187,6 +236,12 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)) -> Us
     return current_user
 
 
+# =============================================
+# CHECK_CLINICIAN_PHI_ACCESS - Verifies clinician can view patient data
+# Used by: Clinician endpoints that access patient health records
+# Returns: None (passes silently if allowed)
+# Raises: 403 if patient disabled data sharing
+# =============================================
 def check_clinician_phi_access(clinician: User, patient: User) -> None:
     """
     Verify a clinician may access a patient's PHI.
@@ -205,6 +260,12 @@ def check_clinician_phi_access(clinician: User, patient: User) -> None:
         )
 
 
+# =============================================
+# GET_CURRENT_DOCTOR_USER - Ensures user is clinician (NOT admin)
+# Used by: PHI endpoints - admins blocked from health data
+# Returns: User object if clinician role
+# Raises: 403 if admin or patient
+# =============================================
 def get_current_doctor_user(current_user: User = Depends(get_current_user)) -> User:
     """
     Dependency to ensure current user has doctor role (NOT admin).
@@ -233,10 +294,48 @@ def get_current_doctor_user(current_user: User = Depends(get_current_user)) -> U
     return current_user
 
 
+# =============================================
+# GET_CURRENT_ADMIN_OR_DOCTOR_USER - Allows admin OR clinician
+# Used by: User listing endpoints (no PHI), admin dashboard
+# Returns: User object if admin or clinician role
+# Raises: 403 if patient
+# =============================================
+def get_current_admin_or_doctor_user(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency to ensure current user has admin or clinician role.
+    
+    Used for non-PHI endpoints like user listings where both
+    admins and clinicians need access.
+    
+    Args:
+        current_user: Current authenticated user
+        
+    Returns:
+        User object if admin or clinician
+        
+    Raises:
+        HTTPException: If user is patient
+    """
+    if current_user.role not in (UserRole.ADMIN, UserRole.CLINICIAN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or clinician access required"
+        )
+    return current_user
+
+
 # =============================================================================
 # Authentication Endpoints
 # =============================================================================
 
+# --- ENDPOINT: USER REGISTRATION (ADMIN ONLY) ---
+
+# =============================================
+# REGISTER_USER - Admin creates a new user account
+# Used by: Admin dashboard (onboarding patients/clinicians)
+# Returns: UserResponse with new user details
+# Roles: ADMIN only
+# =============================================
 @router.post("/register", response_model=UserResponse)
 async def register_user(
     user_data: UserCreate,
@@ -309,6 +408,14 @@ async def register_user(
     return user
 
 
+# --- ENDPOINT: LOGIN & TOKEN MANAGEMENT ---
+
+# =============================================
+# LOGIN - User authenticates with email/password
+# Used by: Mobile app login screen, Dashboard login page
+# Returns: JWT access_token + refresh_token
+# Roles: ALL (patient, clinician, admin)
+# =============================================
 @router.post("/login", response_model=TokenResponse)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -341,6 +448,12 @@ async def login(
     )
 
 
+# =============================================
+# REFRESH_TOKEN - Get new access token using refresh token
+# Used by: Mobile app / Dashboard when access token expires
+# Returns: New JWT access_token + refresh_token
+# Roles: ALL (must have valid refresh token)
+# =============================================
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     token_data: RefreshTokenRequest,
@@ -385,6 +498,12 @@ async def refresh_token(
     )
 
 
+# =============================================
+# GET_CURRENT_USER_INFO - Returns logged-in user's profile
+# Used by: Mobile app profile screen, Dashboard header
+# Returns: UserResponse with user details
+# Roles: ALL (authenticated users)
+# =============================================
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """
@@ -395,6 +514,14 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+# --- ENDPOINT: PASSWORD RESET FLOW ---
+
+# =============================================
+# REQUEST_PASSWORD_RESET - User requests reset email
+# Used by: Mobile app "Forgot Password", Dashboard login
+# Returns: Success message (always, to prevent email enumeration)
+# Roles: PUBLIC (no auth needed)
+# =============================================
 @router.post("/reset-password")
 async def request_password_reset(
     reset_data: PasswordResetRequest,
@@ -434,6 +561,12 @@ async def request_password_reset(
     }
 
 
+# =============================================
+# CONFIRM_PASSWORD_RESET - User sets new password with token
+# Used by: Mobile app reset screen, Dashboard reset page
+# Returns: Success message
+# Roles: PUBLIC (token validates user)
+# =============================================
 @router.post("/reset-password/confirm")
 async def confirm_password_reset(
     reset_data: PasswordResetConfirm,

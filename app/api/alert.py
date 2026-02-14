@@ -2,6 +2,29 @@
 Alert API endpoints.
 
 Manages health alerts and warnings for cardiac patients.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 25
+# HELPER FUNCTIONS
+#   - check_duplicate_alert............ Line 32  (Prevent alert spam)
+#
+# ENDPOINTS - PATIENT (own alerts)
+#   - GET /alerts...................... Line 70  (List own alerts)
+#   - PATCH /alerts/{id}/acknowledge... Line 110 (Mark alert seen)
+#   - PATCH /alerts/{id}/resolve....... Line 143 (Resolve alert)
+#   - POST /alerts..................... Line 193 (Create alert - internal)
+#
+# ENDPOINTS - CLINICIAN (patient alerts)
+#   - GET /alerts/user/{id}............ Line 235 (List patient alerts)
+#   - GET /alerts/stats................ Line 285 (Alert statistics)
+#
+# BUSINESS CONTEXT:
+# - Alerts auto-create when vitals exceed thresholds
+# - Mobile app shows alert badge, push notifications
+# - Clinicians monitor patient alerts in dashboard
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -67,6 +90,12 @@ def check_duplicate_alert(
 # Patient Endpoints
 # =============================================================================
 
+# =============================================
+# GET_MY_ALERTS - List user's health alerts
+# Used by: Mobile app alerts screen, badge count
+# Returns: AlertListResponse with pagination
+# Roles: ALL authenticated users (own alerts)
+# =============================================
 @router.get("/alerts", response_model=AlertListResponse)
 async def get_my_alerts(
     page: int = Query(1, ge=1),
@@ -107,6 +136,12 @@ async def get_my_alerts(
     )
 
 
+# =============================================
+# ACKNOWLEDGE_ALERT - Mark alert as read
+# Used by: Mobile app alert dismiss button
+# Returns: AlertResponse with updated status
+# Roles: ALL authenticated users (own alerts)
+# =============================================
 @router.patch("/alerts/{alert_id}/acknowledge", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: int,
@@ -140,6 +175,12 @@ async def acknowledge_alert(
     return alert
 
 
+# =============================================
+# RESOLVE_ALERT - Close alert with resolution
+# Used by: Mobile app alert detail, clinician review
+# Returns: AlertResponse with resolution details
+# Roles: ALL authenticated users (own alerts)
+# =============================================
 @router.patch("/alerts/{alert_id}/resolve", response_model=AlertResponse)
 async def resolve_alert(
     alert_id: int,
@@ -190,6 +231,12 @@ async def resolve_alert(
     return alert
 
 
+# =============================================
+# CREATE_ALERT - Generate new health alert
+# Used by: vital_signs.py auto-alerts, internal services
+# Returns: AlertResponse with new alert
+# Roles: INTERNAL (with deduplication protection)
+# =============================================
 @router.post("/alerts", response_model=AlertResponse)
 async def create_alert(
     alert_data: AlertCreate,
@@ -232,6 +279,12 @@ async def create_alert(
 # Clinician Endpoints
 # =============================================================================
 
+# =============================================
+# GET_USER_ALERTS - View patient's alerts
+# Used by: Clinician dashboard patient detail
+# Returns: AlertListResponse with pagination
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/alerts/user/{user_id}", response_model=AlertListResponse)
 async def get_user_alerts(
     user_id: int,
@@ -282,6 +335,12 @@ async def get_user_alerts(
     )
 
 
+# =============================================
+# GET_ALERT_STATISTICS - Alert metrics dashboard
+# Used by: Clinician/admin dashboard stats cards
+# Returns: Severity breakdown, unacknowledged count
+# Roles: DOCTOR, ADMIN
+# =============================================
 @router.get("/alerts/stats")
 async def get_alert_statistics(
     days: int = Query(7, ge=1, le=90),

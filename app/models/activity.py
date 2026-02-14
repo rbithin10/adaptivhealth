@@ -4,7 +4,27 @@ ADAPTIV HEALTH - Activity Session Model
 =============================================================================
 SQLAlchemy model mapped to Massoud's AWS RDS 'activity_sessions' table.
 3,000 workout sessions from cardiac rehabilitation patients.
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - ActivityType..................... Line 30  (walking, running, cycling, etc.)
+#   - ActivityPhase.................... Line 45  (warm_up, active, cool_down)
+#
+# CLASS: ActivitySession (SQLAlchemy Model)
+#   - Primary Key...................... Line 60  (session_id)
+#   - Foreign Key...................... Line 65  (user_id → users)
+#   - Timing Columns................... Line 70  (start_time, end_time)
+#   - Metrics Columns.................. Line 80  (avg_hr, peak_hr, calories)
+#   - User Feedback.................... Line 100 (feeling_before, notes)
+#   - Relationships.................... Line 115 (user)
+#
+# BUSINESS CONTEXT:
+# - Workout tracking from mobile app
+# - Feeds into ML risk prediction
+# - HR zones and recovery time analysis
+# =============================================================================
 """
 
 from enum import Enum

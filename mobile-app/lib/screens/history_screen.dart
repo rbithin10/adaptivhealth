@@ -113,10 +113,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/history_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.white.withOpacity(0.85),
+              BlendMode.lighten,
+            ),
+          ),
+        ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Column(
@@ -272,6 +283,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         },
                       ),
                     ),
+      ),
     );
   }
 }

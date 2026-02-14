@@ -7,11 +7,11 @@ import React from 'react';
 import { AlertTriangle, AlertCircle, CheckCircle } from 'lucide-react';
 import { colors } from '../../theme/colors';
 
-type RiskLevel = 'low' | 'moderate' | 'high';
-type Status = 'stable' | 'warning' | 'critical';
+export type RiskLevel = 'low' | 'moderate' | 'high';
+export type Status = 'stable' | 'warning' | 'critical';
 
 // Map backend risk_level to display status
-export function riskToStatus(riskLevel: string): Status {
+export function riskToStatus(riskLevel: RiskLevel | string): Status {
   switch (riskLevel.toLowerCase()) {
     case 'high':
       return 'critical';

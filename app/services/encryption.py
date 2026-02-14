@@ -3,6 +3,26 @@ This file encrypts sensitive health data before saving it.
 
 It uses a secure key from the environment and produces safe text output
 that can be stored in a database.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 20
+#
+# CLASS: EncryptionService
+#   - __init__()...................... Line 30  (Load/validate key)
+#   - encrypt_text()................... Line 50  (Encrypt string)
+#   - decrypt_text()................... Line 60  (Decrypt string)
+#   - encrypt_json()................... Line 73  (Encrypt dict as JSON)
+#   - decrypt_json()................... Line 80  (Decrypt JSON to dict)
+#
+# SINGLETON: encryption_service........ Line 95  (Module-level instance)
+#
+# BUSINESS CONTEXT:
+# - AES-256-GCM encryption for PHI (HIPAA compliant)
+# - Key from PHI_ENCRYPTION_KEY env var
+# - Used for medical_history_encrypted field
+# =============================================================================
 """
 
 import base64

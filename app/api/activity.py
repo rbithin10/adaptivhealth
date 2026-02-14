@@ -2,6 +2,26 @@
 Activity Session API endpoints.
 
 Manages workout/activity sessions for cardiac patients.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 25
+#
+# ENDPOINTS - PATIENT (own sessions)
+#   - POST /activities/start........... Line 32  (Begin workout session)
+#   - POST /activities/end/{id}........ Line 69  (Complete workout session)
+#   - GET /activities.................. Line 119 (List own sessions)
+#   - GET /activities/{id}............. Line 185 (Get session details)
+#
+# ENDPOINTS - CLINICIAN (patient sessions)
+#   - GET /activities/user/{id}........ Line 153 (List patient's sessions)
+#
+# BUSINESS CONTEXT:
+# - Patients start/stop activity sessions from mobile app
+# - Session data feeds into ML risk prediction
+# - Clinicians review patient workout history
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -29,6 +49,12 @@ router = APIRouter()
 # Patient Endpoints
 # =============================================================================
 
+# =============================================
+# START_ACTIVITY_SESSION - Begin workout tracking
+# Used by: Mobile app "Start Workout" button
+# Returns: ActivitySessionResponse with session ID
+# Roles: ALL authenticated users
+# =============================================
 @router.post("/activities/start", response_model=ActivitySessionResponse)
 async def start_activity_session(
     activity_data: ActivitySessionCreate,
@@ -66,6 +92,12 @@ async def start_activity_session(
     return activity
 
 
+# =============================================
+# END_ACTIVITY_SESSION - Complete workout tracking
+# Used by: Mobile app "End Workout" button
+# Returns: ActivitySessionResponse with final metrics
+# Roles: ALL authenticated users (own sessions)
+# =============================================
 @router.post("/activities/end/{session_id}", response_model=ActivitySessionResponse)
 async def end_activity_session(
     session_id: int,
@@ -116,6 +148,12 @@ async def end_activity_session(
     return activity
 
 
+# =============================================
+# GET_MY_ACTIVITIES - List own workout history
+# Used by: Mobile app history screen, trends view
+# Returns: List of ActivitySessionResponse
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/activities", response_model=list[ActivitySessionResponse])
 async def get_my_activities(
     limit: int = Query(50, ge=1, le=200),
@@ -150,6 +188,12 @@ async def get_my_activities(
 # Clinician Endpoints
 # =============================================================================
 
+# =============================================
+# GET_USER_ACTIVITIES - View patient workout history
+# Used by: Clinician dashboard patient detail
+# Returns: List of ActivitySessionResponse
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/activities/user/{user_id}", response_model=list[ActivitySessionResponse])
 async def get_user_activities(
     user_id: int,
@@ -182,6 +226,12 @@ async def get_user_activities(
     return activities
 
 
+# =============================================
+# GET_ACTIVITY_SESSION - Single session details
+# Used by: Mobile app session detail screen
+# Returns: ActivitySessionResponse with full metrics
+# Roles: ALL authenticated users (own sessions)
+# =============================================
 @router.get("/activities/{session_id}", response_model=ActivitySessionResponse)
 async def get_activity_session(
     session_id: int,

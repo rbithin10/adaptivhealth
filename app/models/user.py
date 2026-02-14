@@ -7,7 +7,27 @@ Adds authentication and security columns for Bithin's backend API.
 
 Original AWS table: 100 users with cardiac patient data.
 Extended with: hashed_password, role, security fields for HIPAA compliance.
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - UserRole......................... Line 35  (PATIENT, CLINICIAN, ADMIN)
+#
+# CLASS: User (SQLAlchemy Model)
+#   - Primary Key...................... Line 55  (user_id)
+#   - Massoud's Columns................ Line 60  (email, full_name, age, etc.)
+#   - Bithin's Auth Columns............ Line 85  (role, security fields)
+#   - Consent Columns.................. Line 100 (data sharing state)
+#   - Relationships.................... Line 125 (auth_credential, vitals, etc.)
+#   - Properties....................... Line 135 (id, name, baseline_hr)
+#   - Methods.......................... Line 164 (calculate_max_hr, hr_zones)
+#
+# BUSINESS CONTEXT:
+# - Central user entity for all patient/clinician data
+# - HIPAA-compliant with encrypted PHI fields
+# - RBAC roles control API access
+# =============================================================================
 """
 
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, Float, Index

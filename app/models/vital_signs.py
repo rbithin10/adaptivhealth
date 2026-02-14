@@ -6,7 +6,24 @@ SQLAlchemy model mapped to Massoud's AWS RDS 'vital_signs' table.
 50,000 rows of cardiac patient vital sign readings.
 
 Data Flow: Wearable → BLE → Mobile App → Cloud API → This Table
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# CLASS: VitalSignRecord (SQLAlchemy Model)
+#   - Primary Key...................... Line 35  (reading_id)
+#   - Foreign Key...................... Line 40  (user_id → users)
+#   - Vital Sign Columns............... Line 50  (heart_rate, spo2, etc.)
+#   - Metadata Columns................. Line 75  (device_type, source, etc.)
+#   - Timestamps....................... Line 95  (timestamp, created_at)
+#   - Relationships.................... Line 105 (user)
+#   - Indexes.......................... Line 115 (composite indexes)
+#
+# BUSINESS CONTEXT:
+# - 50k+ rows of wearable sensor data
+# - Critical for ML risk prediction
+# - Real-time sync from mobile app
+# =============================================================================
 """
 
 from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey, Index, Boolean

@@ -6,7 +6,24 @@ Separate table for authentication credentials (passwords, login attempts).
 Keeps sensitive auth data isolated from PHI (health information).
 
 HIPAA Compliance: Segregates authentication data from medical records.
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# CLASS: AuthCredential (SQLAlchemy Model)
+#   - Primary Key...................... Line 40  (credential_id)
+#   - Foreign Key...................... Line 45  (user_id → users)
+#   - Password......................... Line 50  (hashed_password)
+#   - Login Tracking................... Line 55  (last_login, failed_attempts)
+#   - Account Security................. Line 65  (locked_until, password_changed)
+#   - Relationships.................... Line 85  (user)
+#   - Methods.......................... Line 95  (is_locked, record_failed_login)
+#
+# BUSINESS CONTEXT:
+# - HIPAA: Auth data separate from PHI
+# - Account lockout after 5 failed attempts
+# - Password change tracking for audits
+# =============================================================================
 """
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Index
@@ -98,7 +115,13 @@ class AuthCredential(Base):
         if self.locked_until is None:
             return False
         from datetime import datetime, timezone
-        return self.locked_until > datetime.now(timezone.utc)
+        # Handle both naive and aware datetimes
+        now = datetime.now(timezone.utc)
+        locked = self.locked_until
+        # If locked_until is naive, assume UTC
+        if locked.tzinfo is None:
+            locked = locked.replace(tzinfo=timezone.utc)
+        return locked > now
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""

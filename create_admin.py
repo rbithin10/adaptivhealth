@@ -39,7 +39,7 @@ try:
     db.flush()  # Flush to get the user_id
     
     # Create auth credential with hashed password
-    hashed_password = pwd_context.hash("password123")
+    hashed_password = pwd_context.hash("Password123")
     
     auth_credential = AuthCredential(
         user_id=admin_user.user_id,
@@ -55,7 +55,7 @@ try:
     
     print("✓ Admin account created successfully!")
     print(f"  Email: adaptivhealth@gmail.com")
-    print(f"  Password: password123")
+    print(f"  Password: Password123")
     print(f"  Role: admin")
     print(f"  User ID: {admin_user.user_id}")
     

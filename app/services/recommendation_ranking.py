@@ -3,6 +3,23 @@ Activity recommendation ranking service.
 
 A/B testing framework for exercise recommendations.
 Tracks which recommendation variants lead to better patient outcomes.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# CONSTANTS
+#   - RECOMMENDATION_VARIANTS.......... Line 25  (A/B variant definitions)
+#
+# FUNCTIONS
+#   - get_ranked_recommendation()...... Line 80  (Get variant for user)
+#   - record_recommendation_outcome().. Line 110 (Track user action)
+#   - _get_user_variant().............. Line 125 (Deterministic hashing)
+#
+# BUSINESS CONTEXT:
+# - A/B testing framework for recommendations
+# - Users consistently see same variant (hash-based)
+# - Outcomes tracked for analysis
+# =============================================================================
 """
 
 import hashlib

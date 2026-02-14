@@ -5,13 +5,32 @@ ADAPTIV HEALTH - User Management API
 FastAPI router for user profile and management endpoints.
 Implements RBAC for patient, clinician, and admin access.
 
-Endpoints:
-- GET /me - Get user profile
-- PUT /me - Update user profile
-- PUT /me/medical-history - Update medical history
-- GET / - List users (admin/clinician)
-- GET /{id} - Get user details (admin/clinician)
-=============================================================================
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 35
+# HELPER FUNCTIONS
+#   - can_access_user.................. Line 61  (Access control check)
+#
+# ENDPOINTS - PATIENT (own profile)
+#   - GET /me.......................... Line 108 (Get own profile)
+#   - PUT /me.......................... Line 141 (Update own profile)
+#   - PUT /me/medical-history.......... Line 181 (Update own medical history)
+#
+# ENDPOINTS - CLINICIAN/ADMIN (user management)
+#   - GET /............................ Line 218 (List users)
+#   - GET /{id}....................... Line 265 (Get user details)
+#   - PUT /{id}....................... Line 299 (Update user)
+#   - POST /........................... Line 347 (Create user)
+#   - DELETE /{id}.................... Line 407 (Delete user)
+#   - POST /{id}/reset-password........ Line 446 (Reset user password)
+#   - GET /{id}/medical-history........ Line 509 (Get patient history)
+#
+# BUSINESS CONTEXT:
+# - Patients manage their own profile from mobile app
+# - Clinicians view/manage assigned patients
+# - Admins have full user management capabilities
+# =============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -26,7 +45,7 @@ from app.schemas.user import (
     UserProfileResponse, UserListResponse, UserCreateAdmin
 )
 from app.services.encryption import encryption_service
-from app.api.auth import get_current_user, get_current_admin_user, get_current_doctor_user, check_clinician_phi_access
+from app.api.auth import get_current_user, get_current_admin_user, get_current_doctor_user, get_current_admin_or_doctor_user, check_clinician_phi_access
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -80,6 +99,12 @@ def can_access_user(current_user: User, target_user: User) -> bool:
 # Patient Endpoints
 # =============================================================================
 
+# =============================================
+# GET_MY_PROFILE - User's own profile info
+# Used by: Mobile app home screen, profile page
+# Returns: UserProfileResponse with heart rate zones
+# Roles: ALL authenticated users
+# =============================================
 @router.get("/me", response_model=UserProfileResponse)
 async def get_my_profile(current_user: User = Depends(get_current_user)):
     """
@@ -107,6 +132,12 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
     )
 
 
+# =============================================
+# UPDATE_MY_PROFILE - Edit own profile fields
+# Used by: Mobile app settings, profile editing
+# Returns: UserResponse with updated data
+# Roles: ALL authenticated users
+# =============================================
 @router.put("/me", response_model=UserResponse)
 async def update_my_profile(
     user_data: UserUpdate,
@@ -141,6 +172,12 @@ async def update_my_profile(
     return current_user
 
 
+# =============================================
+# UPDATE_MEDICAL_HISTORY - Sensitive health data
+# Used by: Mobile app onboarding, settings
+# Returns: Success message (encrypted storage)
+# Roles: PATIENT (own data only)
+# =============================================
 @router.put("/me/medical-history")
 async def update_medical_history(
     medical_data: MedicalHistoryUpdate,
@@ -172,13 +209,19 @@ async def update_medical_history(
 # Clinician/Admin Endpoints
 # =============================================================================
 
+# =============================================
+# LIST_USERS - Paginated user directory
+# Used by: Admin dashboard, clinician patient list
+# Returns: UserListResponse with pagination
+# Roles: DOCTOR, ADMIN
+# =============================================
 @router.get("/", response_model=UserListResponse)
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(50, ge=1, le=100, description="Items per page"),
+    per_page: int = Query(50, ge=1, le=500, description="Items per page"),
     role: Optional[UserRole] = Query(None, description="Filter by role"),
     search: Optional[str] = Query(None, description="Search by name or email"),
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_admin_or_doctor_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -213,10 +256,16 @@ async def list_users(
     )
 
 
+# =============================================
+# GET_USER - Individual user details
+# Used by: Clinician patient view, admin user management
+# Returns: UserResponse with full profile
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_admin_or_doctor_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -241,6 +290,12 @@ async def get_user(
     return user
 
 
+# =============================================
+# UPDATE_USER - Admin modifies user profile
+# Used by: Admin dashboard user management
+# Returns: Success message with updated user
+# Roles: ADMIN only
+# =============================================
 @router.put("/{user_id}")
 async def update_user(
     user_id: int,
@@ -283,6 +338,12 @@ async def update_user(
     return {"message": "User updated successfully", "user": user}
 
 
+# =============================================
+# CREATE_USER - Admin creates new account
+# Used by: Admin dashboard, user onboarding
+# Returns: Success message with new user
+# Roles: ADMIN only
+# =============================================
 @router.post("/")
 async def create_user(
     user_data: UserCreateAdmin,
@@ -337,6 +398,12 @@ async def create_user(
     return {"message": "User created successfully", "user": user}
 
 
+# =============================================
+# DEACTIVATE_USER - Soft delete user account
+# Used by: Admin dashboard, account management
+# Returns: Success message (audit compliant)
+# Roles: ADMIN only
+# =============================================
 @router.delete("/{user_id}")
 async def deactivate_user(
     user_id: int,
@@ -370,6 +437,12 @@ async def deactivate_user(
     return {"message": "User deactivated successfully"}
 
 
+# =============================================
+# ADMIN_RESET_PASSWORD - Set temporary password
+# Used by: Admin dashboard, account recovery
+# Returns: Success message (no PHI exposed)
+# Roles: ADMIN only
+# =============================================
 @router.post("/{user_id}/reset-password")
 async def admin_reset_user_password(
     user_id: int,
@@ -427,6 +500,12 @@ async def admin_reset_user_password(
     return {"message": "Temporary password set successfully"}
 
 
+# =============================================
+# GET_USER_MEDICAL_HISTORY - Decrypt patient PHI
+# Used by: Clinician dashboard, patient detail view
+# Returns: Decrypted medical history JSON
+# Roles: DOCTOR, ADMIN (PHI access required)
+# =============================================
 @router.get("/{user_id}/medical-history")
 async def get_user_medical_history(
     user_id: int,

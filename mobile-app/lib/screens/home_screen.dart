@@ -245,16 +245,15 @@ class _HomeScreenState extends State<HomeScreen> {
         final riskScore = risk['risk_score'] ?? 0.23;
 
         return Container(
-          // Appealing gradient background for patient dashboard
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFFf0f9ff), // Very light blue
-                Color(0xFFdbeafe), // Light blue
-                Color(0xFFbfdbfe), // Soft blue
-              ],
+          // Image backdrop for patient dashboard
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: const AssetImage('assets/images/home_bg.png'),
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                Colors.white.withOpacity(0.85),
+                BlendMode.lighten,
+              ),
             ),
           ),
           child: SingleChildScrollView(

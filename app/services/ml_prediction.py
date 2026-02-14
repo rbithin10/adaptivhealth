@@ -2,6 +2,28 @@
 Machine learning helper.
 
 This loads the trained model and returns a risk score.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS/CONSTANTS.................... Line 25
+# MODEL STATE (globals)................ Line 35
+#
+# FUNCTIONS
+#   - load_ml_model().................. Line 42  (Load model files on startup)
+#   - is_model_loaded()................ Line 82  (Check model state)
+#   - engineer_features().............. Line 88  (Calculate derived features)
+#   - predict_risk()................... Line 145 (Core prediction function)
+#
+# CLASS
+#   - MLPredictionService.............. Line 218 (Wrapper for DI)
+#   - get_ml_service()................. Line 229 (Singleton factory)
+#
+# BUSINESS CONTEXT:
+# - Random Forest model predicts cardiac risk 0.0-1.0
+# - Uses 17 engineered features (HR ratios, reserves, zones)
+# - Loaded once at startup, shared across all requests
+# =============================================================================
 """
 
 import json

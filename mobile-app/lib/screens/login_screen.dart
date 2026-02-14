@@ -210,16 +210,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       body: Container(
-        // Professional gradient background for login
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF1e3a8a), // Deep blue
-              Color(0xFF2563EB), // Primary blue
-              Color(0xFF3b82f6), // Light blue
-            ],
+        // Image backdrop with overlay for login
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/login_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.black.withOpacity(0.4),
+              BlendMode.darken,
+            ),
           ),
         ),
         child: SafeArea(

@@ -2,6 +2,26 @@
 Authentication helpers.
 
 This file handles password hashing and token creation.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 20
+# PASSWORD HASHING CONFIG.............. Line 35
+# OAUTH2 SCHEME....................... Line 45
+#
+# CLASS: AuthService
+#   - hash_password().................. Line 68  (PBKDF2 hash)
+#   - verify_password()................ Line 83  (Check password match)
+#   - create_access_token()............ Line 106 (JWT access token)
+#   - create_refresh_token()........... Line 153 (JWT refresh token)
+#   - decode_token()................... Line 186 (JWT validation)
+#
+# BUSINESS CONTEXT:
+# - PBKDF2 with 200k rounds (OWASP recommended)
+# - JWT tokens for stateless auth
+# - Account locking after failed attempts (HIPAA)
+# =============================================================================
 """
 
 from datetime import datetime, timedelta, timezone

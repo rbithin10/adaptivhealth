@@ -3,6 +3,24 @@ Model retraining pipeline service.
 
 Provides functionality to retrain the ML model with new patient data,
 track model versions, and manage model artifacts.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# CONSTANTS
+#   - MODEL_DIR........................ Line 30  (Path to model files)
+#
+# FUNCTIONS
+#   - evaluate_retraining_readiness().. Line 35  (Check if retrain needed)
+#   - get_retraining_status().......... Line 80  (Current model metadata)
+#   - trigger_retraining()............. Line 110 (Start retrain job)
+#   - _save_model_version()............ Line 135 (Version management)
+#
+# BUSINESS CONTEXT:
+# - Automated model retraining pipeline
+# - Minimum 100 records + 7 days since last train
+# - Version tracking for audit/rollback
+# =============================================================================
 """
 
 import json

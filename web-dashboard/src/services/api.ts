@@ -291,6 +291,18 @@ class ApiService {
     return response.data;
   }
 
+  async getRiskAssessmentsForUser(
+    userId: number,
+    page: number = 1,
+    perPage: number = 10
+  ): Promise<RiskAssessmentListResponse> {
+    const response = await this.client.get<RiskAssessmentListResponse>(
+      `/patients/${userId}/risk-assessments`,
+      { params: { page, per_page: perPage } }
+    );
+    return response.data;
+  }
+
   async computeRiskAssessment(): Promise<RiskAssessmentComputeResponse> {
     const response = await this.client.post<RiskAssessmentComputeResponse>(
       '/risk-assessments/compute'

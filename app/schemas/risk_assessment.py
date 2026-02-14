@@ -1,5 +1,21 @@
 """
 Risk Assessment Schemas for API validation and responses.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - RiskLevel........................ Line 25  (low, moderate, high, critical)
+#
+# SCHEMAS
+#   - RiskAssessmentBase............... Line 35  (Common fields)
+#   - RiskAssessmentCreate............. Line 50  (New assessment input)
+#   - RiskAssessmentResponse........... Line 60  (Full assessment output)
+#
+# BUSINESS CONTEXT:
+# - ML prediction result storage
+# - Risk score 0.0-1.0 with level mapping
+# =============================================================================
 """
 
 from pydantic import BaseModel, Field

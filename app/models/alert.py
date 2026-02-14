@@ -4,7 +4,27 @@ ADAPTIV HEALTH - Alert Model
 =============================================================================
 SQLAlchemy model mapped to Massoud's AWS RDS 'alerts' table.
 670 alert records from cardiac monitoring sessions.
-=============================================================================
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - AlertType........................ Line 35  (high_hr, low_spo2, etc.)
+#   - SeverityLevel.................... Line 50  (info, warning, critical)
+#
+# CLASS: Alert (SQLAlchemy Model)
+#   - Primary Key...................... Line 65  (alert_id)
+#   - Foreign Key...................... Line 70  (user_id → users)
+#   - Alert Content.................... Line 75  (type, severity, message)
+#   - Trigger Values................... Line 90  (threshold exceeded info)
+#   - Resolution....................... Line 105 (acknowledged, resolved)
+#   - Relationships.................... Line 130 (user)
+#
+# BUSINESS CONTEXT:
+# - Auto-generated from vital sign thresholds
+# - Push notification triggers
+# - Resolution tracking for care workflow
+# =============================================================================
 """
 
 from enum import Enum

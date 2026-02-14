@@ -4,6 +4,31 @@ User data validation.
 Defines what user information can be sent to the API and what
 the API sends back. Checks that data is valid (like email is
 formatted correctly, age is reasonable, etc.).
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# REQUEST SCHEMAS
+#   - UserBase......................... Line 35  (Common fields)
+#   - UserCreate....................... Line 55  (Registration input)
+#   - UserUpdate....................... Line 85  (Profile update input)
+#   - MedicalHistoryUpdate............. Line 108 (Health data input)
+#   - LoginRequest..................... Line 170 (Login input)
+#   - RefreshTokenRequest.............. Line 190 (Token refresh input)
+#   - PasswordResetRequest............. Line 198 (Password reset email)
+#   - PasswordResetConfirm............. Line 205 (Password reset token)
+#   - UserCreateAdmin.................. Line 235 (Admin user creation)
+#
+# RESPONSE SCHEMAS
+#   - UserResponse..................... Line 125 (Basic user output)
+#   - UserProfileResponse.............. Line 145 (Full profile with HR zones)
+#   - TokenResponse.................... Line 180 (JWT tokens)
+#   - UserListResponse................. Line 225 (Paginated list)
+#
+# BUSINESS CONTEXT:
+# - Pydantic validation for API I/O
+# - Field constraints match DB schema
+# =============================================================================
 """
 
 from pydantic import BaseModel, EmailStr, Field, field_validator

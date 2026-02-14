@@ -94,7 +94,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AdaptivColors.background50,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AdaptivColors.white,
@@ -107,8 +106,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/workout_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.white.withOpacity(0.9),
+              BlendMode.lighten,
+            ),
+          ),
+        ),
+        child: SingleChildScrollView(
+          child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -258,6 +268,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               const SizedBox(height: 32),
             ],
           ),
+        ),
         ),
       ),
     );

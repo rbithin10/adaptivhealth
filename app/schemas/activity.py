@@ -1,5 +1,23 @@
 """
 Activity Session Schemas for API validation and responses.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# ENUMS
+#   - ActivityType..................... Line 20  (walking, running, etc.)
+#   - ActivityPhase.................... Line 35  (warm_up, active, etc.)
+#
+# SCHEMAS
+#   - ActivitySessionBase.............. Line 45  (Common fields)
+#   - ActivitySessionCreate............ Line 55  (Start session input)
+#   - ActivitySessionUpdate............ Line 65  (End session input)
+#   - ActivitySessionResponse.......... Line 75  (Full session output)
+#
+# BUSINESS CONTEXT:
+# - Workout session tracking from mobile
+# - Feeds ML risk prediction
+# =============================================================================
 """
 
 from pydantic import BaseModel, Field

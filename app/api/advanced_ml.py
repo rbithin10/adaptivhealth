@@ -4,6 +4,39 @@ Advanced ML/AI routes.
 Endpoints for anomaly detection, trend forecasting, baseline optimization,
 recommendation ranking, natural language alerts, retraining readiness, and
 prediction explainability.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 25
+# SCHEMAS.............................. Line 60
+#
+# ENDPOINTS - ANOMALY & FORECASTING
+#   - GET /anomaly-detection........... Line 87  (Detect vital anomalies)
+#   - GET /trend-forecast.............. Line 131 (Predict vital trends)
+#
+# ENDPOINTS - BASELINE OPTIMIZATION
+#   - GET /baseline-optimization....... Line 174 (Calculate optimal baselines)
+#   - POST /baseline-optimization/apply Line 213 (Apply optimized baselines)
+#
+# ENDPOINTS - RECOMMENDATIONS (A/B testing)
+#   - GET /recommendation-ranking...... Line 264 (Get ranked recommendation)
+#   - POST /recommendation-ranking/out. Line 281 (Record user outcome)
+#
+# ENDPOINTS - NATURAL LANGUAGE (LLM)
+#   - POST /alerts/natural-language.... Line 301 (Generate alert text)
+#   - GET /risk-summary/natural-lang... Line 319 (Risk summary in plain text)
+#
+# ENDPOINTS - MODEL MANAGEMENT
+#   - GET /model/retraining-status..... Line 357 (Current retrain status)
+#   - GET /model/retraining-readiness.. Line 365 (Check if retrain needed)
+#   - POST /predict/explain............ Line 391 (SHAP explanations)
+#
+# BUSINESS CONTEXT:
+# - Advanced ML features for sophisticated risk analysis
+# - A/B testing for recommendation optimization
+# - LLM-powered natural language alerts
+# =============================================================================
 """
 
 from datetime import datetime, timedelta, timezone
@@ -84,6 +117,12 @@ class ExplainPredictionRequest(BaseModel):
 # Anomaly Detection
 # =============================================================================
 
+# =============================================
+# DETECT_ANOMALIES - Identify unusual vital patterns
+# Used by: Mobile app alert system, clinician monitoring
+# Returns: List of detected anomalies with severity
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/anomaly-detection")
 async def detect_vital_anomalies(
     hours: int = Query(24, ge=1, le=168, description="Hours of data to analyze"),
@@ -128,6 +167,12 @@ async def detect_vital_anomalies(
 # Trend Forecasting
 # =============================================================================
 
+# =============================================
+# FORECAST_VITAL_TRENDS - Predict future risk
+# Used by: Mobile app trend view, clinician analysis
+# Returns: Forecasted values with direction indicator
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/trend-forecast")
 async def forecast_vital_trends(
     days: int = Query(14, ge=7, le=90, description="Days of history to analyze"),
@@ -171,6 +216,12 @@ async def forecast_vital_trends(
 # Baseline Optimization
 # =============================================================================
 
+# =============================================
+# OPTIMIZE_BASELINE - Calculate optimal resting HR
+# Used by: Mobile app settings, auto-calibration
+# Returns: Recommended baseline with confidence
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/baseline-optimization")
 async def optimize_baseline(
     days: int = Query(7, ge=3, le=30, description="Days of resting data"),
@@ -210,6 +261,12 @@ async def optimize_baseline(
     return result
 
 
+# =============================================
+# APPLY_BASELINE_OPTIMIZATION - Save optimized HR
+# Used by: Mobile app settings confirmation
+# Returns: Success with old/new baseline values
+# Roles: ALL authenticated users (own profile)
+# =============================================
 @router.post("/baseline-optimization/apply")
 async def apply_baseline_optimization(
     current_user: User = Depends(get_current_user),
@@ -261,6 +318,12 @@ async def apply_baseline_optimization(
 # Recommendation Ranking (A/B Testing)
 # =============================================================================
 
+# =============================================
+# GET_RANKED_RECOMMENDATION - A/B test variants
+# Used by: Mobile app recommendation display
+# Returns: Recommendation with experiment variant
+# Roles: ALL authenticated users
+# =============================================
 @router.get("/recommendation-ranking")
 async def get_ranked_rec(
     risk_level: str = Query("low", description="Current risk level"),
@@ -278,6 +341,12 @@ async def get_ranked_rec(
     return result
 
 
+# =============================================
+# RECORD_REC_OUTCOME - Track A/B test results
+# Used by: Mobile app after user action
+# Returns: Confirmation of recorded outcome
+# Roles: ALL authenticated users
+# =============================================
 @router.post("/recommendation-ranking/outcome")
 async def record_rec_outcome(
     data: RecommendationOutcomeRequest,
@@ -298,6 +367,12 @@ async def record_rec_outcome(
 # Natural Language Alerts
 # =============================================================================
 
+# =============================================
+# GET_NATURAL_LANGUAGE_ALERT - LLM alert text
+# Used by: Mobile app push notifications
+# Returns: Patient-friendly alert message
+# Roles: ALL authenticated users
+# =============================================
 @router.post("/alerts/natural-language")
 async def get_natural_language_alert(
     data: NaturalLanguageAlertRequest,
@@ -316,6 +391,12 @@ async def get_natural_language_alert(
     return result
 
 
+# =============================================
+# GET_NATURAL_LANGUAGE_RISK_SUMMARY - Plain text risk
+# Used by: Mobile app home screen, voice assistants
+# Returns: Plain-language risk assessment summary
+# Roles: ALL authenticated users (own data)
+# =============================================
 @router.get("/risk-summary/natural-language")
 async def get_natural_language_risk_summary(
     current_user: User = Depends(get_current_user),
@@ -354,6 +435,12 @@ async def get_natural_language_risk_summary(
 # Model Retraining Pipeline
 # =============================================================================
 
+# =============================================
+# MODEL_RETRAINING_STATUS - Current model state
+# Used by: Clinician/admin model monitoring
+# Returns: Model version, last trained, metrics
+# Roles: DOCTOR, ADMIN
+# =============================================
 @router.get("/model/retraining-status")
 async def model_retraining_status(
     current_user: User = Depends(get_current_doctor_user),
@@ -362,6 +449,12 @@ async def model_retraining_status(
     return get_retraining_status()
 
 
+# =============================================
+# CHECK_RETRAINING_READINESS - Should we retrain?
+# Used by: Admin dashboard, automated pipelines
+# Returns: Readiness assessment with data quality
+# Roles: DOCTOR, ADMIN
+# =============================================
 @router.get("/model/retraining-readiness")
 async def check_retraining_readiness(
     current_user: User = Depends(get_current_doctor_user),
@@ -388,6 +481,12 @@ async def check_retraining_readiness(
 # Explainability (SHAP-like)
 # =============================================================================
 
+# =============================================
+# EXPLAIN_RISK_PREDICTION - Feature importance
+# Used by: Mobile app "Why this risk?", clinician review
+# Returns: SHAP-like feature contributions
+# Roles: ALL authenticated users
+# =============================================
 @router.post("/predict/explain")
 async def explain_risk_prediction(
     request: ExplainPredictionRequest,

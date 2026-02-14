@@ -101,39 +101,50 @@ Password: password123
 AdaptivHealth/
 ├── app/                          # Backend (FastAPI)
 │   ├── main.py                   # Entry point
-│   ├── database.py               # SQLAlchemy models
+│   ├── database.py               # SQLAlchemy setup
 │   ├── config.py                 # Configuration
 │   ├── api/                      # API routes
-│   │   ├── auth.py              # Login/register
-│   │   ├── user.py              # User profiles
-│   │   ├── vital_signs.py       # Heart rate, BP, etc
-│   │   ├── predict.py           # ML predictions
+│   │   ├── auth.py               # Login/register
+│   │   ├── user.py               # User profiles
+│   │   ├── vital_signs.py        # Heart rate, BP, etc
+│   │   ├── predict.py            # ML predictions
 │   │   └── ...
 │   ├── models/                   # Database models
+│   ├── schemas/                  # Pydantic schemas
 │   └── services/                 # Business logic
 │       ├── auth_service.py
 │       ├── encryption.py
 │       └── ml_prediction.py
 │
-├── web-dashboard/                # React Dashboard (COMPLETE)
+├── web-dashboard/                # React Dashboard
 │   ├── src/
-│   │   ├── pages/               # 4 pages (Login, Dashboard, Patients, PatientDetail)
-│   │   ├── components/          # StatusBadge, StatCard
-│   │   ├── theme/               # Design system (colors, typography)
+│   │   ├── pages/                # Login, Dashboard, Patients, Admin
+│   │   ├── components/           # StatusBadge, StatCard
+│   │   ├── services/             # API client
+│   │   ├── theme/                # Design system
 │   │   └── App.tsx
-│   └── [Documentation]
+│   └── package.json
 │
-├── mobile-app/                   # Flutter App (90% COMPLETE)
+├── mobile-app/                   # Flutter App
 │   ├── lib/
-│   │   ├── screens/             # 4 screens (Home, Login, Workout, Recovery)
-│   │   ├── theme/               # Design system
-│   │   ├── services/            # API client
+│   │   ├── screens/              # Home, Login, Workout, Recovery, Profile, History
+│   │   ├── theme/                # Design system
+│   │   ├── services/             # API client
 │   │   └── main.dart
 │   └── pubspec.yaml
 │
-├── IMPLEMENTATION_STATUS.md      # Detailed progress (NEW!)
-├── FLUTTER_QUICK_START.md        # Get Flutter running (NEW!)
-└── README.md                     # This file
+├── ml_models/                    # ML model files
+│   ├── risk_model.pkl            # Trained Random Forest
+│   ├── scaler.pkl                # Feature scaler
+│   └── feature_columns.json      # Feature names
+│
+├── docs/                         # Documentation
+│   ├── README.md                 # Documentation index
+│   └── *.md                      # Technical docs
+│
+├── README.md                     # This file
+├── ROADMAP.md                    # Development roadmap
+└── requirements.txt              # Python dependencies
 ```
 
 ---

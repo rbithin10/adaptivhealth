@@ -24,6 +24,7 @@ const PatientsPage: React.FC = () => {
 
   useEffect(() => {
     loadPatients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadPatients = async () => {
@@ -43,9 +44,10 @@ const PatientsPage: React.FC = () => {
     const matchesSearch =
       (patient.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       patient.user_id.toString().includes(searchTerm);
-    // TODO: Add risk level filtering once we have risk data
-    // const matchesFilter = filterRisk === 'all' || patient.riskLevel === filterRisk;
-    return matchesSearch;
+    // Filter by risk level when patient has risk data
+    const patientRisk = (patient as any).risk_level as string | undefined;
+    const matchesFilter = filterRisk === 'all' || patientRisk === filterRisk;
+    return matchesSearch && matchesFilter;
   });
 
   return (
@@ -220,7 +222,7 @@ const PatientsPage: React.FC = () => {
                 <div style={typography.body}>{patient.age || 'N/A'}</div>
                 <div style={typography.body}>{patient.gender || 'N/A'}</div>
                 <div>
-                  <StatusBadge status="stable" size="sm" />
+                  <StatusBadge status={riskToStatus((patient as any).risk_level || 'low')} size="sm" />
                 </div>
                 <div style={{ ...typography.body, fontWeight: 600 }}>
                   -- <span style={{ ...typography.caption, fontWeight: 400 }}>BPM</span>
