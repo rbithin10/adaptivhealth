@@ -103,7 +103,7 @@ celerybeat.pid
 
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
@@ -144,3 +144,4 @@ Thumbs.db
 # Project specific
 adaptiv_health.db
 .env
+adaptive_health.db
