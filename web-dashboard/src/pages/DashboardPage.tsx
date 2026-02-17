@@ -53,6 +53,7 @@ const DashboardPage: React.FC = () => {
     avgHeartRate: 72,
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [alertStats, setAlertStats] = useState<AlertStatsResponse | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
@@ -70,8 +71,19 @@ const DashboardPage: React.FC = () => {
   }, []);
 
   const loadDashboardData = async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
-      const user = await api.getCurrentUser();
+      const withTimeout = async <T,>(promise: Promise<T>, timeoutMs = 12000): Promise<T> => {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, reject) =>
+            setTimeout(() => reject(new Error('Request timed out')), timeoutMs)
+          ),
+        ]);
+      };
+
+      const user = await withTimeout(api.getCurrentUser());
       setCurrentUser(user);
 
       // Redirect admin to admin page
@@ -82,17 +94,19 @@ const DashboardPage: React.FC = () => {
       }
 
       const [usersList, statsResponse, alertsResponse, vitalsSummary] =
-        await Promise.all([
-          api.getAllUsers(1, 200),
-          api.getAlertStats(),
-          api.getAlerts(1, 5),
-          api.getVitalSignsSummary(),
-        ]);
+        await withTimeout(
+          Promise.all([
+            api.getAllUsers(1, 200),
+            api.getAlertStats(),
+            api.getAlerts(1, 5),
+            api.getVitalSignsSummary(),
+          ])
+        );
 
       // Load pending consent requests for clinicians
       if (role === 'clinician') {
         try {
-          const consentResp = await api.getPendingConsentRequests();
+          const consentResp = await withTimeout(api.getPendingConsentRequests());
           setPendingConsent(consentResp.pending_requests || []);
         } catch (e) {
           console.warn('Could not load consent requests:', e);
@@ -152,6 +166,11 @@ const DashboardPage: React.FC = () => {
       ]);
     } catch (error) {
       console.error('Error loading dashboard:', error);
+      const message =
+        error instanceof Error && error.message === 'Request timed out'
+          ? 'The dashboard is taking too long to respond. Please check the backend and try again.'
+          : 'We could not load the dashboard. Please make sure the backend is running and try again.';
+      setLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -207,6 +226,29 @@ const DashboardPage: React.FC = () => {
     return (
       <div style={{ padding: '32px', textAlign: 'center' }}>
         <p>Loading dashboard...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ padding: '32px', textAlign: 'center' }}>
+        <p>{loadError}</p>
+        <button
+          onClick={loadDashboardData}
+          style={{
+            marginTop: '12px',
+            padding: '8px 16px',
+            borderRadius: '6px',
+            border: `1px solid ${colors.neutral['300']}`,
+            backgroundColor: colors.neutral.white,
+            cursor: 'pointer',
+            color: colors.neutral['700'],
+            fontWeight: 500,
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
   }

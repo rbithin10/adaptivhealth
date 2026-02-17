@@ -16,8 +16,8 @@ import 'recovery_screen.dart';
 import 'health_screen.dart';
 import 'profile_screen.dart';
 import 'nutrition_screen.dart';
-import 'chatbot_screen.dart';
 import 'doctor_messaging_screen.dart';
+// Note: ChatbotScreen removed - AI Coach is now a floating widget (FloatingChatbot)
 
 class HomeScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -44,35 +44,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _loadData() {
-    // Load data from the server. If anything fails, show demo values.
-    _vitalsFuture = widget.apiClient.getLatestVitals().catchError(
-      (e) => {
-        'heart_rate': 72,
-        'spo2': 98,
-        'systolic_bp': 120,
-        'diastolic_bp': 80,
-        'timestamp': DateTime.now().toIso8601String(),
-      },
-    );
-
-    _riskFuture = widget.apiClient
-        .predictRisk(
-          heartRate: 72,
-          spo2: 98,
-          systolicBp: 120,
-          diastolicBp: 80,
-        )
-        .catchError(
-          (e) => {
-            'risk_level': 'low',
-            'risk_score': 0.23,
-          },
-        );
-
     _userFuture = widget.apiClient.getCurrentUser().catchError(
       (e) => {
         'name': 'Patient',
         'age': 35,
+      },
+    );
+
+    _vitalsFuture = widget.apiClient.getLatestVitals();
+
+    _riskFuture = widget.apiClient.getLatestRiskAssessment().catchError(
+      (e) => {
+        'risk_level': 'low',
+        'risk_score': 0.23,
       },
     );
   }
@@ -159,6 +143,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: _getSelectedScreen(),
+      // Floating AI Health Coach - always accessible
+      floatingActionButton: const FloatingChatbot(),
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(
@@ -172,34 +158,19 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Fitness',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.spa_outlined),
-            activeIcon: Icon(Icons.spa),
-            label: 'Recovery',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.monitor_heart_outlined),
-            activeIcon: Icon(Icons.monitor_heart),
-            label: 'Health',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.restaurant_outlined),
             activeIcon: Icon(Icons.restaurant),
             label: 'Nutrition',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
-            activeIcon: Icon(Icons.chat_bubble),
-            label: 'Chatbot',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.message_outlined),
             activeIcon: Icon(Icons.message),
-            label: 'Doctor Messaging',
+            label: 'Messages',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
         ],
         currentIndex: _selectedIndex,
@@ -217,6 +188,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Returns the screen widget for each bottom nav tab
+  // New 5-tab structure: Home, Fitness, Nutrition, Messages, Profile
+  // AI Chatbot is now a floating button (always accessible)
+  // Recovery is accessible from Fitness screen
+  // Health metrics are shown on Home dashboard
   Widget _getSelectedScreen() {
     switch (_selectedIndex) {
       case 0:
@@ -224,14 +200,32 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return FitnessPlansScreen(apiClient: widget.apiClient);
       case 2:
-        return RecoveryScreen(apiClient: widget.apiClient);
+        return const NutritionScreen();
       case 3:
-        return HealthScreen(apiClient: widget.apiClient);
+        return const DoctorMessagingScreen();
       case 4:
-        return DoctorMessagingScreen();
+        return ProfileScreen(apiClient: widget.apiClient);
       default:
         return _buildHomeTab();
     }
+  }
+
+  // Navigate to Recovery screen (accessible from Fitness or quick actions)
+  void _navigateToRecovery() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => RecoveryScreen(apiClient: widget.apiClient),
+      ),
+    );
+  }
+
+  // Navigate to Health screen (accessible from Home or quick actions)
+  void _navigateToHealth() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => HealthScreen(apiClient: widget.apiClient),
+      ),
+    );
   }
 
   Widget _buildHomeTab() {
@@ -244,27 +238,48 @@ class _HomeScreenState extends State<HomeScreen> {
           })),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
+          return const SizedBox.expand(
+            child: Center(
+              child: CircularProgressIndicator(),
+            ),
           );
         }
 
-        if (!snapshot.hasData) {
-          return Center(
-            child: Text('Error loading data: ${snapshot.error}'),
+        if (snapshot.hasError) {
+          return SizedBox.expand(
+            child: Center(
+              child: Text('Error loading data: ${snapshot.error}'),
+            ),
           );
         }
 
-        final user = snapshot.data!['user'] as Map<String, dynamic>;
-        final vitals = snapshot.data!['vitals'] as Map<String, dynamic>;
-        final risk = snapshot.data!['risk'] as Map<String, dynamic>;
+        final data = snapshot.data;
+        if (data == null) {
+          return const SizedBox.expand(
+            child: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final user = data['user'] as Map<String, dynamic>;
+        final vitals = data['vitals'] as Map<String, dynamic>;
+        final risk = data['risk'] as Map<String, dynamic>;
 
         final userName = user['name'] ?? 'Patient';
         final firstName = userName.split(' ').first;
-        final heartRate = vitals['heart_rate'] ?? 72;
-        final spo2 = vitals['spo2'] ?? 98;
-        final systolicBp = vitals['systolic_bp'] ?? 120;
-        final diastolicBp = vitals['diastolic_bp'] ?? 80;
+        final heartRate = _safeToInt(vitals['heart_rate'], 72);
+        final spo2 = _safeToInt(vitals['spo2'], 98);
+        final systolicBp = _safeBloodPressure(
+          vitals['blood_pressure'],
+          'systolic',
+          120,
+        );
+        final diastolicBp = _safeBloodPressure(
+          vitals['blood_pressure'],
+          'diastolic',
+          80,
+        );
         final riskLevel = risk['risk_level'] ?? 'low';
         final riskScore = risk['risk_score'] ?? 0.23;
 
@@ -632,41 +647,50 @@ class _HomeScreenState extends State<HomeScreen> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              VitalCard(
-                icon: Icons.air,
-                label: 'SpO2',
-                value: spo2.toString(),
-                unit: '%',
-                status: spo2 < 90
-                    ? VitalStatus.critical
-                    : spo2 < 95
-                        ? VitalStatus.warning
-                        : VitalStatus.safe,
-                trend: spo2Trend,
-                onTap: () {},
+              SizedBox(
+                width: 160,
+                child: VitalCard(
+                  icon: Icons.air,
+                  label: 'SpO2',
+                  value: spo2.toString(),
+                  unit: '%',
+                  status: spo2 < 90
+                      ? VitalStatus.critical
+                      : spo2 < 95
+                          ? VitalStatus.warning
+                          : VitalStatus.safe,
+                  trend: spo2Trend,
+                  onTap: () {},
+                ),
               ),
               const SizedBox(width: 12),
-              VitalCard(
-                icon: Icons.water_drop,
-                label: 'BP',
-                value: '$systolicBp/$diastolicBp',
-                unit: 'mmHg',
-                status: systolicBp > 140
-                    ? VitalStatus.critical
-                    : systolicBp > 130
-                        ? VitalStatus.warning
-                        : VitalStatus.safe,
-                onTap: () {},
+              SizedBox(
+                width: 160,
+                child: VitalCard(
+                  icon: Icons.water_drop,
+                  label: 'BP',
+                  value: '$systolicBp/$diastolicBp',
+                  unit: 'mmHg',
+                  status: systolicBp > 140
+                      ? VitalStatus.critical
+                      : systolicBp > 130
+                          ? VitalStatus.warning
+                          : VitalStatus.safe,
+                  onTap: () {},
+                ),
               ),
               const SizedBox(width: 12),
-              VitalCard(
-                icon: Icons.timeline,
-                label: 'HRV',
-                value: '45',
-                unit: 'ms',
-                status: VitalStatus.safe,
-                trend: hrTrend,
-                onTap: () {},
+              SizedBox(
+                width: 160,
+                child: VitalCard(
+                  icon: Icons.timeline,
+                  label: 'HRV',
+                  value: '45',
+                  unit: 'ms',
+                  status: VitalStatus.safe,
+                  trend: hrTrend,
+                  onTap: () {},
+                ),
               ),
               const SizedBox(width: 12),
             ],
@@ -739,34 +763,33 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _buildQuickActionButton(
                 icon: Icons.self_improvement,
-                label: 'Breathe',
+                label: 'Recovery',
                 color: const Color(0xFF9C27B0),
-                onTap: () {
-                  setState(() => _selectedIndex = 2); // Go to Recovery
-                },
+                onTap: _navigateToRecovery, // Opens Recovery screen
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _buildQuickActionButton(
                 icon: Icons.monitor_heart,
-                label: 'Measure',
+                label: 'Health',
                 color: AdaptivColors.critical,
-                onTap: () {
-                  setState(() => _selectedIndex = 3); // Go to Health
-                },
+                onTap: _navigateToHealth, // Opens Health screen
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _buildQuickActionButton(
-                icon: Icons.chat_bubble_outline,
-                label: 'Ask Coach',
+                icon: Icons.smart_toy_outlined,
+                label: 'AI Coach',
                 color: AdaptivColors.stable,
                 onTap: () {
-                  // TODO: Open AI coach
+                  // Hint user to use the floating chatbot button
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('AI Coach coming soon!')),
+                    const SnackBar(
+                      content: Text('Tap the AI Coach button in the corner →'),
+                      duration: Duration(seconds: 2),
+                    ),
                   );
                 },
               ),
@@ -784,8 +807,10 @@ class _HomeScreenState extends State<HomeScreen> {
     required VoidCallback onTap,
   }) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
+        constraints: const BoxConstraints(minHeight: 104),
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
@@ -849,9 +874,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Spacer(),
             GestureDetector(
-              onTap: () {
-                setState(() => _selectedIndex = 3); // Go to Health
-              },
+              onTap: _navigateToHealth, // Opens Health screen
               child: Text(
                 'See All',
                 style: AdaptivTypography.label.copyWith(
@@ -1046,4 +1069,24 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
+  //parsing helpers so Home screen can safely read numbers from the backend response without crashing.
+  int _safeToInt(dynamic value, int fallback) {
+    if (value == null) return fallback;
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      return parsed ?? fallback;
+    }
+    return fallback;
+  }
+
+  int _safeBloodPressure(dynamic bpObject, String key, int fallback) {
+    if (bpObject == null) return fallback;
+    if (bpObject is Map<String, dynamic>) {
+      return _safeToInt(bpObject[key], fallback);
+    }
+    return fallback;
+  }
+
 }

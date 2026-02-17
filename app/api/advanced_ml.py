@@ -68,12 +68,8 @@ from app.services.retraining_pipeline import (
     get_retraining_status,
 )
 from app.services.explainability import explain_prediction
-from app.services.ml_prediction import (
-    get_ml_service,
-    predict_risk as ml_predict_risk,
-    model as ml_model,
-    feature_columns as ml_feature_columns,
-)
+from app.services import ml_prediction
+from app.services.ml_prediction import get_ml_service
 from app.api.auth import get_current_user, get_current_doctor_user
 
 logger = logging.getLogger(__name__)
@@ -502,7 +498,7 @@ async def explain_risk_prediction(
             detail="ML model not loaded.",
         )
 
-    prediction = ml_predict_risk(
+    prediction = ml_prediction.predict_risk(
         age=request.age,
         baseline_hr=request.baseline_hr,
         max_safe_hr=request.max_safe_hr,
@@ -517,8 +513,8 @@ async def explain_risk_prediction(
 
     explanation = explain_prediction(
         prediction_result=prediction,
-        feature_columns=ml_feature_columns or [],
-        model=ml_model,
+        feature_columns=ml_prediction.feature_columns or [],
+        model=ml_prediction.model,
     )
 
     return explanation

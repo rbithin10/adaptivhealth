@@ -406,6 +406,22 @@ class ApiClient {
     }
   }
 
+  // ============ Risk Assessment Endpoints ============
+
+  /// Get the patient's most recent stored risk assessment.
+  ///
+  /// Used by the Home screen to show the latest cardiovascular
+  /// risk level and score without recomputing the ML model.
+  Future<Map<String, dynamic>> getLatestRiskAssessment() async {
+    try {
+      final response = await _dio.get('/risk-assessments/latest');
+      return response.data;
+    } on DioException catch (e) {
+      // Let caller decide how to handle specific status codes
+      throw _handleDioError(e);
+    }
+  }
+
   // ============ Consent Endpoints ============
 
   /// Get current consent/sharing status

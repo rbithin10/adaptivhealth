@@ -30,6 +30,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
+import threading
 import joblib
 
 # Logger setup
@@ -47,51 +48,91 @@ FEATURES_PATH = BASE_DIR / "ml_models" / "feature_columns.json"
 model = None
 scaler = None
 feature_columns = None
+_model_load_attempted = False
+_model_load_lock = threading.Lock()
 
 
-def load_ml_model() -> bool:
+def _load_ml_model_inner(result: dict) -> None:
     """
-    Load the model files from disk on app startup.
-    
-    Uses absolute paths to avoid working directory issues.
-    Loads once and stores in module-level globals.
-
-    Returns:
-        True if successful, False on any file/parsing error
+    Internal helper that loads model files.
+    Runs inside a thread so the caller can enforce a timeout.
     """
-    global model, scaler, feature_columns
-    
     try:
-        # Load pre-trained Random Forest model using joblib (more efficient than pickle)
-        model = joblib.load(MODEL_PATH)
+        result["model"] = joblib.load(MODEL_PATH)
         logger.info(f"Loaded model from {MODEL_PATH}")
 
-        # Load feature scaler (StandardScaler or similar)
-        # WHY: Tree models don't need scaling, but other models might
-        # Loaded for future compatibility if model architecture changes
-        scaler = joblib.load(SCALER_PATH)
+        result["scaler"] = joblib.load(SCALER_PATH)
         logger.info(f"Loaded scaler from {SCALER_PATH}")
 
-        # Load feature column names
-        # WHY: Model expects 17 features in specific order
-        # Loading from JSON makes it easy to change without code edits
         with open(FEATURES_PATH, 'r') as f:
-            feature_columns = json.load(f)
-        logger.info(f"Loaded {len(feature_columns)} feature columns")
+            result["feature_columns"] = json.load(f)
+        logger.info(f"Loaded {len(result['feature_columns'])} feature columns")
 
-        return True
-
+        result["ok"] = True
     except FileNotFoundError as e:
-        # Model files not found - likely first deployment
-        # User should copy ml_models/ folder from training repo
         logger.error(f"Model file not found: {e}")
         logger.error(f"Expected files in: {BASE_DIR / 'ml_models'}")
-        logger.error("Copy risk_model.pkl, scaler.pkl, feature_columns.json to ml_models/")
-        return False
+        result["ok"] = False
     except Exception as e:
-        # Unexpected error (corrupted file, wrong format, etc.)
         logger.error(f"Failed to load ML model: {e}")
+        result["ok"] = False
+
+
+def load_ml_model(timeout: int = 15) -> bool:
+    """
+    Load the model files from disk on app startup with a timeout.
+
+    Uses a background thread so that a hanging joblib.load()
+    (e.g. version mismatch) does not block server startup forever.
+
+    Args:
+        timeout: Maximum seconds to wait for model loading (default 15).
+
+    Returns:
+        True if successful, False on any error or timeout.
+    """
+    global model, scaler, feature_columns, _model_load_attempted
+
+    _model_load_attempted = True
+
+    result: dict = {"ok": False}
+    loader = threading.Thread(target=_load_ml_model_inner, args=(result,), daemon=True)
+    loader.start()
+    loader.join(timeout=timeout)
+
+    if loader.is_alive():
+        logger.error(
+            f"ML model loading timed out after {timeout}s – "
+            "pkl files may be incompatible with the current scikit-learn / Python version. "
+            "Prediction endpoints will return 503."
+        )
         return False
+
+    if result.get("ok"):
+        model = result["model"]
+        scaler = result["scaler"]
+        feature_columns = result["feature_columns"]
+        return True
+
+    return False
+
+
+def ensure_model_loaded() -> bool:
+    """
+    Ensure the ML model is loaded, attempting once if needed.
+
+    Returns:
+        True if model is loaded, False otherwise.
+    """
+    if is_model_loaded():
+        return True
+
+    with _model_load_lock:
+        if is_model_loaded():
+            return True
+        if _model_load_attempted:
+            return False
+        return load_ml_model()
 
 
 def is_model_loaded() -> bool:
@@ -233,6 +274,10 @@ class MLPredictionService:
     @property
     def is_loaded(self) -> bool:
         return is_model_loaded()
+
+    @property
+    def feature_columns(self) -> Optional[list[str]]:
+        return feature_columns
     
     def predict_risk(self, **kwargs) -> Dict[str, Any]:
         return predict_risk(**kwargs)
@@ -240,4 +285,5 @@ class MLPredictionService:
 
 def get_ml_service() -> MLPredictionService:
     """Get the ML prediction service (for backward compatibility)."""
+    ensure_model_loaded()
     return MLPredictionService()

@@ -55,10 +55,13 @@ async def lifespan(app: FastAPI):
     
     # Load ML model (Massoud's trained Random Forest)
     # Uses absolute paths and joblib for production safety
-    if load_ml_model():
-        logger.info("ML model loaded successfully at startup")
-    else:
-        logger.error("ML model failed to load - prediction endpoints will return 503")
+    try:
+        if load_ml_model():
+            logger.info("ML model loaded successfully at startup")
+        else:
+            logger.warning("ML model failed to load - prediction endpoints will return 503")
+    except Exception as e:
+        logger.warning(f"ML model loading skipped due to error: {e}")
     
     logger.info("Adaptive Health API started successfully")
     

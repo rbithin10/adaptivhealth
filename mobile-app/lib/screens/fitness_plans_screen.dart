@@ -11,6 +11,7 @@ import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/widgets.dart';
 import '../services/api_client.dart';
+import 'recovery_screen.dart';
 
 class FitnessPlansScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -163,6 +164,21 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
           style: AdaptivTypography.screenTitle,
         ),
         actions: [
+          // Recovery button - navigate to recovery screen
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => RecoveryScreen(apiClient: widget.apiClient),
+                ),
+              );
+            },
+            icon: const Icon(Icons.spa, size: 18),
+            label: const Text('Recovery'),
+            style: TextButton.styleFrom(
+              foregroundColor: AdaptivColors.primary,
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.tune, color: AdaptivColors.text600),
             onPressed: () {
