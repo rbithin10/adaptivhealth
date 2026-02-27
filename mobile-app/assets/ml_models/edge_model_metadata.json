@@ -1,0 +1,24 @@
+{
+  "model_name": "RandomForest",
+  "model_version": "2.0",
+  "accuracy": 0.975,
+  "n_features": 17,
+  "feature_columns": ["age", "baseline_hr", "max_safe_hr", "avg_heart_rate", "peak_heart_rate", "min_heart_rate", "avg_spo2", "duration_minutes", "recovery_time_minutes", "hr_pct_of_max", "hr_elevation", "hr_range", "duration_intensity", "recovery_efficiency", "spo2_deviation", "age_risk_factor", "activity_intensity"],
+  "classes": [0, 1],
+  "n_estimators": 100,
+  "risk_thresholds": {
+    "high": 0.80,
+    "moderate": 0.50,
+    "low": 0.0
+  },
+  "alert_thresholds": {
+    "hr_critical_high": 180,
+    "hr_warning_high": 150,
+    "hr_critical_low": 40,
+    "hr_warning_low": 50,
+    "spo2_critical": 88,
+    "spo2_warning": 92,
+    "bp_systolic_critical": 180,
+    "bp_systolic_warning": 160
+  }
+}

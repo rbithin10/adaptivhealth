@@ -7,9 +7,8 @@ ml_service = get_ml_service()
 
 if ml_service.is_loaded:
     print("✅ SUCCESS: ML model loaded!")
-    print(f"   Model type: {type(ml_service.model).__name__}")
-    print(f"   Scaler type: {type(ml_service.scaler).__name__}")
-    print(f"   Features: {len(ml_service.feature_columns)} columns")
+    print(f"   Model loaded: {ml_service.is_loaded}")
+    print(f"   Feature columns: {len(ml_service.feature_columns)} columns")
     
     # Try a test prediction
     print("\n🧪 Testing prediction with sample data...")
@@ -32,4 +31,4 @@ if ml_service.is_loaded:
 else:
     print("❌ FAILED: Model did not load")
     print("   Check that ml_models/ folder has all required files")
-    print(f"   Expected location: {ml_service.model}")
+    print("   Expected files: risk_model.pkl, scaler.pkl, feature_columns.json")

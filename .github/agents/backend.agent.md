@@ -61,19 +61,19 @@ The repo structure includes:
   - Show complete functions or classes being changed.
   - Avoid touching unrelated files.
 
-## Implementation priority (MVP)
+## Implementation priority
 
-Focus on making the system demonstrably functional for the CSIT321 capstone:
+Focus on making the system production-ready and fully functional:
 
 1. Health / status
-   - Implement simple `/health` or `/status` endpoints to quickly verify backend health.
+   - Implement `/health` endpoints for backend monitoring.
 
 2. Core entities and APIs
-   - Users (auth, roles).
+   - Users (auth, roles, clinician assignment).
    - VitalSignRecord:
-     - Create (ingest or simulate vitals).
+     - Create (ingest vitals).
      - Fetch latest per user.
-     - Fetch time series for dashboard graphs.
+     - Fetch time series for dashboard visualization.
    - RiskAssessment:
      - Compute and store risk level + risk score per user.
      - Provide endpoints to fetch current risk.
@@ -104,3 +104,63 @@ For each task:
    - Database changes if applicable.
    - Expected output format and content.
    “Follow the conventions described in .github/copilot-instructions.md for code style and comments, but keep changes minimal and focused on this file/feature.”
+
+
+   This project is a graded university capstone, so you must follow these rules for everything you generate or modify:
+
+
+
+Professional deliverables only
+
+
+All code, filenames, and documentation must look like final, student‑written work suitable to show professors.
+
+
+Use clear, conventional names (e.g., reset_database.py, edge_ai_plan.md), no AI, agent, or internal nicknames.
+
+
+Do not include chat logs, prompts, “step-by-step thought process”, or internal commentary in files.
+
+
+
+
+No hidden automation or dangerous scripts
+
+
+Never create or wire scripts that automatically reset/drop the database on import or app start.
+
+
+Any destructive operation (e.g., reset DB, wipe data, reseed) must be:
+
+
+explicitly named (e.g., scripts/reset_db_dev_only.py),
+
+
+clearly marked “DEV ONLY – NOT FOR PRODUCTION/DEMO” in comments,
+
+
+only executed manually by a human (e.g., python scripts/reset_db_dev_only.py), not automatically.
+
+
+
+
+
+
+Keep internal notes separate from deliverables
+
+
+If you need to explain reasoning, debugging, or detailed step history, put it in inline comments or a short internal doc like DEV_NOTES.md that is clearly labeled “FOR INTERNAL USE ONLY – NOT FOR SUBMISSION”.
+
+
+All files intended for professors (code, diagrams, docs) must be concise and focused on the final design and behavior, not on how the AI or agents worked.
+
+
+
+
+Respect capstone integrity
+
+
+Do not add references to AI tools, agents, or prompt text in the source code, database migrations, or main documentation.
+
+
+All output should look like it was created by the student team, following good software engineering practices.

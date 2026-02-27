@@ -212,12 +212,12 @@ All paths are relative to the `/api/v1` prefix unless otherwise noted.
 | `getLatestVitalSigns()` | GET `/vitals/latest` | ❌ |
 | `getLatestVitalSignsForUser()` | GET `/vitals/user/{id}/latest` | ✅ PatientDetailPage |
 | `getVitalSignsHistory()` | GET `/vitals/history` | ❌ |
-| `getVitalSignsHistoryForUser()` | GET `/vitals/user/{id}/history` | ✅ PatientDetailPage |
+| `getVitalSignsHistoryForUser()` | GET `/vitals/user/{id}/history` | ✅ PatientDetailPage, DashboardPage |
 | `getVitalSignsSummary()` | GET `/vitals/summary` | ✅ DashboardPage |
 | `getVitalSignsSummaryForUser()` | GET `/vitals/user/{id}/summary` | ❌ |
 | `submitVitalSigns()` | POST `/vitals` | ❌ |
 | `getLatestRiskAssessment()` | GET `/risk-assessments/latest` | ❌ |
-| `getLatestRiskAssessmentForUser()` | GET `/patients/{id}/risk-assessments/latest` | ✅ PatientDetailPage |
+| `getLatestRiskAssessmentForUser()` | GET `/patients/{id}/risk-assessments/latest` | ✅ PatientDetailPage, DashboardPage |
 | `computeRiskAssessment()` | POST `/risk-assessments/compute` | ❌ |
 | `computeRiskAssessmentForUser()` | POST `/patients/{id}/risk-assessments/compute` | ❌ |
 | `predictRisk()` | POST `/predict/risk` | ❌ |
@@ -332,7 +332,7 @@ _Filled blocks (█) indicate relative coverage depth._
 |------|-----------|
 | **LoginPage** | `login()`, `getCurrentUser()`, `requestPasswordReset()` |
 | **RegisterPage** | `register()` |
-| **DashboardPage** | `getCurrentUser()`, `getAllUsers()`, `getAlertStats()`, `getAlerts()`, `getVitalSignsSummary()`, `getPendingConsentRequests()`, `reviewConsentRequest()` |
+| **DashboardPage** | `getCurrentUser()`, `getAllUsers()`, `getAlertStats()`, `getAlerts()`, `getVitalSignsSummary()`, `getVitalSignsHistoryForUser()`, `getLatestRiskAssessmentForUser()`, `getPendingConsentRequests()`, `reviewConsentRequest()` |
 | **AdminPage** *(NEW)* | `getCurrentUser()`, `getAllUsers()`, `createUser()`, `adminResetUserPassword()`, `deactivateUser()` |
 | **PatientsPage** | `getAllUsers()` |
 | **PatientDetailPage** | `getUserById()`, `getLatestVitalSignsForUser()`, `getVitalSignsHistoryForUser()`, `getActivitiesForUser()`, `getAlertsForUser()`, `getLatestRiskAssessmentForUser()`, `getLatestRecommendationForUser()` |

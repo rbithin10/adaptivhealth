@@ -1,15 +1,281 @@
 """
-Tests for advanced ML/AI services.
+Tests for advanced ML/AI services and API endpoints.
 
-Covers anomaly detection, trend forecasting, baseline optimization,
-recommendation ranking, natural language alerts, retraining pipeline,
-and explainability.
+Covers:
+- API endpoints in app/api/advanced_ml.py at 0%
+- Service layer functions (anomaly detection, forecasting, optimization, etc.)
+
+Run with:
+    pytest tests/test_advanced_ml.py -v
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch, Mock
+from fastapi.testclient import TestClient
+
+from app.main import app as fastapi_app
+from tests.helpers import make_user, get_token
+
+
+client = TestClient(fastapi_app)
 
 
 # =============================================================================
+# API ENDPOINT TESTS (app/api/advanced_ml.py at 0%)
+# =============================================================================
+
+class TestDetectVitalAnomaliesEndpoint:
+    """Test GET /api/v1/anomaly-detection endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.get("/api/v1/anomaly-detection?days=7")
+        assert response.status_code == 401
+
+    @patch('app.services.anomaly_detection.detect_anomalies')
+    def test_with_auth_returns_200(self, mock_detect, db_session):
+        """Test with auth + mocked service returns 200."""
+        mock_detect.return_value = {
+            "anomalies": [],
+            "anomaly_score": 0.12,
+            "threshold": 0.5,
+            "status": "normal"
+        }
+        
+        user = make_user(db_session, "alice@example.com", "Alice", "patient")
+        token = get_token(client, "alice@example.com")
+        
+        response = client.get(
+            "/api/v1/anomaly-detection?days=7",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "anomalies" in data or "anomaly_score" in data
+
+
+class TestForecastVitalTrendsEndpoint:
+    """Test GET /api/v1/trend-forecast endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.get("/api/v1/trend-forecast?forecast_days=7")
+        assert response.status_code == 401
+
+    @patch('app.services.trend_forecasting.forecast_trends')
+    def test_with_auth_returns_200(self, mock_forecast, db_session):
+        """Test with auth returns 200."""
+        mock_forecast.return_value = {
+            "forecast": [],
+            "trend": "stable",
+            "confidence": 0.85
+        }
+        
+        user = make_user(db_session, "bob@example.com", "Bob", "patient")
+        token = get_token(client, "bob@example.com")
+        
+        response = client.get(
+            "/api/v1/trend-forecast?forecast_days=7",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 200
+
+
+class TestOptimizeBaselineEndpoint:
+    """Test GET /api/v1/baseline-optimization endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.get("/api/v1/baseline-optimization")
+        assert response.status_code == 401
+
+    @patch('app.services.baseline_optimization.compute_optimized_baseline')
+    def test_with_auth_returns_200(self, mock_compute, db_session):
+        """Test with auth returns 200."""
+        mock_compute.return_value = {
+            "current_baseline_hr": 70,
+            "optimized_baseline_hr": 68,
+            "confidence": 0.92
+        }
+        
+        user = make_user(db_session, "charlie@example.com", "Charlie", "patient")
+        token = get_token(client, "charlie@example.com")
+        
+        response = client.get(
+            "/api/v1/baseline-optimization",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 200
+
+
+class TestApplyBaselineOptimizationEndpoint:
+    """Test POST /api/v1/baseline-optimization/apply endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.post(
+            "/api/v1/baseline-optimization/apply",
+            json={"new_baseline_hr": 68}
+        )
+        assert response.status_code == 401
+
+    def test_with_auth_updates_user(self, db_session):
+        """Test with auth updates user baseline."""
+        user = make_user(db_session, "dave@example.com", "Dave", "patient")
+        user.baseline_hr = 70
+        db_session.commit()
+        
+        token = get_token(client, "dave@example.com")
+        
+        response = client.post(
+            "/api/v1/baseline-optimization/apply",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"new_baseline_hr": 68}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        # Endpoint returns "new_baseline" not "baseline_heart_rate"
+        assert "new_baseline" in data or "user_id" in data
+
+
+class TestModelRetrainingStatusEndpoint:
+    """Test GET /api/v1/model/retraining-status endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.get("/api/v1/model/retraining-status")
+        assert response.status_code == 401
+
+    def test_patient_returns_403(self, db_session):
+        """Test patient role returns 403."""
+        user = make_user(db_session, "eve@example.com", "Eve", "patient")
+        token = get_token(client, "eve@example.com")
+        
+        response = client.get(
+            "/api/v1/model/retraining-status",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 403
+
+    @patch('app.services.retraining_pipeline.get_retraining_status')
+    def test_clinician_returns_200(self, mock_status, db_session):
+        """Test clinician role returns 200."""
+        mock_status.return_value = {"status": "completed", "accuracy": 0.97}
+        
+        doctor = make_user(db_session, "dr.jane@example.com", "Dr. Jane", "clinician")
+        token = get_token(client, "dr.jane@example.com")
+        
+        response = client.get(
+            "/api/v1/model/retraining-status",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 200
+
+
+class TestCheckRetrainingReadinessEndpoint:
+    """Test GET /api/v1/model/retraining-readiness endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.get("/api/v1/model/retraining-readiness")
+        assert response.status_code == 401
+
+    def test_patient_returns_403(self, db_session):
+        """Test patient role returns 403."""
+        user = make_user(db_session, "frank@example.com", "Frank", "patient")
+        token = get_token(client, "frank@example.com")
+        
+        response = client.get(
+            "/api/v1/model/retraining-readiness",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 403
+
+    @patch('app.services.retraining_pipeline.evaluate_retraining_readiness')
+    def test_clinician_returns_200(self, mock_evaluate, db_session):
+        """Test clinician role returns 200."""
+        mock_evaluate.return_value = {"ready": True, "data_points": 1500}
+        
+        doctor = make_user(db_session, "dr.bob@example.com", "Dr. Bob", "clinician")
+        token = get_token(client, "dr.bob@example.com")
+        
+        response = client.get(
+            "/api/v1/model/retraining-readiness",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        
+        assert response.status_code == 200
+
+
+class TestExplainRiskPredictionEndpoint:
+    """Test POST /api/v1/predict/explain endpoint."""
+
+    def test_no_auth_returns_401(self, db_session):
+        """Test no auth returns 401."""
+        response = client.post(
+            "/api/v1/predict/explain",
+            json={"prediction_id": "test123"}
+        )
+        assert response.status_code == 401
+
+    @patch('app.services.ml_prediction.model', Mock())
+    @patch('app.services.ml_prediction.feature_columns', ['age', 'hr_pct_of_max'])
+    @patch('app.services.ml_prediction.predict_risk')
+    @patch('app.services.ml_prediction.get_ml_service')
+    @patch('app.services.explainability.explain_prediction')
+    def test_with_auth_returns_200(self, mock_explain, mock_get_service, mock_predict, db_session):
+        """Test with auth returns 200."""
+        # Mock ML service as loaded
+        mock_service = Mock()
+        mock_service.is_loaded = True
+        mock_get_service.return_value = mock_service
+        
+        # Mock prediction result
+        mock_predict.return_value = {
+            "risk_score": 0.35,
+            "risk_level": "low"
+        }
+        
+        # Mock explanation result
+        mock_explain.return_value = {
+            "feature_impacts": [{"feature": "age", "impact": 0.25}],
+            "prediction": 0.85
+        }
+        
+        user = make_user(db_session, "grace@example.com", "Grace", "patient")
+        token = get_token(client, "grace@example.com")
+        
+        response = client.post(
+            "/api/v1/predict/explain",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "age": 45,
+                "baseline_hr": 70,
+                "max_safe_hr": 175,
+                "avg_heart_rate": 110,
+                "peak_heart_rate": 140,
+                "min_heart_rate": 65,
+                "avg_spo2": 97,
+                "duration_minutes": 30,
+                "recovery_time_minutes": 5,
+                "activity_type": "walking"
+            }
+        )
+        
+        assert response.status_code == 200
+
+
+# =============================================================================
+# SERVICE LAYER TESTS
+# =============================================================================
+
 # Anomaly Detection Tests
 # =============================================================================
 

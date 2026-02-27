@@ -13,18 +13,20 @@ Implements RBAC for patient, clinician, and admin access.
 #   - can_access_user.................. Line 61  (Access control check)
 #
 # ENDPOINTS - PATIENT (own profile)
-#   - GET /me.......................... Line 108 (Get own profile)
-#   - PUT /me.......................... Line 141 (Update own profile)
-#   - PUT /me/medical-history.......... Line 181 (Update own medical history)
+#   - GET /me.......................... Line 101 (Get own profile)
+#   - PUT /me.......................... Line 134 (Update own profile)
+#   - PUT /me/medical-history.......... Line 178 (Update own medical history)
+#   - GET /me/clinician................ Line 211 (Get assigned clinician)
 #
 # ENDPOINTS - CLINICIAN/ADMIN (user management)
-#   - GET /............................ Line 218 (List users)
-#   - GET /{id}....................... Line 265 (Get user details)
-#   - PUT /{id}....................... Line 299 (Update user)
-#   - POST /........................... Line 347 (Create user)
-#   - DELETE /{id}.................... Line 407 (Delete user)
-#   - POST /{id}/reset-password........ Line 446 (Reset user password)
-#   - GET /{id}/medical-history........ Line 509 (Get patient history)
+#   - GET /............................ Line 258 (List users)
+#   - GET /{id}....................... Line 320 (Get user details)
+#   - PUT /{id}....................... Line 354 (Update user)
+#   - POST /........................... Line 402 (Create user)
+#   - DELETE /{id}.................... Line 462 (Delete user)
+#   - POST /{id}/reset-password........ Line 501 (Reset user password)
+#   - GET /{id}/medical-history........ Line 564 (Get patient history)
+#   - PUT /{id}/assign-clinician....... Line 606 (Assign clinician to patient)
 #
 # BUSINESS CONTEXT:
 # - Patients manage their own profile from mobile app
@@ -83,13 +85,6 @@ def can_access_user(current_user: User, target_user: User) -> bool:
         return True
     
     if current_user.role == UserRole.CLINICIAN and target_user.role == UserRole.PATIENT:
-        return True
-    
-    # Caregivers can access patient data
-    # In a full implementation, this would check a caregiver_patients relationship table
-    # to verify the caregiver is assigned to this specific patient
-    if current_user.role == UserRole.CAREGIVER and target_user.role == UserRole.PATIENT:
-        logger.info(f"Caregiver {current_user.user_id} accessing patient {target_user.user_id} data")
         return True
     
     return False
@@ -154,7 +149,11 @@ async def update_my_profile(
     update_data = user_data.model_dump(exclude_unset=True)
     
     # Whitelist allowed fields for security
-    allowed_fields = {'name', 'age', 'gender', 'phone'}
+    allowed_fields = {
+        'name', 'age', 'gender', 'phone',
+        'weight_kg', 'height_cm',
+        'emergency_contact_name', 'emergency_contact_phone',
+    }
     
     for field, value in update_data.items():
         if field in allowed_fields and hasattr(current_user, field):
@@ -205,6 +204,49 @@ async def update_medical_history(
     return {"message": "Medical history updated successfully"}
 
 
+# =============================================
+# GET_ASSIGNED_CLINICIAN - Get patient's assigned clinician
+# Used by: Mobile app messaging screen
+# Returns: Clinician details
+# Roles: PATIENT only
+# =============================================
+@router.get("/me/clinician")
+async def get_my_assigned_clinician(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the clinician assigned to the current patient.
+    
+    Returns clinician details or null if not assigned.
+    """
+    if current_user.role != UserRole.PATIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only patients can access this endpoint"
+        )
+    
+    if not current_user.assigned_clinician_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No clinician assigned to this patient"
+        )
+    
+    clinician = db.query(User).filter(User.user_id == current_user.assigned_clinician_id).first()
+    if not clinician:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assigned clinician not found"
+        )
+    
+    return {
+        "user_id": clinician.user_id,
+        "full_name": clinician.full_name,
+        "email": clinician.email,
+        "phone": clinician.phone
+    }
+
+
 # =============================================================================
 # Clinician/Admin Endpoints
 # =============================================================================
@@ -221,18 +263,33 @@ async def list_users(
     per_page: int = Query(50, ge=1, le=500, description="Items per page"),
     role: Optional[UserRole] = Query(None, description="Filter by role"),
     search: Optional[str] = Query(None, description="Search by name or email"),
-    current_user: User = Depends(get_current_admin_or_doctor_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     List users with pagination and filtering.
     
-    Admin/Clinician access only.
+    Clinicians see ONLY their assigned patients (bidirectional data isolation).
+    Patients can only query for clinicians (role=clinician).
+    Admin/Clinician can query all roles.
     """
+    # Access control: patients can only get clinician list
+    if current_user.role == UserRole.PATIENT and role != UserRole.CLINICIAN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patients can only query clinician list"
+        )
     # Build the query and apply any filters.
     query = db.query(User)
     
-    # Apply filters
+    # Clinicians see ONLY their assigned patients (data isolation)
+    if current_user.role == UserRole.CLINICIAN:
+        # Filter to show only patients assigned to this clinician
+        query = query.filter(User.assigned_clinician_id == current_user.user_id)
+        # Force role filter for patients
+        query = query.filter(User.role == UserRole.PATIENT)
+    
+    # Apply role filter (admins and general queries)
     if role:
         query = query.filter(User.role == role)
     
@@ -540,3 +597,58 @@ async def get_user_medical_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve medical history"
         )
+
+
+# =============================================
+# ASSIGN_CLINICIAN - Admin assigns clinician to patient
+# Used by: Admin dashboard (patient management)
+# Returns: Success message with assignment
+# Roles: ADMIN only
+# =============================================
+@router.put("/{user_id}/assign-clinician")
+async def assign_clinician_to_patient(
+    user_id: int,
+    clinician_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Assign a clinician to a patient.
+    
+    Admin only. The clinician_id must be a user with role=clinician.
+    """
+    # Get patient
+    patient = db.query(User).filter(User.user_id == user_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    if patient.role != UserRole.PATIENT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only assign clinicians to patient users"
+        )
+    
+    # Get clinician
+    clinician = db.query(User).filter(User.user_id == clinician_id).first()
+    if not clinician:
+        raise HTTPException(status_code=404, detail="Clinician not found")
+    
+    if clinician.role != UserRole.CLINICIAN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only assign users with clinician role"
+        )
+    
+    # Assign clinician
+    patient.assigned_clinician_id = clinician_id
+    db.commit()
+    db.refresh(patient)
+    
+    logger.info(f"Admin {current_user.user_id} assigned clinician {clinician_id} to patient {user_id}")
+    
+    return {
+        "message": f"Successfully assigned clinician {clinician.full_name} to patient {patient.full_name}",
+        "patient_id": patient.user_id,
+        "clinician_id": clinician.user_id,
+        "clinician_name": clinician.full_name
+    }

@@ -61,6 +61,21 @@ from app.schemas.recommendation import (
     RecommendationListResponse
 )
 
+# Nutrition schemas
+from app.schemas.nutrition import (
+    MealType,
+    NutritionEntryBase,
+    NutritionCreate,
+    NutritionResponse,
+    NutritionListResponse
+)
+
+# Message schemas
+from app.schemas.message import (
+    MessageCreate,
+    MessageResponse
+)
+
 __all__ = [
     # User
     "UserResponse",
@@ -103,5 +118,15 @@ __all__ = [
     "RecommendationUpdate",
     "RecommendationResponse",
     "RecommendationListResponse",
+    # Nutrition
+    "MealType",
+    "NutritionEntryBase",
+    "NutritionCreate",
+    "NutritionResponse",
+    "NutritionListResponse",
+
+    # Messages
+    "MessageCreate",
+    "MessageResponse",
 ]
 

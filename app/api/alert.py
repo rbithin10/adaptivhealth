@@ -43,7 +43,12 @@ from app.schemas.alert import (
     AlertResponse,
     AlertListResponse
 )
-from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
+from app.api.auth import (
+    get_current_user,
+    get_current_doctor_user,
+    get_current_admin_or_doctor_user,
+    check_clinician_phi_access
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -102,6 +107,7 @@ async def get_my_alerts(
     per_page: int = Query(50, ge=1, le=200),
     acknowledged: Optional[bool] = Query(None),
     severity: Optional[str] = Query(None),
+    alert_type: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -118,6 +124,9 @@ async def get_my_alerts(
     
     if severity:
         query = query.filter(Alert.severity == severity)
+
+    if alert_type:
+        query = query.filter(Alert.alert_type == alert_type)
     
     # Count total for pagination
     total = query.count()
@@ -185,7 +194,7 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: int,
     update_data: AlertUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_or_doctor_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -193,20 +202,23 @@ async def resolve_alert(
     
     Marks alert as resolved and records resolution details.
     """
-    alert = db.query(Alert).filter(
-        Alert.alert_id == alert_id,
-        Alert.user_id == current_user.user_id
-    ).first()
+    alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     
     if not alert:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Alert not found"
         )
+
+    patient = db.query(User).filter(User.user_id == alert.user_id).first()
+    if patient:
+        check_clinician_phi_access(current_user, patient)
     
     # Update fields
     if update_data.acknowledged is not None:
         alert.acknowledged = update_data.acknowledged
+
+    alert.is_resolved = True
     
     if update_data.resolved_at:
         alert.resolved_at = update_data.resolved_at

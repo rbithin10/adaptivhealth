@@ -110,6 +110,19 @@ class VitalSignRecord(Base):
         """Alias for diastolic_bp."""
         return self.diastolic_bp
 
+    @property
+    def blood_pressure(self):
+        """
+        Return blood pressure as dict for API response compatibility.
+        VitalSignResponse schema expects this format.
+        """
+        if self.systolic_bp is not None or self.diastolic_bp is not None:
+            return {
+                "systolic": self.systolic_bp,
+                "diastolic": self.diastolic_bp
+            }
+        return None
+
     # -------------------------------------------------------------------------
     # Methods
     # -------------------------------------------------------------------------

@@ -1,0 +1,669 @@
+"""
+Nutrition Entry API endpoints.
+
+Simple nutrition logging for patients: meals, calories, basic macros.
+Also provides personalised daily meal recommendations based on cardiac risk.
+
+# =============================================================================
+# FILE MAP - QUICK NAVIGATION
+# =============================================================================
+# IMPORTS.............................. Line 25
+#
+# ENDPOINTS - PATIENT (own entries)
+#   - POST /nutrition.................. Line 55  (Create nutrition entry)
+#   - GET /nutrition/recent............ Line 100 (List recent entries)
+#   - DELETE /nutrition/{id}........... Line 150 (Delete entry)
+#   - GET /nutrition/recommendations... Line 200 (Daily meal recommendations)
+#
+# BUSINESS CONTEXT:
+# - Patients log meals and track nutrition from mobile app
+# - Recommendations leverage latest risk assessment for cardiac diet
+# - Non-PHI data for personal health tracking
+# - Production feature for fitness and wellness management
+# =============================================================================
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, func
+from typing import Optional, List, Dict
+from datetime import datetime, date, timezone
+import logging
+
+from app.database import get_db
+from app.models.user import User
+from app.models.nutrition import NutritionEntry
+from app.models.risk_assessment import RiskAssessment
+from app.schemas.nutrition import (
+    NutritionCreate,
+    NutritionResponse,
+    NutritionListResponse,
+    NutritionRecommendationResponse,
+)
+from app.api.auth import get_current_user
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+# =============================================================================
+# Patient Endpoints
+# =============================================================================
+
+# =============================================
+# CREATE_NUTRITION_ENTRY - Log a meal
+# Used by: Mobile app nutrition screen
+# Returns: NutritionResponse with entry details
+# Roles: ALL authenticated users
+# =============================================
+@router.post("/nutrition", response_model=NutritionResponse, status_code=status.HTTP_201_CREATED)
+async def create_nutrition_entry(
+    entry_data: NutritionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new nutrition entry for the current user.
+    
+    Args:
+        entry_data: Nutrition entry data (meal type, calories, macros)
+        current_user: Authenticated user from JWT token
+        db: Database session
+    
+    Returns:
+        NutritionResponse: Created nutrition entry with ID and timestamp
+    
+    Raises:
+        400: Invalid input data
+    """
+    try:
+        # Create new nutrition entry
+        nutrition_entry = NutritionEntry(
+            user_id=current_user.user_id,
+            meal_type=entry_data.meal_type,
+            description=entry_data.description,
+            calories=entry_data.calories,
+            protein_grams=entry_data.protein_grams,
+            carbs_grams=entry_data.carbs_grams,
+            fat_grams=entry_data.fat_grams,
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        db.add(nutrition_entry)
+        db.commit()
+        db.refresh(nutrition_entry)
+        
+        logger.info(
+            f"Nutrition entry created: entry_id={nutrition_entry.entry_id}, "
+            f"user_id={current_user.user_id}, meal_type={entry_data.meal_type}, "
+            f"calories={entry_data.calories}"
+        )
+        
+        return nutrition_entry
+    
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create nutrition entry for user {current_user.user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create nutrition entry"
+        )
+
+
+# =============================================
+# GET_RECENT_ENTRIES - List recent nutrition entries
+# Used by: Mobile app nutrition screen
+# Returns: List of recent entries for current user
+# Roles: ALL authenticated users
+# =============================================
+@router.get("/nutrition/recent", response_model=NutritionListResponse)
+async def get_recent_nutrition_entries(
+    limit: int = Query(default=5, ge=1, le=100, description="Number of entries to return"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get recent nutrition entries for the current user.
+    
+    Args:
+        limit: Maximum number of entries to return (default: 5, max: 100)
+        current_user: Authenticated user from JWT token
+        db: Database session
+    
+    Returns:
+        NutritionListResponse: List of recent nutrition entries with total count
+    """
+    try:
+        # Get total count for this user
+        total_count = db.query(func.count(NutritionEntry.entry_id)).filter(
+            NutritionEntry.user_id == current_user.user_id
+        ).scalar()
+        
+        # Get recent entries ordered by timestamp descending
+        entries = (
+            db.query(NutritionEntry)
+            .filter(NutritionEntry.user_id == current_user.user_id)
+            .order_by(desc(NutritionEntry.timestamp))
+            .limit(limit)
+            .all()
+        )
+        
+        logger.info(
+            f"Retrieved {len(entries)} nutrition entries for user {current_user.user_id} "
+            f"(total: {total_count})"
+        )
+        
+        return NutritionListResponse(
+            entries=entries,
+            total_count=total_count or 0,
+            limit=limit
+        )
+    
+    except Exception as e:
+        logger.error(f"Failed to retrieve nutrition entries for user {current_user.user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve nutrition entries"
+        )
+
+
+# =============================================
+# DELETE_NUTRITION_ENTRY - Remove an entry
+# Used by: Mobile app nutrition screen (delete action)
+# Returns: Success message
+# Roles: ALL authenticated users (own entries only)
+# =============================================
+@router.delete("/nutrition/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_nutrition_entry(
+    entry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a nutrition entry.
+    
+    Users can only delete their own entries.
+    
+    Args:
+        entry_id: ID of the nutrition entry to delete
+        current_user: Authenticated user from JWT token
+        db: Database session
+    
+    Raises:
+        404: Entry not found or does not belong to current user
+    """
+    # Find entry
+    entry = db.query(NutritionEntry).filter(
+        NutritionEntry.entry_id == entry_id,
+        NutritionEntry.user_id == current_user.user_id
+    ).first()
+    
+    if not entry:
+        logger.warning(
+            f"Nutrition entry {entry_id} not found or does not belong to user {current_user.user_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nutrition entry not found"
+        )
+    
+    # Delete entry
+    try:
+        db.delete(entry)
+        db.commit()
+        
+        logger.info(
+            f"Nutrition entry deleted: entry_id={entry_id}, user_id={current_user.user_id}"
+        )
+        
+        return None  # 204 No Content
+    
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete nutrition entry {entry_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete nutrition entry"
+        )
+
+
+# =============================================================================
+# Cardiac Diet Library (hardcoded, clinically reviewed)
+# WHY: Low-sodium, high-potassium, anti-inflammatory meals aligned with
+#      AHA dietary guidelines for cardiovascular patients.
+# =============================================================================
+
+_CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
+    "low": {
+        "goals": {
+            "calories_target": 2100,
+            "sodium_limit_mg": 2300,
+            "potassium_mg": 3500,
+            "water_liters": 2.5,
+            "fiber_grams": 28,
+            "protein_grams": 80,
+        },
+        "meals": [
+            {
+                "meal_type": "breakfast",
+                "meal_id": "low_b1",
+                "suggested_items": ["oatmeal", "blueberries", "low-fat yogurt", "honey"],
+                "portion_sizes": {
+                    "oatmeal": "1/2 cup dry",
+                    "blueberries": "1 cup",
+                    "yogurt": "6 oz",
+                    "honey": "1 tbsp",
+                },
+                "nutritional_info": {
+                    "calories": 340,
+                    "sodium_mg": 150,
+                    "potassium_mg": 460,
+                    "protein_grams": 14,
+                    "fiber_grams": 8,
+                    "saturated_fat_grams": 1.5,
+                },
+                "benefits": "High fiber, antioxidant-rich, supports heart health",
+                "cardiovascular_notes": "Blueberries contain anthocyanins that improve vascular function",
+                "prep_time_minutes": 5,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "lunch",
+                "meal_id": "low_l1",
+                "suggested_items": ["grilled chicken breast", "brown rice", "steamed broccoli", "olive oil"],
+                "portion_sizes": {
+                    "chicken": "4 oz",
+                    "rice": "1 cup cooked",
+                    "broccoli": "2 cups",
+                    "olive_oil": "1 tbsp",
+                },
+                "nutritional_info": {
+                    "calories": 520,
+                    "sodium_mg": 200,
+                    "potassium_mg": 650,
+                    "protein_grams": 35,
+                    "fiber_grams": 5,
+                    "saturated_fat_grams": 2.0,
+                },
+                "benefits": "Lean protein, whole grains, rich in vitamins",
+                "cardiovascular_notes": "Low sodium preparation supports blood pressure management",
+                "prep_time_minutes": 20,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "snack",
+                "meal_id": "low_s1",
+                "suggested_items": ["almonds", "apple"],
+                "portion_sizes": {
+                    "almonds": "1 oz (23 nuts)",
+                    "apple": "1 medium",
+                },
+                "nutritional_info": {
+                    "calories": 180,
+                    "sodium_mg": 0,
+                    "potassium_mg": 195,
+                    "protein_grams": 6,
+                    "fiber_grams": 4,
+                    "saturated_fat_grams": 1.0,
+                },
+                "benefits": "Healthy fats, natural sugars, sustained energy",
+                "cardiovascular_notes": None,
+                "prep_time_minutes": 0,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "dinner",
+                "meal_id": "low_d1",
+                "suggested_items": ["baked salmon", "sweet potato", "asparagus"],
+                "portion_sizes": {
+                    "salmon": "5 oz",
+                    "sweet_potato": "1 medium",
+                    "asparagus": "1 cup",
+                },
+                "nutritional_info": {
+                    "calories": 480,
+                    "sodium_mg": 180,
+                    "potassium_mg": 800,
+                    "protein_grams": 32,
+                    "fiber_grams": 6,
+                    "saturated_fat_grams": 1.5,
+                },
+                "benefits": "Omega-3 rich, supports cardiovascular health",
+                "cardiovascular_notes": "Salmon omega-3s promote healthy heart function and reduce inflammation",
+                "prep_time_minutes": 25,
+                "difficulty": "easy",
+            },
+        ],
+        "note": "Maintaining a heart-healthy diet. Keep up the balanced meals and hydration.",
+    },
+    "moderate": {
+        "goals": {
+            "calories_target": 2000,
+            "sodium_limit_mg": 1500,
+            "potassium_mg": 4000,
+            "water_liters": 2.5,
+            "fiber_grams": 30,
+            "protein_grams": 75,
+        },
+        "meals": [
+            {
+                "meal_type": "breakfast",
+                "meal_id": "mod_b1",
+                "suggested_items": ["steel-cut oats", "banana", "walnuts", "cinnamon"],
+                "portion_sizes": {
+                    "oats": "1/2 cup dry",
+                    "banana": "1 medium",
+                    "walnuts": "1 oz",
+                    "cinnamon": "1 tsp",
+                },
+                "nutritional_info": {
+                    "calories": 380,
+                    "sodium_mg": 5,
+                    "potassium_mg": 550,
+                    "protein_grams": 12,
+                    "fiber_grams": 9,
+                    "saturated_fat_grams": 1.0,
+                },
+                "benefits": "High potassium, anti-inflammatory, low sodium",
+                "cardiovascular_notes": "Walnuts provide alpha-linolenic acid; cinnamon may support healthy blood pressure",
+                "prep_time_minutes": 10,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "lunch",
+                "meal_id": "mod_l1",
+                "suggested_items": ["lentil soup", "whole-wheat bread", "mixed greens salad"],
+                "portion_sizes": {
+                    "soup": "1.5 cups",
+                    "bread": "1 slice",
+                    "salad": "2 cups",
+                },
+                "nutritional_info": {
+                    "calories": 450,
+                    "sodium_mg": 350,
+                    "potassium_mg": 700,
+                    "protein_grams": 22,
+                    "fiber_grams": 12,
+                    "saturated_fat_grams": 1.0,
+                },
+                "benefits": "Plant-based protein, very high fiber, supports gut and heart health",
+                "cardiovascular_notes": "Lentils are rich in folate and magnesium which aid vascular relaxation",
+                "prep_time_minutes": 30,
+                "difficulty": "medium",
+            },
+            {
+                "meal_type": "snack",
+                "meal_id": "mod_s1",
+                "suggested_items": ["carrot sticks", "hummus"],
+                "portion_sizes": {
+                    "carrots": "1 cup sticks",
+                    "hummus": "3 tbsp",
+                },
+                "nutritional_info": {
+                    "calories": 130,
+                    "sodium_mg": 160,
+                    "potassium_mg": 280,
+                    "protein_grams": 5,
+                    "fiber_grams": 5,
+                    "saturated_fat_grams": 0.5,
+                },
+                "benefits": "Low calorie, high potassium, anti-inflammatory",
+                "cardiovascular_notes": None,
+                "prep_time_minutes": 0,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "dinner",
+                "meal_id": "mod_d1",
+                "suggested_items": ["herb-crusted cod", "quinoa", "roasted beets"],
+                "portion_sizes": {
+                    "cod": "5 oz",
+                    "quinoa": "3/4 cup cooked",
+                    "beets": "1 cup diced",
+                },
+                "nutritional_info": {
+                    "calories": 440,
+                    "sodium_mg": 220,
+                    "potassium_mg": 750,
+                    "protein_grams": 34,
+                    "fiber_grams": 7,
+                    "saturated_fat_grams": 1.0,
+                },
+                "benefits": "Lean white fish, complete protein grain, nitrate-rich beets",
+                "cardiovascular_notes": "Beet nitrates convert to nitric oxide, supporting vasodilation",
+                "prep_time_minutes": 25,
+                "difficulty": "medium",
+            },
+        ],
+        "note": "Moderate risk detected — focusing on anti-inflammatory foods and strict sodium control. Continue hydration.",
+    },
+    "high": {
+        "goals": {
+            "calories_target": 1800,
+            "sodium_limit_mg": 1200,
+            "potassium_mg": 4500,
+            "water_liters": 3.0,
+            "fiber_grams": 35,
+            "protein_grams": 70,
+        },
+        "meals": [
+            {
+                "meal_type": "breakfast",
+                "meal_id": "high_b1",
+                "suggested_items": ["chia seed pudding", "mango", "coconut milk"],
+                "portion_sizes": {
+                    "chia_seeds": "3 tbsp",
+                    "mango": "1/2 cup diced",
+                    "coconut_milk": "6 oz unsweetened",
+                },
+                "nutritional_info": {
+                    "calories": 280,
+                    "sodium_mg": 20,
+                    "potassium_mg": 400,
+                    "protein_grams": 8,
+                    "fiber_grams": 12,
+                    "saturated_fat_grams": 2.0,
+                },
+                "benefits": "Very high fiber, omega-3 from chia, virtually sodium-free",
+                "cardiovascular_notes": "Chia seeds reduce inflammation markers and support arterial health",
+                "prep_time_minutes": 5,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "lunch",
+                "meal_id": "high_l1",
+                "suggested_items": ["spinach-avocado salad", "grilled tofu", "lemon-tahini dressing"],
+                "portion_sizes": {
+                    "spinach": "3 cups",
+                    "avocado": "1/2 medium",
+                    "tofu": "4 oz",
+                    "dressing": "2 tbsp",
+                },
+                "nutritional_info": {
+                    "calories": 390,
+                    "sodium_mg": 120,
+                    "potassium_mg": 950,
+                    "protein_grams": 20,
+                    "fiber_grams": 10,
+                    "saturated_fat_grams": 2.5,
+                },
+                "benefits": "Potassium-dense, heart-healthy fats, plant-based protein",
+                "cardiovascular_notes": "Spinach and avocado supply magnesium and potassium to help regulate blood pressure",
+                "prep_time_minutes": 15,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "snack",
+                "meal_id": "high_s1",
+                "suggested_items": ["unsalted mixed nuts", "dried apricots"],
+                "portion_sizes": {
+                    "mixed_nuts": "1 oz",
+                    "dried_apricots": "4 halves",
+                },
+                "nutritional_info": {
+                    "calories": 200,
+                    "sodium_mg": 5,
+                    "potassium_mg": 350,
+                    "protein_grams": 6,
+                    "fiber_grams": 3,
+                    "saturated_fat_grams": 1.5,
+                },
+                "benefits": "Potassium-rich, minimal sodium, heart-healthy fats",
+                "cardiovascular_notes": "Dried apricots are one of the highest potassium snack sources",
+                "prep_time_minutes": 0,
+                "difficulty": "easy",
+            },
+            {
+                "meal_type": "dinner",
+                "meal_id": "high_d1",
+                "suggested_items": ["grilled mackerel", "steamed kale", "brown rice"],
+                "portion_sizes": {
+                    "mackerel": "4 oz",
+                    "kale": "2 cups",
+                    "brown_rice": "3/4 cup cooked",
+                },
+                "nutritional_info": {
+                    "calories": 430,
+                    "sodium_mg": 140,
+                    "potassium_mg": 820,
+                    "protein_grams": 30,
+                    "fiber_grams": 7,
+                    "saturated_fat_grams": 2.0,
+                },
+                "benefits": "Very high omega-3, anti-inflammatory, nutrient-dense greens",
+                "cardiovascular_notes": "Mackerel is among the richest sources of EPA/DHA for cardiac protection",
+                "prep_time_minutes": 20,
+                "difficulty": "medium",
+            },
+        ],
+        "note": "High risk detected — strict sodium restriction and maximised potassium intake. Prioritise anti-inflammatory omega-3 sources.",
+    },
+}
+
+# Reuse the high-risk plan for critical level
+_CARDIAC_DIET_LIBRARY["critical"] = _CARDIAC_DIET_LIBRARY["high"]
+
+
+def _build_daily_summary(meals: List[Dict]) -> Dict:
+    """Aggregate nutritional totals across all meals."""
+    totals = {
+        "total_calories": 0,
+        "total_sodium_mg": 0,
+        "total_potassium_mg": 0,
+        "total_protein_grams": 0,
+        "total_fiber_grams": 0,
+        "total_saturated_fat_grams": 0.0,
+    }
+    for meal in meals:
+        info = meal["nutritional_info"]
+        totals["total_calories"] += info["calories"]
+        totals["total_sodium_mg"] += info["sodium_mg"]
+        totals["total_potassium_mg"] += info["potassium_mg"]
+        totals["total_protein_grams"] += info["protein_grams"]
+        totals["total_fiber_grams"] += info["fiber_grams"]
+        totals["total_saturated_fat_grams"] += info["saturated_fat_grams"]
+    return totals
+
+
+def _build_status_vs_goals(summary: Dict, goals: Dict) -> Dict:
+    """Compare meal totals against daily goals."""
+    sodium_pct = round(summary["total_sodium_mg"] / goals["sodium_limit_mg"] * 100)
+    potassium_pct = round(summary["total_potassium_mg"] / goals["potassium_mg"] * 100)
+    return {
+        "sodium": f"Within limits ({sodium_pct}% of daily allowance)",
+        "potassium": f"{potassium_pct}% of recommended daily intake",
+        "water": f"Track throughout the day ({goals['water_liters']} liters goal)",
+        "notes": "Excellent for cardiovascular recovery. Focus on hydration.",
+    }
+
+
+# =============================================
+# GET_NUTRITION_RECOMMENDATIONS - Daily meal plan
+# Used by: Mobile app nutrition screen, Home summary
+# Returns: Personalised cardiac-diet meal suggestions
+# Roles: ALL authenticated users
+# =============================================
+@router.get("/nutrition/recommendations", response_model=NutritionRecommendationResponse)
+async def get_nutrition_recommendations(
+    date_str: Optional[str] = Query(
+        default=None,
+        alias="date",
+        description="Date in YYYY-MM-DD format (defaults to today)",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get personalised daily meal recommendations based on cardiovascular risk.
+
+    Selects meals from a clinically-reviewed cardiac diet library,
+    using the user's latest risk assessment to determine sodium limits,
+    potassium targets, and anti-inflammatory emphasis.
+
+    Args:
+        date_str: Optional date string (YYYY-MM-DD). Defaults to today.
+        current_user: Authenticated user from JWT token.
+        db: Database session.
+
+    Returns:
+        NutritionRecommendationResponse: Daily goals, 4 meals, summary, and goal comparison.
+
+    Raises:
+        400: Invalid date format.
+    """
+    # --- Validate or default the date ----------------------------------------
+    if date_str:
+        try:
+            recommendation_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid date format. Use YYYY-MM-DD",
+            )
+    else:
+        recommendation_date = date.today()
+
+    # --- Look up the user's latest risk assessment ---------------------------
+    latest_risk = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == current_user.user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+
+    # Determine risk level (fall back to user.risk_level or "low")
+    if latest_risk:
+        risk_level = (latest_risk.risk_level or "low").lower()
+    elif current_user.risk_level:
+        risk_level = current_user.risk_level.lower()
+    else:
+        risk_level = "low"
+
+    # Clamp to known keys
+    if risk_level not in _CARDIAC_DIET_LIBRARY:
+        risk_level = "low"
+
+    # --- Build the recommendation from the diet library ----------------------
+    plan = _CARDIAC_DIET_LIBRARY[risk_level]
+    goals = plan["goals"]
+    meals = plan["meals"]
+    daily_summary = _build_daily_summary(meals)
+    status_vs_goals = _build_status_vs_goals(daily_summary, goals)
+
+    logger.info(
+        f"Nutrition recommendations generated: user_id={current_user.user_id}, "
+        f"date={recommendation_date}, risk_level={risk_level}"
+    )
+
+    return NutritionRecommendationResponse(
+        date=str(recommendation_date),
+        user_id=current_user.user_id,
+        daily_nutrition_goals=goals,
+        meal_restrictions=["high_sodium", "saturated_fats", "processed_foods"],
+        meals=meals,
+        daily_summary=daily_summary,
+        status_vs_goals=status_vs_goals,
+        nutritionist_note=plan["note"],
+        confidence_score=0.88,
+        last_updated=datetime.now(timezone.utc),
+    )

@@ -145,10 +145,14 @@ class VitalCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 2),
-                Text(
-                  unit,
-                  style: AdaptivTypography.heroUnit.copyWith(
-                    color: AdaptivColors.text500,
+                Flexible(
+                  child: Text(
+                    unit,
+                    style: AdaptivTypography.heroUnit.copyWith(
+                      color: AdaptivColors.text500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],

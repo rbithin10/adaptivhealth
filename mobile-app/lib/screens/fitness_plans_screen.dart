@@ -12,6 +12,7 @@ import '../theme/typography.dart';
 import '../widgets/widgets.dart';
 import '../services/api_client.dart';
 import 'recovery_screen.dart';
+import 'workout_screen.dart';
 
 class FitnessPlansScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -52,79 +53,122 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
   Future<void> _loadPlans() async {
     setState(() => _isLoading = true);
     
-    // Load AI-recommended plans from API
+    // Load AI-recommended plan from backend + generic workout options
     try {
-      // For now, use demo data
-      await Future.delayed(const Duration(milliseconds: 500));
-      _plans = _getDemoPlans();
+      final recommendation = await widget.apiClient.getLatestRecommendation();
+      final aiPlan = _mapRecommendationToPlan(recommendation);
+      final genericPlans = _getGenericPlans();
+      _plans = [aiPlan, ...genericPlans];
     } catch (e) {
-      _plans = _getDemoPlans();
+      // If backend fails, fall back to generic plans only
+      _plans = _getGenericPlans();
     }
     
     setState(() => _isLoading = false);
   }
 
-  List<FitnessPlan> _getDemoPlans() {
+  /// Map backend recommendation to FitnessPlan model.
+  FitnessPlan _mapRecommendationToPlan(Map<String, dynamic> rec) {
+    final activityStr = (rec['suggested_activity'] as String?)?.toLowerCase() ?? 'walking';
+    final intensityStr = (rec['intensity_level'] as String?)?.toLowerCase() ?? 'moderate';
+    final durationMin = rec['duration_minutes'] as int? ?? 30;
+    final hrMin = rec['target_heart_rate_min'] as int?;
+    final hrMax = rec['target_heart_rate_max'] as int?;
+    
+    // Map activity string to enum
+    ActivityType activityType = ActivityType.walking;
+    if (activityStr.contains('run')) activityType = ActivityType.running;
+    else if (activityStr.contains('cycl') || activityStr.contains('bike')) activityType = ActivityType.cycling;
+    else if (activityStr.contains('swim')) activityType = ActivityType.swimming;
+    else if (activityStr.contains('yoga')) activityType = ActivityType.yoga;
+    else if (activityStr.contains('strength') || activityStr.contains('weight')) activityType = ActivityType.strength;
+    else if (activityStr.contains('hiit') || activityStr.contains('interval')) activityType = ActivityType.hiit;
+    else if (activityStr.contains('stretch')) activityType = ActivityType.stretching;
+    
+    // Map intensity + HR to zone
+    HRZone zone = HRZone.moderate;
+    if (hrMax != null) {
+      if (hrMax < 100) zone = HRZone.light;
+      else if (hrMax < 140) zone = HRZone.moderate;
+      else if (hrMax < 170) zone = HRZone.hard;
+      else zone = HRZone.maximum;
+    } else {
+      // Fallback to intensity mapping
+      if (intensityStr == 'low') zone = HRZone.light;
+      else if (intensityStr == 'moderate') zone = HRZone.moderate;
+      else if (intensityStr == 'high') zone = HRZone.hard;
+      else if (intensityStr == 'very_high') zone = HRZone.maximum;
+    }
+    
+    return FitnessPlan(
+      id: 'ai_${rec['recommendation_id'] ?? 0}',
+      title: rec['title'] as String? ?? 'AI Recommendation',
+      description: rec['description'] as String? ?? 'Personalized workout based on your health data',
+      activityType: activityType,
+      duration: Duration(minutes: durationMin),
+      targetHRZone: zone,
+      confidence: (rec['confidence_score'] as num?)?.toDouble() ?? 0.85,
+      isPriority: true,  // AI recommendation is always priority
+      benefits: ['Personalized for you', 'Risk-adjusted', 'AI-optimized'],
+      caloriesBurn: _estimateCalories(activityType, durationMin),
+    );
+  }
+  
+  /// Estimate calories for activity type and duration.
+  int _estimateCalories(ActivityType type, int minutes) {
+    final caloriesPerMin = {
+      ActivityType.walking: 4,
+      ActivityType.running: 10,
+      ActivityType.cycling: 7,
+      ActivityType.swimming: 9,
+      ActivityType.yoga: 3,
+      ActivityType.strength: 5,
+      ActivityType.hiit: 11,
+      ActivityType.stretching: 2,
+      ActivityType.meditation: 1,
+      ActivityType.other: 4,
+    };
+    return (caloriesPerMin[type] ?? 4) * minutes;
+  }
+  
+  /// Generic workout options (not personalized).
+  List<FitnessPlan> _getGenericPlans() {
     return [
       FitnessPlan(
-        id: '1',
-        title: 'Heart Health Walk',
-        description: 'Gentle cardio to improve cardiovascular endurance',
-        activityType: ActivityType.walking,
-        duration: const Duration(minutes: 30),
-        targetHRZone: HRZone.light,
-        confidence: 0.92,
-        isPriority: true,
-        benefits: ['Improves circulation', 'Lowers blood pressure', 'Reduces stress'],
-        caloriesBurn: 150,
-      ),
-      FitnessPlan(
-        id: '2',
+        id: 'gen_1',
         title: 'Zone 2 Training',
         description: 'Build aerobic base with steady-state cardio',
         activityType: ActivityType.cycling,
         duration: const Duration(minutes: 45),
         targetHRZone: HRZone.moderate,
-        confidence: 0.85,
+        confidence: 0.0,  // Generic, not personalized
         isPriority: false,
         benefits: ['Fat burning', 'Endurance building', 'Heart efficiency'],
-        caloriesBurn: 320,
+        caloriesBurn: 315,
       ),
       FitnessPlan(
-        id: '3',
+        id: 'gen_2',
         title: 'Gentle Yoga Flow',
         description: 'Recovery-focused stretching and breathing',
         activityType: ActivityType.yoga,
         duration: const Duration(minutes: 20),
         targetHRZone: HRZone.resting,
-        confidence: 0.88,
+        confidence: 0.0,
         isPriority: false,
         benefits: ['Flexibility', 'Stress relief', 'Better sleep'],
-        caloriesBurn: 80,
+        caloriesBurn: 60,
       ),
       FitnessPlan(
-        id: '4',
-        title: 'Interval Training',
-        description: 'Short bursts of intensity for heart strength',
-        activityType: ActivityType.hiit,
-        duration: const Duration(minutes: 25),
-        targetHRZone: HRZone.hard,
-        confidence: 0.75,
-        isPriority: false,
-        benefits: ['VO2 max improvement', 'Metabolism boost', 'Time efficient'],
-        caloriesBurn: 280,
-      ),
-      FitnessPlan(
-        id: '5',
+        id: 'gen_3',
         title: 'Strength Basics',
         description: 'Light resistance training for muscle tone',
         activityType: ActivityType.strength,
         duration: const Duration(minutes: 35),
         targetHRZone: HRZone.moderate,
-        confidence: 0.82,
+        confidence: 0.0,
         isPriority: false,
         benefits: ['Muscle strength', 'Bone density', 'Metabolism'],
-        caloriesBurn: 200,
+        caloriesBurn: 175,
       ),
     ];
   }
@@ -154,10 +198,11 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
 
   @override
   Widget build(BuildContext context) {
+    final brightness = MediaQuery.of(context).platformBrightness;
     return Scaffold(
-      backgroundColor: AdaptivColors.bg100,
+      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       appBar: AppBar(
-        backgroundColor: AdaptivColors.white,
+        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
         elevation: 0,
         title: Text(
           'Fitness Plans',
@@ -462,11 +507,10 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
   }
 
   void _startWorkout(FitnessPlan plan) {
-    // Navigate to workout session with this plan
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Starting ${plan.title}...'),
-        backgroundColor: AdaptivColors.primary,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WorkoutScreen(apiClient: widget.apiClient),
       ),
     );
   }

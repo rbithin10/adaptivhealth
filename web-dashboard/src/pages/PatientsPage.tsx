@@ -41,6 +41,10 @@ const PatientsPage: React.FC = () => {
   };
 
   const filteredPatients = patients.filter((patient) => {
+    // Exclude admin users from patient list
+    if (patient.user_role === 'admin') {
+      return false;
+    }
     const matchesSearch =
       (patient.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       patient.user_id.toString().includes(searchTerm);

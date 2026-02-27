@@ -12,12 +12,12 @@ Does NOT show any PHI (vitals, risk, recommendations, alerts details).
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Users,
   LogOut,
   Heart,
   UserPlus,
   Key,
   XCircle,
+  Edit2,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { User } from '../types';
@@ -29,6 +29,12 @@ const AdminPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  // Clinician assignment
+  const [clinicians, setClinicians] = useState<User[]>([]);
+  const [assigningPatient, setAssigningPatient] = useState<number | null>(null);
+  const [selectedClinician, setSelectedClinician] = useState<number | null>(null);
+  const [assignMessage, setAssignMessage] = useState('');
 
   // Create user form
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -42,6 +48,15 @@ const AdminPage: React.FC = () => {
   const [resetUserId, setResetUserId] = useState<number | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetMessage, setResetMessage] = useState('');
+
+  // Edit user form
+  const [editUserId, setEditUserId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editAge, setEditAge] = useState<number | undefined>(undefined);
+  const [editGender, setEditGender] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editMessage, setEditMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -64,6 +79,12 @@ const AdminPage: React.FC = () => {
       }
 
       setUsers(usersList.users);
+      
+      // Filter clinicians for assignment dropdown
+      const clinicianList = usersList.users.filter(
+        (u: any) => (u.role === 'clinician' || u.role === 'CLINICIAN')
+      );
+      setClinicians(clinicianList);
     } catch (error) {
       console.error('Error loading admin data:', error);
     } finally {
@@ -79,6 +100,7 @@ const AdminPage: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateMessage('');
+    setIsSubmitting(true);
     try {
       await api.createUser({
         email: newEmail,
@@ -94,6 +116,8 @@ const AdminPage: React.FC = () => {
       loadData();
     } catch (err: any) {
       setCreateMessage(err.response?.data?.error?.message || err.response?.data?.detail || 'Failed to create user');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -101,6 +125,7 @@ const AdminPage: React.FC = () => {
     e.preventDefault();
     setResetMessage('');
     if (!resetUserId) return;
+    setIsSubmitting(true);
     try {
       await api.adminResetUserPassword(resetUserId, resetPassword);
       setResetMessage('Password reset successfully');
@@ -108,16 +133,76 @@ const AdminPage: React.FC = () => {
       setResetPassword('');
     } catch (err: any) {
       setResetMessage(err.response?.data?.error?.message || err.response?.data?.detail || 'Failed to reset password');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeactivate = async (userId: number) => {
     if (!window.confirm('Are you sure you want to deactivate this user?')) return;
+    setIsSubmitting(true);
     try {
       await api.deactivateUser(userId);
       loadData();
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to deactivate user');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEditUser = (user: User) => {
+    setEditUserId(user.user_id);
+    setEditName(user.full_name || '');
+    setEditAge(user.age);
+    setEditGender(user.gender || '');
+    setEditPhone(user.phone || '');
+    setEditMessage('');
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditMessage('');
+    if (!editUserId) return;
+    setIsSubmitting(true);
+    try {
+      await api.updateUser(editUserId, {
+        name: editName,
+        age: editAge,
+        gender: editGender || undefined,
+        phone: editPhone || undefined,
+      });
+      setEditMessage('User updated successfully');
+      setEditUserId(null);
+      loadData();
+    } catch (err: any) {
+      setEditMessage(
+        err.response?.data?.error?.message ||
+        err.response?.data?.detail ||
+        'Failed to update user'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAssignClinician = async (patientId: number, clinicianId: number) => {
+    setAssignMessage('');
+    setIsSubmitting(true);
+    try {
+      await api.assignClinicianToPatient(patientId, clinicianId);
+      setAssignMessage(`Patient assigned to clinician successfully`);
+      setAssigningPatient(null);
+      setSelectedClinician(null);
+      loadData(); // Reload to show updated assignment
+    } catch (err: any) {
+      setAssignMessage(
+        err.response?.data?.error?.message ||
+        err.response?.data?.detail ||
+        'Failed to assign clinician'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -182,6 +267,24 @@ const AdminPage: React.FC = () => {
             {resetMessage}
           </div>
         )}
+        {editMessage && (
+          <div style={{
+            padding: '12px 16px', marginBottom: '16px', borderRadius: '8px',
+            backgroundColor: editMessage.includes('success') ? '#E8F5E9' : '#FFEBEE',
+            color: editMessage.includes('success') ? '#2E7D32' : '#C62828',
+          }}>
+            {editMessage}
+          </div>
+        )}
+        {assignMessage && (
+          <div style={{
+            padding: '12px 16px', marginBottom: '16px', borderRadius: '8px',
+            backgroundColor: assignMessage.includes('success') ? '#E8F5E9' : '#FFEBEE',
+            color: assignMessage.includes('success') ? '#2E7D32' : '#C62828',
+          }}>
+            {assignMessage}
+          </div>
+        )}
 
         {/* Create User Button */}
         <div style={{ marginBottom: '24px' }}>
@@ -204,28 +307,113 @@ const AdminPage: React.FC = () => {
             <h3 style={typography.sectionTitle}>Create New User</h3>
             <form onSubmit={handleCreateUser} style={{ display: 'grid', gap: '12px', maxWidth: '500px', marginTop: '16px' }}>
               <input type="email" placeholder="Email" value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)} required
+                onChange={(e) => setNewEmail(e.target.value)} required disabled={isSubmitting}
                 style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }} />
               <input type="text" placeholder="Full Name" value={newName}
-                onChange={(e) => setNewName(e.target.value)} required
+                onChange={(e) => setNewName(e.target.value)} required disabled={isSubmitting}
                 style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }} />
               <input type="password" placeholder="Temporary Password (min 8 chars)" value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)} required minLength={8}
+                onChange={(e) => setNewPassword(e.target.value)} required minLength={8} disabled={isSubmitting}
                 style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }} />
-              <select value={newRole} onChange={(e) => setNewRole(e.target.value)}
+              <select value={newRole} onChange={(e) => setNewRole(e.target.value)} disabled={isSubmitting}
                 style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }}>
                 <option value="patient">Patient</option>
                 <option value="clinician">Clinician</option>
               </select>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button type="submit" style={{
+                <button type="submit" disabled={isSubmitting} style={{
                   padding: '10px 20px', borderRadius: '6px', border: 'none',
-                  backgroundColor: colors.primary.default, color: '#fff', cursor: 'pointer', fontWeight: 600,
-                }}>Create</button>
-                <button type="button" onClick={() => setShowCreateForm(false)} style={{
+                  backgroundColor: isSubmitting ? colors.neutral['300'] : colors.primary.default, 
+                  color: '#fff', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: 600,
+                }}>{isSubmitting ? 'Creating...' : 'Create'}</button>
+                <button type="button" onClick={() => setShowCreateForm(false)} disabled={isSubmitting} style={{
                   padding: '10px 20px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`,
-                  backgroundColor: '#fff', cursor: 'pointer',
+                  backgroundColor: '#fff', cursor: isSubmitting ? 'not-allowed' : 'pointer',
                 }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Edit User Modal */}
+        {editUserId && (
+          <div style={{
+            backgroundColor: colors.neutral.white, border: `1px solid ${colors.neutral['300']}`,
+            borderRadius: '12px', padding: '24px', marginBottom: '24px',
+          }}>
+            <h3 style={typography.sectionTitle}>Edit User #{editUserId}</h3>
+            <form onSubmit={handleUpdateUser} style={{ display: 'grid', gap: '12px', maxWidth: '500px', marginTop: '16px' }}>
+              <input
+                type="text"
+                placeholder="Full Name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                required
+                disabled={isSubmitting}
+                style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }}
+              />
+              <input
+                type="number"
+                placeholder="Age"
+                value={editAge || ''}
+                onChange={(e) => setEditAge(e.target.value ? parseInt(e.target.value) : undefined)}
+                min={1}
+                max={120}
+                disabled={isSubmitting}
+                style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }}
+              />
+              <select
+                value={editGender}
+                onChange={(e) => setEditGender(e.target.value)}
+                disabled={isSubmitting}
+                style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }}
+              >
+                <option value="">Select Gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+              <input
+                type="tel"
+                placeholder="Phone (optional)"
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
+                disabled={isSubmitting}
+                style={{ padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }}
+              />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: isSubmitting ? colors.neutral['300'] : colors.primary.default,
+                    color: '#fff',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  {isSubmitting ? 'Updating...' : 'Update'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditUserId(null);
+                    setEditMessage('');
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    border: `1px solid ${colors.neutral['300']}`,
+                    backgroundColor: '#fff',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           </div>
@@ -240,15 +428,15 @@ const AdminPage: React.FC = () => {
             <h3 style={typography.sectionTitle}>Reset Password for User #{resetUserId}</h3>
             <form onSubmit={handleResetPassword} style={{ display: 'flex', gap: '12px', maxWidth: '500px', marginTop: '12px' }}>
               <input type="password" placeholder="New temporary password" value={resetPassword}
-                onChange={(e) => setResetPassword(e.target.value)} required minLength={8}
+                onChange={(e) => setResetPassword(e.target.value)} required minLength={8} disabled={isSubmitting}
                 style={{ flex: 1, padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '14px' }} />
-              <button type="submit" style={{
+              <button type="submit" disabled={isSubmitting} style={{
                 padding: '10px 20px', borderRadius: '6px', border: 'none',
-                backgroundColor: '#FF9800', color: '#fff', cursor: 'pointer', fontWeight: 600,
-              }}>Reset</button>
-              <button type="button" onClick={() => { setResetUserId(null); setResetPassword(''); }} style={{
+                backgroundColor: isSubmitting ? colors.neutral['300'] : '#FF9800', color: '#fff', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: 600,
+              }}>{isSubmitting ? 'Resetting...' : 'Reset'}</button>
+              <button type="button" onClick={() => { setResetUserId(null); setResetPassword(''); }} disabled={isSubmitting} style={{
                 padding: '10px 20px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`,
-                backgroundColor: '#fff', cursor: 'pointer',
+                backgroundColor: '#fff', cursor: isSubmitting ? 'not-allowed' : 'pointer',
               }}>Cancel</button>
             </form>
           </div>
@@ -260,55 +448,203 @@ const AdminPage: React.FC = () => {
           borderRadius: '12px', overflow: 'hidden',
         }}>
           <div style={{
-            display: 'grid', gridTemplateColumns: '60px 200px 100px 100px 100px 200px',
+            display: 'grid', gridTemplateColumns: '60px 200px 100px 100px 100px 180px 200px',
             gap: '16px', padding: '16px 24px', backgroundColor: colors.neutral['50'],
             borderBottom: `1px solid ${colors.neutral['300']}`,
             fontWeight: 600, fontSize: '12px', textTransform: 'uppercase' as const, color: colors.neutral['700'],
           }}>
-            <div>ID</div><div>Name / Email</div><div>Role</div><div>Status</div><div>Active</div><div>Actions</div>
+            <div>ID</div><div>Name / Email</div><div>Role</div><div>Status</div><div>Active</div><div>Assign Clinician</div><div>Actions</div>
           </div>
 
-          {users.map((u, idx) => (
-            <div key={u.user_id} style={{
-              display: 'grid', gridTemplateColumns: '60px 200px 100px 100px 100px 200px',
-              gap: '16px', padding: '12px 24px', alignItems: 'center',
-              borderBottom: idx < users.length - 1 ? `1px solid ${colors.neutral['300']}` : 'none',
-              backgroundColor: idx % 2 === 0 ? '#fff' : colors.neutral['50'],
-            }}>
-              <div style={typography.body}>{u.user_id}</div>
-              <div>
-                <div style={{ ...typography.body, fontWeight: 600 }}>{u.full_name || '—'}</div>
-                <div style={{ ...typography.caption, color: colors.neutral['500'] }}>{u.email}</div>
-              </div>
-              <div style={{
-                display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
-                backgroundColor: (u as any).role === 'admin' ? '#E3F2FD' : (u as any).role === 'clinician' ? '#E8F5E9' : '#FFF3E0',
-                color: (u as any).role === 'admin' ? '#1565C0' : (u as any).role === 'clinician' ? '#2E7D32' : '#E65100',
+          {users.map((u, idx) => {
+            const userRole = (u as any).role || (u as any).user_role;
+            const isPatient = userRole === 'patient' || userRole === 'PATIENT';
+            const assignedClinicianId = (u as any).assigned_clinician_id;
+            const assignedClinician = assignedClinicianId 
+              ? clinicians.find(c => c.user_id === assignedClinicianId)
+              : null;
+
+            return (
+              <div key={u.user_id} style={{
+                display: 'grid', gridTemplateColumns: '60px 200px 100px 100px 100px 180px 200px',
+                gap: '16px', padding: '12px 24px', alignItems: 'center',
+                borderBottom: idx < users.length - 1 ? `1px solid ${colors.neutral['300']}` : 'none',
+                backgroundColor: idx % 2 === 0 ? '#fff' : colors.neutral['50'],
               }}>
-                {(u as any).role || (u as any).user_role}
-              </div>
-              <div style={typography.body}>{u.is_verified ? '✓ Verified' : 'Pending'}</div>
-              <div style={typography.body}>{u.is_active ? '✓ Active' : '✗ Inactive'}</div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button onClick={() => { setResetUserId(u.user_id); setResetMessage(''); }} title="Reset Password" style={{
-                  padding: '4px 8px', borderRadius: '4px', border: 'none',
-                  backgroundColor: '#FFF3E0', color: '#E65100', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px',
+                <div style={typography.body}>{u.user_id}</div>
+                <div>
+                  <div style={{ ...typography.body, fontWeight: 600 }}>{u.full_name || '—'}</div>
+                  <div style={{ ...typography.caption, color: colors.neutral['500'] }}>{u.email}</div>
+                </div>
+                <div style={{
+                  display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                  backgroundColor: userRole === 'admin' || userRole === 'ADMIN' ? '#E3F2FD' : (userRole === 'clinician' || userRole === 'CLINICIAN') ? '#E8F5E9' : '#FFF3E0',
+                  color: userRole === 'admin' || userRole === 'ADMIN' ? '#1565C0' : (userRole === 'clinician' || userRole === 'CLINICIAN') ? '#2E7D32' : '#E65100',
                 }}>
-                  <Key size={14} /> Reset PW
-                </button>
-                {u.is_active && u.user_id !== currentUser?.user_id && (
-                  <button onClick={() => handleDeactivate(u.user_id)} title="Deactivate" style={{
-                    padding: '4px 8px', borderRadius: '4px', border: 'none',
-                    backgroundColor: '#FFEBEE', color: '#C62828', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px',
-                  }}>
-                    <XCircle size={14} /> Deactivate
+                  {userRole}
+                </div>
+                <div style={typography.body}>{u.is_verified ? '✓ Verified' : 'Pending'}</div>
+                <div style={typography.body}>{u.is_active ? '✓ Active' : '✗ Inactive'}</div>
+                
+                {/* Clinician Assignment Column */}
+                <div>
+                  {isPatient ? (
+                    assigningPatient === u.user_id ? (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <select
+                          value={selectedClinician || ''}
+                          onChange={(e) => setSelectedClinician(Number(e.target.value))}
+                          disabled={isSubmitting}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: `1px solid ${colors.neutral['300']}`,
+                            fontSize: '12px',
+                            flex: 1,
+                          }}
+                        >
+                          <option value="">Select...</option>
+                          {clinicians.map(c => (
+                            <option key={c.user_id} value={c.user_id}>
+                              {c.full_name || c.email}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => selectedClinician && handleAssignClinician(u.user_id, selectedClinician)}
+                          disabled={!selectedClinician || isSubmitting}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: selectedClinician ? colors.primary.default : colors.neutral['300'],
+                            color: '#fff',
+                            cursor: selectedClinician && !isSubmitting ? 'pointer' : 'not-allowed',
+                            fontSize: '12px',
+                          }}
+                        >
+                          ✓
+                        </button>
+                        <button
+                          onClick={() => { setAssigningPatient(null); setSelectedClinician(null); }}
+                          disabled={isSubmitting}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: `1px solid ${colors.neutral['300']}`,
+                            backgroundColor: '#fff',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            fontSize: '12px',
+                          }}
+                        >
+                          ✗
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {assignedClinician ? (
+                          <span style={{ ...typography.caption, color: colors.neutral['700'] }}>
+                            {assignedClinician.full_name || assignedClinician.email}
+                          </span>
+                        ) : (
+                          <span style={{ ...typography.caption, color: colors.neutral['500'] }}>
+                            Not assigned
+                          </span>
+                        )}
+                        <button
+                          onClick={() => {
+                            setAssigningPatient(u.user_id);
+                            setSelectedClinician(assignedClinicianId || null);
+                            setAssignMessage('');
+                          }}
+                          disabled={isSubmitting}
+                          style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: '#E8F5E9',
+                            color: '#2E7D32',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            fontSize: '11px',
+                            opacity: isSubmitting ? 0.5 : 1,
+                          }}
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    <span style={{ ...typography.caption, color: colors.neutral['400'] }}>—</span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={() => handleEditUser(u)}
+                    title="Edit User"
+                    disabled={isSubmitting}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#E3F2FD',
+                      color: '#1565C0',
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '12px',
+                      opacity: isSubmitting ? 0.5 : 1,
+                    }}
+                  >
+                    <Edit2 size={14} /> Edit
                   </button>
-                )}
+                  <button
+                    onClick={() => { setResetUserId(u.user_id); setResetMessage(''); }}
+                    title="Reset Password"
+                    disabled={isSubmitting}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#FFF3E0',
+                      color: '#E65100',
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '12px',
+                      opacity: isSubmitting ? 0.5 : 1,
+                    }}
+                  >
+                    <Key size={14} /> Reset PW
+                  </button>
+                  {u.is_active && u.user_id !== currentUser?.user_id && (
+                    <button
+                      onClick={() => handleDeactivate(u.user_id)}
+                      title="Deactivate"
+                      disabled={isSubmitting}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        border: 'none',
+                        backgroundColor: '#FFEBEE',
+                        color: '#C62828',
+                        cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '12px',
+                        opacity: isSubmitting ? 0.5 : 1,
+                      }}
+                    >
+                      <XCircle size={14} /> Deactivate
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <p style={{ ...typography.caption, marginTop: '16px' }}>

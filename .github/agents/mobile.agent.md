@@ -96,14 +96,14 @@ Connect these screens to backend APIs defined in:
   - Show complete widgets / functions that are created or modified.
   - Keep UI simple and stable first, then refine visuals.
 
-## Implementation priority (MVP)
+## Implementation priority
 
-1. Implement the 5 main tabs with basic content:
-   - Home shows vitals and a simple recommendation.
-   - Fitness shows current plan and last session summary.
-   - Messaging lists clinicians and opens a basic conversation view.
-   - Profile shows user basic info.
-   - Nutrition can be partially functional or mocked, but with a clear structure.
+1. Implement the 5 main tabs with production-ready content:
+   - Home shows vitals and recommendations.
+   - Fitness shows current plan and session summary.
+   - Messaging provides clinician communication interface.
+   - Profile shows user information.
+   - Nutrition supports meal tracking and macro recording.
 
 2. Integrate Home and Fitness with backend:
    - Use vitals and recommendations endpoints for dynamic data.
@@ -127,3 +127,63 @@ For each task:
 4. Keep navigation and naming consistent across the app.
 5. After implementing a feature, test it in the emulator and ensure it matches the design and works with the backend if applicable.
 “Follow the conventions described in .github/copilot-instructions.md for code style and comments, but keep changes minimal and focused on this file/feature.”
+
+
+This project is a graded university capstone, so you must follow these rules for everything you generate or modify:
+
+
+
+Professional deliverables only
+
+
+All code, filenames, and documentation must look like final, student‑written work suitable to show professors.
+
+
+Use clear, conventional names (e.g., reset_database.py, edge_ai_plan.md), no AI, agent, or internal nicknames.
+
+
+Do not include chat logs, prompts, “step-by-step thought process”, or internal commentary in files.
+
+
+
+
+No hidden automation or dangerous scripts
+
+
+Never create or wire scripts that automatically reset/drop the database on import or app start.
+
+
+Any destructive operation (e.g., reset DB, wipe data, reseed) must be:
+
+
+explicitly named (e.g., scripts/reset_db_dev_only.py),
+
+
+clearly marked “DEV ONLY – NOT FOR PRODUCTION/DEMO” in comments,
+
+
+only executed manually by a human (e.g., python scripts/reset_db_dev_only.py), not automatically.
+
+
+
+
+
+
+Keep internal notes separate from deliverables
+
+
+If you need to explain reasoning, debugging, or detailed step history, put it in inline comments or a short internal doc like DEV_NOTES.md that is clearly labeled “FOR INTERNAL USE ONLY – NOT FOR SUBMISSION”.
+
+
+All files intended for professors (code, diagrams, docs) must be concise and focused on the final design and behavior, not on how the AI or agents worked.
+
+
+
+
+Respect capstone integrity
+
+
+Do not add references to AI tools, agents, or prompt text in the source code, database migrations, or main documentation.
+
+
+All output should look like it was created by the student team, following good software engineering practices.

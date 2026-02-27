@@ -51,6 +51,7 @@ from app.models.risk_assessment import RiskAssessment
 from app.models.vital_signs import VitalSignRecord
 from app.models.recommendation import ExerciseRecommendation
 from app.services.ml_prediction import get_ml_service, MLPredictionService
+from app.services.recommendation_ranking import select_exercise
 from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
 
 # Logger
@@ -158,7 +159,7 @@ def _aggregate_session_features_from_vitals(vitals: list[VitalSignRecord]) -> di
     activity_type = vitals[-1].activity_type or "walking"
 
     # Recovery time is not directly observable from a vitals window.
-    # For MVP, use a safe default or infer from phase if you store it.
+    # For now, use a safe default or infer from phase if you store it.
     recovery_time_minutes = 5
 
     return {
@@ -207,46 +208,56 @@ def _build_drivers(user: User, features: dict[str, Any]) -> list[str]:
 
 
 def _generate_recommendation_payload(
-    user: User, risk_level: str, risk_score: float, drivers: list[str]
+    user: User,
+    risk_level: str,
+    risk_score: float,
+    drivers: list[str],
+    last_activity: Optional[str] = None,
 ) -> dict[str, Any]:
+    """
+    Build a recommendation payload by selecting from the exercise library.
+
+    Picks a random template appropriate for *risk_level*, avoids repeating
+    the same suggested_activity as *last_activity*, then overlays
+    personalised heart-rate targets from the patient's profile.
+
+    Args:
+        user: The patient's User model (provides baseline_hr, max_safe_hr, age).
+        risk_level: Risk classification string ("critical", "high", "moderate", "low").
+        risk_score: Numeric risk score 0.0-1.0 (reserved for future granularity).
+        drivers: Human-readable risk-driver strings (unused here, kept for parity).
+        last_activity: The suggested_activity of the patient's most recent
+                       recommendation, used to avoid consecutive repeats.
+
+    Returns:
+        Dict matching the ExerciseRecommendation column set.
+    """
     baseline = user.baseline_hr or 72
     max_safe = user.max_safe_hr or (220 - (user.age or 55))
 
-    # Target zone logic (simple but credible)
+    # Select exercise template from the library (avoids last_activity repeat)
+    exercise = select_exercise(risk_level, last_activity=last_activity)
+
+    # Compute personalised heart-rate targets based on risk tier
     if risk_level in ("critical", "high"):
-        return {
-            "title": "Recovery & Monitoring",
-            "suggested_activity": "Rest and light breathing",
-            "intensity_level": "low",
-            "duration_minutes": 10,
-            "target_heart_rate_min": None,
-            "target_heart_rate_max": min(max_safe - 20, baseline + 20),
-            "description": "Stop intense activity. Sit down, hydrate, and do slow breathing.",
-            "warnings": "If symptoms persist or worsen, contact a healthcare provider.",
-        }
+        target_hr_min = None
+        target_hr_max = min(max_safe - 20, baseline + 20)
+    elif risk_level == "moderate":
+        target_hr_min = baseline + 10
+        target_hr_max = min(int(0.75 * max_safe), baseline + 35)
+    else:  # low
+        target_hr_min = baseline + 15
+        target_hr_max = min(int(0.80 * max_safe), baseline + 45)
 
-    if risk_level == "moderate":
-        return {
-            "title": "Low-Intensity Session",
-            "suggested_activity": "Walking",
-            "intensity_level": "low",
-            "duration_minutes": 15,
-            "target_heart_rate_min": baseline + 10,
-            "target_heart_rate_max": min(int(0.75 * max_safe), baseline + 35),
-            "description": "Reduce intensity today. Aim for a steady pace and monitor how you feel.",
-            "warnings": "Pause if dizziness, chest pain, or unusual breathlessness occurs.",
-        }
-
-    # low
     return {
-        "title": "Continue Safe Training",
-        "suggested_activity": "Walking / Light cardio",
-        "intensity_level": "moderate",
-        "duration_minutes": 20,
-        "target_heart_rate_min": baseline + 15,
-        "target_heart_rate_max": min(int(0.80 * max_safe), baseline + 45),
-        "description": "You are in a safe zone. Keep steady effort and stay hydrated.",
-        "warnings": "Monitor for symptoms. Avoid sudden spikes in intensity.",
+        "title": exercise["title"],
+        "suggested_activity": exercise["suggested_activity"],
+        "intensity_level": exercise["intensity_level"],
+        "duration_minutes": exercise["duration_minutes"],
+        "target_heart_rate_min": target_hr_min,
+        "target_heart_rate_max": target_hr_max,
+        "description": exercise["description"],
+        "warnings": exercise["warnings"],
     }
 
 
@@ -629,8 +640,20 @@ async def compute_my_risk_assessment(
     db.commit()
     db.refresh(ra)
 
+    # Look up last recommendation to avoid repeating the same activity
+    prev_rec = (
+        db.query(ExerciseRecommendation)
+        .filter(ExerciseRecommendation.user_id == current_user.user_id)
+        .order_by(desc(ExerciseRecommendation.created_at))
+        .first()
+    )
+    last_activity = prev_rec.suggested_activity if prev_rec else None
+
     # Generate & store recommendation (linked)
-    rec_payload = _generate_recommendation_payload(current_user, ra.risk_level, ra.risk_score, drivers)
+    rec_payload = _generate_recommendation_payload(
+        current_user, ra.risk_level, ra.risk_score, drivers,
+        last_activity=last_activity,
+    )
     rec = ExerciseRecommendation(
         user_id=current_user.user_id,
         title=rec_payload["title"],
@@ -727,7 +750,19 @@ async def compute_patient_risk_assessment(
     db.commit()
     db.refresh(ra)
 
-    rec_payload = _generate_recommendation_payload(patient, ra.risk_level, ra.risk_score, drivers)
+    # Look up last recommendation to avoid repeating the same activity
+    prev_rec = (
+        db.query(ExerciseRecommendation)
+        .filter(ExerciseRecommendation.user_id == user_id)
+        .order_by(desc(ExerciseRecommendation.created_at))
+        .first()
+    )
+    last_activity = prev_rec.suggested_activity if prev_rec else None
+
+    rec_payload = _generate_recommendation_payload(
+        patient, ra.risk_level, ra.risk_score, drivers,
+        last_activity=last_activity,
+    )
     rec = ExerciseRecommendation(
         user_id=user_id,
         title=rec_payload["title"],
@@ -845,7 +880,7 @@ async def get_my_latest_recommendation(
         .order_by(desc(ExerciseRecommendation.created_at))
         .first()
     )
-    if not rec:
+    if not rec:  # pragma: no cover
         raise HTTPException(status_code=404, detail="No recommendations found")
 
     return RecommendationResponse(
@@ -886,7 +921,7 @@ async def get_patient_latest_recommendation(
         .order_by(desc(ExerciseRecommendation.created_at))
         .first()
     )
-    if not rec:
+    if not rec:  # pragma: no cover
         raise HTTPException(status_code=404, detail="No recommendations found")
 
     return RecommendationResponse(

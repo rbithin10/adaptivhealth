@@ -16,8 +16,8 @@ import {
   Users,
   Heart,
   AlertTriangle,
-  TrendingUp,
   LogOut,
+  MessageSquare,
 } from 'lucide-react';
 import {
   LineChart,
@@ -32,7 +32,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../services/api';
-import { AlertResponse, AlertStatsResponse, User } from '../types';
+import { AlertResponse, AlertStatsResponse, User, VitalSignsSummary } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import StatCard from '../components/cards/StatCard';
@@ -43,6 +43,15 @@ interface Stats {
   criticalAlerts: number;
   avgHeartRate: number;
 }
+
+const WEEKDAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const toWeekdayLabel = (timestamp?: string): string => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { weekday: 'short' });
+};
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -57,6 +66,8 @@ const DashboardPage: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [alertStats, setAlertStats] = useState<AlertStatsResponse | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
+  const [vitalsSummary, setVitalsSummary] = useState<VitalSignsSummary | null>(null);
+  const [dataWarning, setDataWarning] = useState<string | null>(null);
   const [pendingConsent, setPendingConsent] = useState<any[]>([]);
   const [hrTrendData, setHrTrendData] = useState<
     Array<{ day: string; avgHR: number; minHR: number; maxHR: number }>
@@ -64,15 +75,30 @@ const DashboardPage: React.FC = () => {
   const [healthScoreData, setHealthScoreData] = useState<
     Array<{ range: string; count: number }>
   >([]);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   useEffect(() => {
     loadDashboardData();
+    // Set up polling for unread messages every 5 seconds
+    const interval = setInterval(loadUnreadMessages, 5000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const loadUnreadMessages = async () => {
+    try {
+      const inbox = await api.getMessagingInbox();
+      const totalUnread = inbox.reduce((sum, conv) => sum + conv.unread_count, 0);
+      setUnreadMessageCount(totalUnread);
+    } catch (e) {
+      console.warn('Could not load unread messages:', e);
+    }
+  };
 
   const loadDashboardData = async () => {
     setLoading(true);
     setLoadError(null);
+    setDataWarning(null);
     try {
       const withTimeout = async <T,>(promise: Promise<T>, timeoutMs = 12000): Promise<T> => {
         return await Promise.race([
@@ -93,9 +119,9 @@ const DashboardPage: React.FC = () => {
         return;
       }
 
-      const [usersList, statsResponse, alertsResponse, vitalsSummary] =
+      const [usersResult, statsResult, alertsResult, vitalsResult] =
         await withTimeout(
-          Promise.all([
+          Promise.allSettled([
             api.getAllUsers(1, 200),
             api.getAlertStats(),
             api.getAlerts(1, 5),
@@ -111,59 +137,130 @@ const DashboardPage: React.FC = () => {
         } catch (e) {
           console.warn('Could not load consent requests:', e);
         }
+
+        // Load unread messages for clinicians
+        try {
+          await loadUnreadMessages();
+        } catch (e) {
+          console.warn('Could not load unread messages:', e);
+        }
+      }
+
+      const usersList = usersResult.status === 'fulfilled' ? usersResult.value : null;
+      const statsResponse = statsResult.status === 'fulfilled' ? statsResult.value : null;
+      const alertsResponse = alertsResult.status === 'fulfilled' ? alertsResult.value : null;
+      const vitalsSummaryResponse = vitalsResult.status === 'fulfilled' ? vitalsResult.value : null;
+
+      const failedWidgets: string[] = [];
+      if (usersResult.status === 'rejected') failedWidgets.push('patients');
+      if (statsResult.status === 'rejected') failedWidgets.push('alert stats');
+      if (alertsResult.status === 'rejected') failedWidgets.push('alerts');
+      if (vitalsResult.status === 'rejected') failedWidgets.push('vitals summary');
+      if (failedWidgets.length > 0) {
+        setDataWarning(`Some dashboard widgets could not load: ${failedWidgets.join(', ')}.`);
       }
 
       console.log('Dashboard data loaded:', {
         user,
-        usersCount: usersList.total,
-        usersArray: usersList.users.length,
+        usersCount: usersList?.total ?? 0,
+        usersArray: usersList?.users?.length ?? 0,
         statsResponse,
         alertsResponse,
-        vitalsSummary,
+        vitalsSummary: vitalsSummaryResponse,
       });
 
       setCurrentUser(user);
-      setAlertStats(statsResponse);
-      setRecentAlerts(alertsResponse.alerts ?? []);
+      setAlertStats(
+        statsResponse ?? {
+          total: 0,
+          by_severity: {},
+          by_type: {},
+          unacknowledged_count: 0,
+        }
+      );
+      setRecentAlerts(alertsResponse?.alerts ?? []);
+      setVitalsSummary(vitalsSummaryResponse ?? null);
 
-      const activeCount = usersList.users.filter((u) => u.is_active).length;
-      const criticalCount = statsResponse.by_severity?.critical ?? 0;
-      const avgHeartRate = Math.round(vitalsSummary?.avg_heart_rate ?? 72);
+      const activeCount = usersList?.users?.filter((u) => u.is_active).length ?? 0;
+      const criticalCount = statsResponse?.by_severity?.critical ?? 0;
+      const avgHeartRate = Number.isFinite(vitalsSummaryResponse?.avg_heart_rate)
+        ? Math.round(vitalsSummaryResponse?.avg_heart_rate ?? 72)
+        : 72;
 
       setStats({
-        totalPatients: usersList.total,
+        totalPatients: usersList?.total ?? 0,
         activeMonitoring: activeCount,
         criticalAlerts: criticalCount,
         avgHeartRate,
       });
 
-      // Generate HR Trend data (7-day synthetic trend based on avg)
-      const hrTrend = [];
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      const baseHR = avgHeartRate;
-      for (let i = 0; i < 7; i++) {
-        const variation = Math.random() * 20 - 10; // -10 to +10 variation
-        hrTrend.push({
-          day: days[i],
-          avgHR: Math.round(baseHR + variation),
-          minHR: Math.round(baseHR + variation - 15),
-          maxHR: Math.round(baseHR + variation + 20),
-        });
+      const patientUsers = (usersList?.users ?? []).filter((userItem) => {
+        const userRole = ((userItem as any).user_role ?? (userItem as any).role ?? '').toLowerCase();
+        return userRole === 'patient';
+      });
+
+      if (patientUsers.length > 0) {
+        const historyResults = await Promise.allSettled(
+          patientUsers.map((patient) => api.getVitalSignsHistoryForUser(patient.user_id, 7, 1, 100))
+        );
+
+        const groupedVitals: Record<string, number[]> = {};
+        for (const result of historyResults) {
+          if (result.status !== 'fulfilled') continue;
+          const rows = result.value?.vitals ?? [];
+          for (const row of rows) {
+            const label = toWeekdayLabel(row?.timestamp);
+            if (!label || typeof row?.heart_rate !== 'number') continue;
+            if (!groupedVitals[label]) groupedVitals[label] = [];
+            groupedVitals[label].push(row.heart_rate);
+          }
+        }
+
+        const realTrendData = WEEKDAY_ORDER
+          .filter((day) => (groupedVitals[day]?.length ?? 0) > 0)
+          .map((day) => {
+            const values = groupedVitals[day];
+            const sum = values.reduce((total, value) => total + value, 0);
+            return {
+              day,
+              avgHR: Math.round(sum / values.length),
+              minHR: Math.min(...values),
+              maxHR: Math.max(...values),
+            };
+          });
+
+        setHrTrendData(realTrendData);
+
+        const riskResults = await Promise.allSettled(
+          patientUsers.map((patient) => api.getLatestRiskAssessmentForUser(patient.user_id))
+        );
+
+        const riskCounts = {
+          low: 0,
+          moderate: 0,
+          high: 0,
+          critical: 0,
+        };
+
+        for (const result of riskResults) {
+          if (result.status !== 'fulfilled') continue;
+          const level = (result.value?.risk_level ?? '').toLowerCase();
+          if (level === 'low') riskCounts.low += 1;
+          else if (level === 'moderate') riskCounts.moderate += 1;
+          else if (level === 'high') riskCounts.high += 1;
+          else if (level === 'critical') riskCounts.critical += 1;
+        }
+
+        setHealthScoreData([
+          { range: 'Low Risk', count: riskCounts.low },
+          { range: 'Moderate', count: riskCounts.moderate },
+          { range: 'High Risk', count: riskCounts.high },
+          { range: 'Critical', count: riskCounts.critical },
+        ]);
+      } else {
+        setHrTrendData([]);
+        setHealthScoreData([]);
       }
-      setHrTrendData(hrTrend);
-
-      // Generate Health Score Distribution (based on alert by severity)
-      const lowCount = Math.max(1, activeCount - criticalCount - 10);
-      const moderateCount = 10;
-      const highCount = Math.max(1, criticalCount - 3);
-      const criticalCount_ = Math.max(1, criticalCount);
-
-      setHealthScoreData([
-        { range: 'Low Risk', count: Math.max(0, lowCount) },
-        { range: 'Moderate', count: Math.max(0, moderateCount) },
-        { range: 'High Risk', count: Math.max(0, highCount) },
-        { range: 'Critical', count: criticalCount_ },
-      ]);
     } catch (error) {
       console.error('Error loading dashboard:', error);
       const message =
@@ -190,37 +287,6 @@ const DashboardPage: React.FC = () => {
     api.logout();
     navigate('/login');
   };
-
-  const statCards = [
-    {
-      title: 'Total Patients',
-      value: stats.totalPatients,
-      icon: <Users size={40} />,
-      color: '#0066FF',
-      bgColor: '#E3F2FD',
-    },
-    {
-      title: 'Active Monitoring',
-      value: stats.activeMonitoring,
-      icon: <Heart size={40} />,
-      color: '#00C853',
-      bgColor: '#E8F5E9',
-    },
-    {
-      title: 'Critical Alerts',
-      value: stats.criticalAlerts,
-      icon: <AlertTriangle size={40} />,
-      color: '#FF1744',
-      bgColor: '#FFEBEE',
-    },
-    {
-      title: 'Avg Heart Rate',
-      value: `${stats.avgHeartRate} BPM`,
-      icon: <TrendingUp size={40} />,
-      color: '#9C27B0',
-      bgColor: '#F3E5F5',
-    },
-  ];
 
   if (loading) {
     return (
@@ -300,6 +366,51 @@ const DashboardPage: React.FC = () => {
               {currentUser?.full_name || 'Clinician'}
             </span>
             <button
+              onClick={() => navigate('/messages')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: `1px solid ${colors.neutral['300']}`,
+                backgroundColor: colors.neutral.white,
+                cursor: 'pointer',
+                color: unreadMessageCount > 0 ? colors.critical.badge : colors.neutral['700'],
+                fontWeight: unreadMessageCount > 0 ? 600 : 500,
+                transition: 'all 0.2s',
+                position: 'relative',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = colors.neutral['100'];
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = colors.neutral.white;
+              }}
+            >
+              <MessageSquare size={18} />
+              Messages
+              {unreadMessageCount > 0 && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: '20px',
+                    height: '20px',
+                    backgroundColor: colors.critical.badge,
+                    color: colors.neutral.white,
+                    borderRadius: '50%',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    marginLeft: '4px',
+                  }}
+                >
+                  {unreadMessageCount}
+                </span>
+              )}
+            </button>
+            <button
               onClick={handleLogout}
               style={{
                 display: 'flex',
@@ -343,6 +454,22 @@ const DashboardPage: React.FC = () => {
         <p style={{ ...typography.body, color: colors.neutral['500'], marginBottom: '32px' }}>
           Real-time cardiovascular patient monitoring
         </p>
+
+        {dataWarning && (
+          <div
+            style={{
+              backgroundColor: colors.warning.background,
+              border: `1px solid ${colors.warning.badge}`,
+              borderRadius: '10px',
+              padding: '12px 16px',
+              marginBottom: '24px',
+              color: colors.warning.text,
+              fontWeight: 600,
+            }}
+          >
+            {dataWarning}
+          </div>
+        )}
 
         {/* Alert Banner (if critical alerts exist) */}
         {stats.criticalAlerts > 0 && (
@@ -406,6 +533,111 @@ const DashboardPage: React.FC = () => {
           />
         </div>
 
+        {/* Alert Stats Summary */}
+        <div
+          style={{
+            backgroundColor: colors.neutral.white,
+            border: `1px solid ${colors.neutral['300']}`,
+            borderRadius: '12px',
+            padding: '20px 24px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            marginBottom: '24px',
+          }}
+        >
+          <h3 style={typography.sectionTitle}>Alert Summary</h3>
+          <p style={{ ...typography.caption, marginBottom: '16px' }}>Severity breakdown</p>
+          {alertStats && alertStats.total > 0 ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: '12px',
+              }}
+            >
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <div style={typography.caption}>Total</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>{alertStats.total}</div>
+              </div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.warning.background }}>
+                <div style={typography.caption}>Unacknowledged</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {alertStats.unacknowledged_count}
+                </div>
+              </div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.critical.background }}>
+                <div style={typography.caption}>Critical</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {alertStats.by_severity?.critical ?? 0}
+                </div>
+              </div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.warning.background }}>
+                <div style={typography.caption}>Warning</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {alertStats.by_severity?.warning ?? 0}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+              <p style={typography.body}>No alert stats available yet.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Vitals Summary */}
+        <div
+          style={{
+            backgroundColor: colors.neutral.white,
+            border: `1px solid ${colors.neutral['300']}`,
+            borderRadius: '12px',
+            padding: '20px 24px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            marginBottom: '32px',
+          }}
+        >
+          <h3 style={typography.sectionTitle}>Vitals Summary</h3>
+          <p style={{ ...typography.caption, marginBottom: '16px' }}>Last 7 days (aggregate)</p>
+          {(vitalsSummary?.total_readings ?? 0) > 0 ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: '12px',
+              }}
+            >
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <div style={typography.caption}>Avg HR</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {vitalsSummary?.avg_heart_rate ? Math.round(vitalsSummary.avg_heart_rate) : '--'} BPM
+                </div>
+              </div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <div style={typography.caption}>Min / Max HR</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {vitalsSummary?.min_heart_rate ? Math.round(vitalsSummary.min_heart_rate) : '--'} /{' '}
+                  {vitalsSummary?.max_heart_rate ? Math.round(vitalsSummary.max_heart_rate) : '--'}
+                </div>
+              </div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <div style={typography.caption}>Avg SpO2</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {vitalsSummary?.avg_spo2 ? Math.round(vitalsSummary.avg_spo2) : '--'}%
+                </div>
+              </div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <div style={typography.caption}>Readings</div>
+                <div style={{ ...typography.cardTitle, marginTop: '4px' }}>
+                  {vitalsSummary?.total_readings ?? 0}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+              <p style={typography.body}>No vitals summary available yet.</p>
+            </div>
+          )}
+        </div>
+
         {/* Charts Section */}
         <div
           style={{
@@ -427,37 +659,43 @@ const DashboardPage: React.FC = () => {
           >
             <h3 style={typography.sectionTitle}>Avg HR Trend</h3>
             <p style={{ ...typography.caption, marginBottom: '16px' }}>Last 7 days</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={hrTrendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
-                <XAxis
-                  dataKey="day"
-                  stroke={colors.neutral['500']}
-                  style={{ fontSize: '12px' }}
-                />
-                <YAxis
-                  stroke={colors.neutral['500']}
-                  style={{ fontSize: '12px' }}
-                  domain={[40, 120]}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: colors.neutral.white,
-                    border: `1px solid ${colors.neutral['300']}`,
-                    borderRadius: '6px',
-                  }}
-                />
-                <Legend wrapperStyle={{ paddingTop: '12px' }} />
-                <Line
-                  type="monotone"
-                  dataKey="avgHR"
-                  stroke={colors.critical.badge}
-                  name="Avg HR (BPM)"
-                  strokeWidth={2}
-                  dot={{ fill: colors.critical.badge, r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {hrTrendData.length === 0 ? (
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <p style={typography.body}>No heart rate trend data yet.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={hrTrendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
+                  <XAxis
+                    dataKey="day"
+                    stroke={colors.neutral['500']}
+                    style={{ fontSize: '12px' }}
+                  />
+                  <YAxis
+                    stroke={colors.neutral['500']}
+                    style={{ fontSize: '12px' }}
+                    domain={[40, 120]}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: colors.neutral.white,
+                      border: `1px solid ${colors.neutral['300']}`,
+                      borderRadius: '6px',
+                    }}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '12px' }} />
+                  <Line
+                    type="monotone"
+                    dataKey="avgHR"
+                    stroke={colors.critical.badge}
+                    name="Avg HR (BPM)"
+                    strokeWidth={2}
+                    dot={{ fill: colors.critical.badge, r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {/* Health Score Distribution */}
@@ -472,33 +710,39 @@ const DashboardPage: React.FC = () => {
           >
             <h3 style={typography.sectionTitle}>Health Score Distribution</h3>
             <p style={{ ...typography.caption, marginBottom: '16px' }}>Population snapshot</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={healthScoreData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
-                <XAxis
-                  dataKey="range"
-                  stroke={colors.neutral['500']}
-                  style={{ fontSize: '12px' }}
-                />
-                <YAxis
-                  stroke={colors.neutral['500']}
-                  style={{ fontSize: '12px' }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: colors.neutral.white,
-                    border: `1px solid ${colors.neutral['300']}`,
-                    borderRadius: '6px',
-                  }}
-                />
-                <Bar
-                  dataKey="count"
-                  fill={colors.chart.blue}
-                  name="Patient Count"
-                  radius={[8, 8, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            {healthScoreData.length === 0 ? (
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
+                <p style={typography.body}>No risk distribution data yet.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={healthScoreData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
+                  <XAxis
+                    dataKey="range"
+                    stroke={colors.neutral['500']}
+                    style={{ fontSize: '12px' }}
+                  />
+                  <YAxis
+                    stroke={colors.neutral['500']}
+                    style={{ fontSize: '12px' }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: colors.neutral.white,
+                      border: `1px solid ${colors.neutral['300']}`,
+                      borderRadius: '6px',
+                    }}
+                  />
+                  <Bar
+                    dataKey="count"
+                    fill={colors.chart.blue}
+                    name="Patient Count"
+                    radius={[8, 8, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 

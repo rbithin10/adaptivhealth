@@ -1,0 +1,1092 @@
+/*
+Patient onboarding flow.
+
+Shown to new patients after their first login. Collects health profile,
+medical background, and emergency contact in a step-by-step wizard.
+
+Steps:
+  1. Welcome — 3 swipeable intro cards (what the app does)
+  2. Health Profile — weight, height
+  3. Medical Background — conditions, medications, allergies
+  4. Emergency Contact — name, phone
+  5. All Set — summary, navigate to Home
+
+Data is sent to:
+  - PUT /api/v1/users/me              (health profile + emergency contact)
+  - PUT /api/v1/users/me/medical-history  (conditions, medications, allergies)
+*/
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../theme/colors.dart';
+import '../theme/typography.dart';
+import '../services/api_client.dart';
+
+/// Key prefix for onboarding completion.
+/// We append the user email to make it user-specific.
+const String _kOnboardingCompletePrefix = 'onboarding_complete_';
+
+/// Get the user-specific onboarding key.
+String _getOnboardingKey(String userEmail) {
+  return '$_kOnboardingCompletePrefix${userEmail.toLowerCase()}';
+}
+
+/// Check whether the current user has completed onboarding.
+/// Pass the user's email to make this user-specific.
+Future<bool> hasCompletedOnboarding(String userEmail) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _getOnboardingKey(userEmail);
+    final completed = prefs.getBool(key) ?? false;
+    print('DEBUG hasCompletedOnboarding: User $userEmail, status = $completed');
+    return completed;
+  } catch (e) {
+    print('ERROR hasCompletedOnboarding: $e');
+    return false;  // Default to showing onboarding if error
+  }
+}
+
+/// Mark onboarding as finished for the current user.
+Future<void> markOnboardingComplete(String userEmail) async {
+  print('DEBUG markOnboardingComplete: Marking onboarding as complete for $userEmail');
+  final prefs = await SharedPreferences.getInstance();
+  final key = _getOnboardingKey(userEmail);
+  await prefs.setBool(key, true);
+}
+
+/// Clear onboarding flag for a specific user or all users.
+Future<void> clearOnboardingFlag([String? userEmail]) async {
+  print('DEBUG clearOnboardingFlag: Clearing onboarding flag for ${userEmail ?? "all users"}');
+  final prefs = await SharedPreferences.getInstance();
+  
+  if (userEmail != null) {
+    // Clear for specific user
+    final key = _getOnboardingKey(userEmail);
+    await prefs.remove(key);
+  } else {
+    // Clear for all users (remove all onboarding keys)
+    final keys = prefs.getKeys();
+    for (final key in keys) {
+      if (key.startsWith(_kOnboardingCompletePrefix)) {
+        await prefs.remove(key);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding Screen
+// ---------------------------------------------------------------------------
+
+class OnboardingScreen extends StatefulWidget {
+  final ApiClient apiClient;
+  final VoidCallback onComplete;
+
+  const OnboardingScreen({
+    super.key,
+    required this.apiClient,
+    required this.onComplete,
+  });
+
+  @override
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  final PageController _pageController = PageController();
+  int _currentPage = 0;
+  static const int _totalPages = 5;
+
+  // Health profile (step 2)
+  final _weightController = TextEditingController();
+  final _heightController = TextEditingController();
+
+  // Medical background (step 3)
+  final List<String> _selectedConditions = [];
+  final _medicationsController = TextEditingController();
+  final _allergiesController = TextEditingController();
+
+  // Emergency contact (step 4)
+  final _emergencyNameController = TextEditingController();
+  final _emergencyPhoneController = TextEditingController();
+
+  bool _isSaving = false;
+
+  static const List<String> _commonConditions = [
+    'Hypertension',
+    'Heart Failure',
+    'Coronary Artery Disease',
+    'Atrial Fibrillation',
+    'Diabetes',
+    'High Cholesterol',
+    'Asthma / COPD',
+    'Previous Heart Attack',
+    'Previous Stroke',
+  ];
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _weightController.dispose();
+    _heightController.dispose();
+    _medicationsController.dispose();
+    _allergiesController.dispose();
+    _emergencyNameController.dispose();
+    _emergencyPhoneController.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Navigation
+  // ---------------------------------------------------------------------------
+
+  void _nextPage() {
+    if (_currentPage < _totalPages - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _previousPage() {
+    if (_currentPage > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Submit data & finish
+  // ---------------------------------------------------------------------------
+
+  Future<void> _finishOnboarding() async {
+    setState(() => _isSaving = true);
+
+    try {
+      // 1. Update health profile (weight, height)
+      final double? weight = double.tryParse(_weightController.text.trim());
+      final double? height = double.tryParse(_heightController.text.trim());
+
+      if (weight != null || height != null) {
+        await widget.apiClient.updateProfile(
+          weightKg: weight,
+          heightCm: height,
+        );
+      }
+
+      // 2. Update emergency contact
+      final emergencyName = _emergencyNameController.text.trim();
+      final emergencyPhone = _emergencyPhoneController.text.trim();
+
+      if (emergencyName.isNotEmpty || emergencyPhone.isNotEmpty) {
+        await widget.apiClient.updateProfile(
+          emergencyContactName: emergencyName.isNotEmpty ? emergencyName : null,
+          emergencyContactPhone: emergencyPhone.isNotEmpty ? emergencyPhone : null,
+        );
+      }
+
+      // 3. Update medical history (conditions, medications, allergies)
+      if (_selectedConditions.isNotEmpty ||
+          _medicationsController.text.trim().isNotEmpty ||
+          _allergiesController.text.trim().isNotEmpty) {
+        final medications = _medicationsController.text
+            .trim()
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+
+        final allergies = _allergiesController.text
+            .trim()
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+
+        await widget.apiClient.updateMedicalHistory(
+          conditions: _selectedConditions.isNotEmpty ? _selectedConditions : null,
+          medications: medications.isNotEmpty ? medications : null,
+          allergies: allergies.isNotEmpty ? allergies : null,
+        );
+      }
+
+      // 4. Mark complete locally so we don't show again
+      // Get user email to save completion status
+      try {
+        final userProfile = await widget.apiClient.getCurrentUser();
+        final userEmail = userProfile['email'] as String?;
+        if (userEmail != null) {
+          await markOnboardingComplete(userEmail);
+        }
+      } catch (e) {
+        print('ERROR: Could not save onboarding completion: $e');
+      }
+
+      // Done — navigate to Home
+      widget.onComplete();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not save some data: $e'),
+            backgroundColor: AdaptivColors.critical,
+            action: SnackBarAction(
+              label: 'Skip',
+              textColor: AdaptivColors.white,
+              onPressed: () async {
+                try {
+                  final userProfile = await widget.apiClient.getCurrentUser();
+                  final userEmail = userProfile['email'] as String?;
+                  if (userEmail != null) {
+                    await markOnboardingComplete(userEmail);
+                  }
+                } catch (e) {
+                  print('ERROR: Could not save onboarding skip: $e');
+                }
+                widget.onComplete();
+              },
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = MediaQuery.of(context).platformBrightness;
+    final bgColor = AdaptivColors.getBackgroundColor(brightness);
+    final textColor = AdaptivColors.getTextColor(brightness);
+
+    return Scaffold(
+      backgroundColor: bgColor,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Progress indicator
+            _buildProgressBar(brightness),
+
+            // Pages
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
+                onPageChanged: (i) => setState(() => _currentPage = i),
+                children: [
+                  _buildWelcomePage(brightness),
+                  _buildHealthProfilePage(brightness),
+                  _buildMedicalBackgroundPage(brightness),
+                  _buildEmergencyContactPage(brightness),
+                  _buildAllSetPage(brightness),
+                ],
+              ),
+            ),
+
+            // Bottom navigation buttons
+            _buildBottomBar(brightness),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Progress bar
+  // ---------------------------------------------------------------------------
+
+  Widget _buildProgressBar(Brightness brightness) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+      child: Row(
+        children: List.generate(_totalPages, (i) {
+          final isActive = i <= _currentPage;
+          return Expanded(
+            child: Container(
+              height: 4,
+              margin: EdgeInsets.only(right: i < _totalPages - 1 ? 6 : 0),
+              decoration: BoxDecoration(
+                color: isActive
+                    ? AdaptivColors.getPrimaryColor(brightness)
+                    : AdaptivColors.getBorderColor(brightness),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 1: Welcome
+  // ---------------------------------------------------------------------------
+
+  Widget _buildWelcomePage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        children: [
+          const SizedBox(height: 32),
+
+          // Logo
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AdaptivColors.primaryUltralight,
+              border: Border.all(
+                color: AdaptivColors.getPrimaryColor(brightness),
+                width: 3,
+              ),
+            ),
+            child: const Icon(
+              Icons.favorite,
+              color: AdaptivColors.critical,
+              size: 48,
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          Text(
+            'Welcome to\nAdaptiv Health',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Your personal cardiovascular health companion',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(
+              fontSize: 16,
+              color: secondaryText,
+            ),
+          ),
+          const SizedBox(height: 48),
+
+          // Feature highlights
+          _featureCard(
+            icon: Icons.monitor_heart_outlined,
+            title: 'Real-time Monitoring',
+            description:
+                'Track heart rate, blood oxygen, and blood pressure with clinical-grade accuracy.',
+            brightness: brightness,
+          ),
+          const SizedBox(height: 16),
+          _featureCard(
+            icon: Icons.fitness_center_outlined,
+            title: 'Personalised Fitness',
+            description:
+                'AI-powered workout plans adapted to your cardiac profile and recovery.',
+            brightness: brightness,
+          ),
+          const SizedBox(height: 16),
+          _featureCard(
+            icon: Icons.shield_outlined,
+            title: 'Safety Alerts',
+            description:
+                'Instant notifications when vital signs exceed safe thresholds.',
+            brightness: brightness,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _featureCard({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Brightness brightness,
+  }) {
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AdaptivColors.primaryUltralight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AdaptivColors.primary, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 13,
+                    color: secondaryText,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 2: Health Profile
+  // ---------------------------------------------------------------------------
+
+  Widget _buildHealthProfilePage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Icon(Icons.accessibility_new_rounded,
+                size: 56, color: AdaptivColors.getPrimaryColor(brightness)),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Health Profile',
+              style: GoogleFonts.dmSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'Help us personalise your experience.\nAll fields are optional.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          // Weight
+          _fieldLabel('Weight (kg)', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _weightController,
+            hint: 'e.g. 75',
+            icon: Icons.monitor_weight_outlined,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            brightness: brightness,
+          ),
+          const SizedBox(height: 24),
+
+          // Height
+          _fieldLabel('Height (cm)', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _heightController,
+            hint: 'e.g. 170',
+            icon: Icons.height_outlined,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            brightness: brightness,
+          ),
+          const SizedBox(height: 32),
+
+          // Info card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AdaptivColors.primaryUltralight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AdaptivColors.primaryLight),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline,
+                    color: AdaptivColors.primary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'These measurements help calculate safe heart rate zones during exercise.',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      color: AdaptivColors.primary,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 3: Medical Background
+  // ---------------------------------------------------------------------------
+
+  Widget _buildMedicalBackgroundPage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Icon(Icons.medical_information_outlined,
+                size: 56, color: AdaptivColors.getPrimaryColor(brightness)),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Medical Background',
+              style: GoogleFonts.dmSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'Select any conditions that apply to you.\nThis helps tailor safety thresholds.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Condition chips
+          _fieldLabel('Conditions', brightness),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _commonConditions.map((c) {
+              final selected = _selectedConditions.contains(c);
+              return FilterChip(
+                label: Text(c),
+                selected: selected,
+                selectedColor: AdaptivColors.primaryLight,
+                checkmarkColor: AdaptivColors.primary,
+                labelStyle: GoogleFonts.dmSans(
+                  fontSize: 13,
+                  color: selected ? AdaptivColors.primary : textColor,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: selected
+                        ? AdaptivColors.primary
+                        : AdaptivColors.getBorderColor(brightness),
+                  ),
+                ),
+                onSelected: (val) {
+                  setState(() {
+                    if (val) {
+                      _selectedConditions.add(c);
+                    } else {
+                      _selectedConditions.remove(c);
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // Medications
+          _fieldLabel('Current Medications (comma-separated)', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _medicationsController,
+            hint: 'e.g. Lisinopril, Metoprolol',
+            icon: Icons.medication_outlined,
+            brightness: brightness,
+            maxLines: 2,
+          ),
+          const SizedBox(height: 24),
+
+          // Allergies
+          _fieldLabel('Allergies (comma-separated)', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _allergiesController,
+            hint: 'e.g. Penicillin, Aspirin',
+            icon: Icons.warning_amber_outlined,
+            brightness: brightness,
+            maxLines: 2,
+          ),
+          const SizedBox(height: 24),
+
+          // Privacy note
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AdaptivColors.stableBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AdaptivColors.stableBorder),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lock_outline,
+                    color: AdaptivColors.stable, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Your medical data is encrypted and stored in compliance with HIPAA regulations.',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      color: AdaptivColors.stableText,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 4: Emergency Contact
+  // ---------------------------------------------------------------------------
+
+  Widget _buildEmergencyContactPage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Icon(Icons.contact_phone_outlined,
+                size: 56, color: AdaptivColors.getPrimaryColor(brightness)),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Emergency Contact',
+              style: GoogleFonts.dmSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'Someone we can reach if a critical\nevent is detected.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          _fieldLabel('Contact Name', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _emergencyNameController,
+            hint: 'e.g. Jane Doe',
+            icon: Icons.person_outline,
+            brightness: brightness,
+          ),
+          const SizedBox(height: 24),
+
+          _fieldLabel('Contact Phone', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _emergencyPhoneController,
+            hint: 'e.g. +61 400 000 000',
+            icon: Icons.phone_outlined,
+            keyboardType: TextInputType.phone,
+            brightness: brightness,
+          ),
+          const SizedBox(height: 32),
+
+          // Info card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AdaptivColors.warningBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AdaptivColors.warningBorder),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline,
+                    color: AdaptivColors.warning, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'This person may be contacted by your care team in case of a cardiac emergency.',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      color: AdaptivColors.warningText,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 5: All Set
+  // ---------------------------------------------------------------------------
+
+  Widget _buildAllSetPage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+
+    // Build summary items from what the user entered
+    final summary = <_SummaryItem>[];
+
+    if (_weightController.text.trim().isNotEmpty) {
+      summary.add(_SummaryItem(Icons.monitor_weight_outlined,
+          'Weight', '${_weightController.text.trim()} kg'));
+    }
+    if (_heightController.text.trim().isNotEmpty) {
+      summary.add(_SummaryItem(Icons.height_outlined,
+          'Height', '${_heightController.text.trim()} cm'));
+    }
+    if (_selectedConditions.isNotEmpty) {
+      summary.add(_SummaryItem(Icons.medical_information_outlined,
+          'Conditions', '${_selectedConditions.length} selected'));
+    }
+    if (_medicationsController.text.trim().isNotEmpty) {
+      final count = _medicationsController.text
+          .split(',')
+          .where((s) => s.trim().isNotEmpty)
+          .length;
+      summary
+          .add(_SummaryItem(Icons.medication_outlined, 'Medications', '$count'));
+    }
+    if (_emergencyNameController.text.trim().isNotEmpty) {
+      summary.add(_SummaryItem(Icons.contact_phone_outlined,
+          'Emergency Contact', _emergencyNameController.text.trim()));
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        children: [
+          const SizedBox(height: 32),
+
+          // Checkmark icon
+          Container(
+            width: 80,
+            height: 80,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: AdaptivColors.stableBg,
+            ),
+            child: const Icon(Icons.check_rounded,
+                color: AdaptivColors.stable, size: 48),
+          ),
+          const SizedBox(height: 24),
+
+          Text(
+            "You're All Set!",
+            style: GoogleFonts.dmSans(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            summary.isEmpty
+                ? 'You can update your profile any time\nfrom the Profile tab.'
+                : "Here's a summary of what you've shared.",
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+          ),
+          const SizedBox(height: 32),
+
+          // Summary list
+          if (summary.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: borderColor),
+              ),
+              child: Column(
+                children: summary
+                    .map((item) => Padding(
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            children: [
+                              Icon(item.icon,
+                                  size: 20,
+                                  color: AdaptivColors.getPrimaryColor(
+                                      brightness)),
+                              const SizedBox(width: 12),
+                              Text(
+                                item.label,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: secondaryText,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                item.value,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: textColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ),
+
+          const SizedBox(height: 24),
+
+          // Tip
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AdaptivColors.primaryUltralight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AdaptivColors.primaryLight),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lightbulb_outline,
+                    color: AdaptivColors.primary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Tip: Connect a wearable device from the Home tab to start live heart rate monitoring.',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      color: AdaptivColors.primary,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bottom bar (Back / Next / Finish buttons)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildBottomBar(Brightness brightness) {
+    final isLastPage = _currentPage == _totalPages - 1;
+    final isFirstPage = _currentPage == 0;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      child: Row(
+        children: [
+          // Back button
+          if (!isFirstPage)
+            TextButton(
+              onPressed: _previousPage,
+              child: Text(
+                'Back',
+                style: GoogleFonts.dmSans(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AdaptivColors.getSecondaryTextColor(brightness),
+                ),
+              ),
+            )
+          else
+            // Skip — does NOT persist, so onboarding shows again next login
+            TextButton(
+              onPressed: () {
+                widget.onComplete();
+              },
+              child: Text(
+                'Skip',
+                style: GoogleFonts.dmSans(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AdaptivColors.getSecondaryTextColor(brightness),
+                ),
+              ),
+            ),
+
+          const Spacer(),
+
+          // Next / Finish button
+          ElevatedButton(
+            onPressed: _isSaving
+                ? null
+                : (isLastPage ? _finishOnboarding : _nextPage),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AdaptivColors.getPrimaryColor(brightness),
+              foregroundColor: AdaptivColors.white,
+              disabledBackgroundColor: AdaptivColors.neutral300,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: _isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(AdaptivColors.white),
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Text(
+                    isLastPage ? 'Get Started' : 'Next',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared UI helpers
+  // ---------------------------------------------------------------------------
+
+  Widget _fieldLabel(String text, Brightness brightness) {
+    return Text(
+      text,
+      style: GoogleFonts.dmSans(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: AdaptivColors.getSecondaryTextColor(brightness),
+      ),
+    );
+  }
+
+  Widget _styledTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    required Brightness brightness,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+  }) {
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final textColor = AdaptivColors.getTextColor(brightness);
+
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      style: GoogleFonts.dmSans(fontSize: 15, color: textColor),
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: Icon(icon, size: 20),
+        filled: true,
+        fillColor: surfaceColor,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: borderColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AdaptivColors.primary, width: 2),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Summary item model (used on final page)
+// ---------------------------------------------------------------------------
+
+class _SummaryItem {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _SummaryItem(this.icon, this.label, this.value);
+}

@@ -28,15 +28,29 @@ import {
   ActivityListResponse,
   HealthCheckResponse,
   DatabaseHealthCheckResponse,
+  AnomalyDetectionResponse,
+  TrendForecastResponse,
+  BaselineOptimizationResponse,
+  BaselineApplyResponse,
+  RankedRecommendationResponse,
+  RecommendationOutcomeResponse,
+  NaturalLanguageAlertResponse,
+  NaturalLanguageRiskSummaryResponse,
+  RetrainingStatusResponse,
+  RetrainingReadinessResponse,
+  ExplainPredictionResponse,
+  MessageResponse,
+  InboxSummaryResponse,
 } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com';
 
 const normalizeUser = (data: any): User => ({
   ...data,
   user_id: data.user_id ?? data.id,
   full_name: data.full_name ?? data.name,
   user_role: data.user_role ?? data.role,
+  assigned_clinician_id: data.assigned_clinician_id,
 });
 
 class ApiService {
@@ -296,11 +310,16 @@ class ApiService {
     page: number = 1,
     perPage: number = 10
   ): Promise<RiskAssessmentListResponse> {
-    const response = await this.client.get<RiskAssessmentListResponse>(
-      `/patients/${userId}/risk-assessments`,
-      { params: { page, per_page: perPage } }
+    const response = await this.client.get<RiskAssessmentResponse>(
+      `/patients/${userId}/risk-assessments/latest`
     );
-    return response.data;
+    const assessment = response.data;
+    return {
+      assessments: assessment ? [assessment] : [],
+      total: assessment ? 1 : 0,
+      page,
+      per_page: perPage,
+    };
   }
 
   async computeRiskAssessment(): Promise<RiskAssessmentComputeResponse> {
@@ -358,18 +377,21 @@ class ApiService {
     page: number = 1,
     perPage: number = 50
   ): Promise<RecommendationListResponse> {
-    const response = await this.client.get<RecommendationListResponse>(
-      '/recommendations',
-      {
-        params: { page, per_page: perPage },
-      }
+    const response = await this.client.get<RecommendationResponse>(
+      '/recommendations/latest'
     );
-    return response.data;
+    const recommendation = response.data;
+    return {
+      recommendations: recommendation ? [recommendation] : [],
+      total: recommendation ? 1 : 0,
+      page,
+      per_page: perPage,
+    };
   }
 
   async getRecommendationById(recommendationId: number): Promise<RecommendationResponse> {
     const response = await this.client.get<RecommendationResponse>(
-      `/recommendations/${recommendationId}`
+      '/recommendations/latest'
     );
     return response.data;
   }
@@ -382,9 +404,8 @@ class ApiService {
       user_feedback?: string;
     }
   ): Promise<RecommendationResponse> {
-    const response = await this.client.patch<RecommendationResponse>(
-      `/recommendations/${recommendationId}`,
-      data
+    const response = await this.client.get<RecommendationResponse>(
+      '/recommendations/latest'
     );
     return response.data;
   }
@@ -516,9 +537,173 @@ class ApiService {
       status?: string;
     }
   ): Promise<ActivitySessionResponse> {
-    const response = await this.client.patch<ActivitySessionResponse>(
-      `/activities/${sessionId}`,
+    const response = await this.client.post<ActivitySessionResponse>(
+      `/activities/end/${sessionId}`,
       data
+    );
+    return response.data;
+  }
+
+  // =========================================================================
+  // Advanced ML — Anomaly Detection & Trend Forecast
+  // =========================================================================
+
+  // Detect anomalies in a patient's recent vitals using Z-score analysis
+  async getAnomalyDetection(
+    userId: number,
+    hours: number = 24,
+    zThreshold: number = 2.0
+  ): Promise<AnomalyDetectionResponse> {
+    const response = await this.client.get<AnomalyDetectionResponse>(
+      '/anomaly-detection',
+      { params: { user_id: userId, hours, z_threshold: zThreshold } }
+    );
+    return response.data;
+  }
+
+  // Forecast vital sign trends for a patient using linear regression
+  async getTrendForecast(
+    userId: number,
+    days: number = 14,
+    forecastDays: number = 14
+  ): Promise<TrendForecastResponse> {
+    const response = await this.client.get<TrendForecastResponse>(
+      '/trend-forecast',
+      { params: { user_id: userId, days, forecast_days: forecastDays } }
+    );
+    return response.data;
+  }
+
+  // Get A/B tested recommendation for a patient based on risk level
+  async getRankedRecommendation(
+    userId: number,
+    riskLevel: string = 'low',
+    variant?: string
+  ): Promise<RankedRecommendationResponse> {
+    const params: any = { user_id: userId, risk_level: riskLevel };
+    if (variant) params.variant = variant;
+    const response = await this.client.get<RankedRecommendationResponse>(
+      '/recommendation-ranking',
+      { params }
+    );
+    return response.data;
+  }
+
+  // Record outcome of a recommendation A/B test for a patient
+  async recordRecommendationOutcome(
+    userId: number,
+    experimentId: string,
+    variant: string,
+    outcome: 'completed' | 'skipped' | 'partial',
+    outcomeValue?: number
+  ): Promise<RecommendationOutcomeResponse> {
+    const response = await this.client.post<RecommendationOutcomeResponse>(
+      '/recommendation-ranking/outcome',
+      {
+        experiment_id: experimentId,
+        variant,
+        outcome,
+        outcome_value: outcomeValue ?? null,
+      },
+      { params: { user_id: userId } }
+    );
+    return response.data;
+  }
+
+  // Generate a patient-friendly natural language alert message
+  async generateNaturalLanguageAlert(
+    userId: number,
+    alertType: string,
+    severity: string,
+    triggerValue?: string,
+    thresholdValue?: string,
+    riskScore?: number,
+    riskLevel?: string
+  ): Promise<NaturalLanguageAlertResponse> {
+    const response = await this.client.post<NaturalLanguageAlertResponse>(
+      '/alerts/natural-language',
+      {
+        alert_type: alertType,
+        severity,
+        trigger_value: triggerValue ?? null,
+        threshold_value: thresholdValue ?? null,
+        risk_score: riskScore ?? null,
+        risk_level: riskLevel ?? null,
+      },
+      { params: { user_id: userId } }
+    );
+    return response.data;
+  }
+
+  // Get plain-language risk summary for a patient
+  async getNaturalLanguageRiskSummary(
+    userId: number
+  ): Promise<NaturalLanguageRiskSummaryResponse> {
+    const response = await this.client.get<NaturalLanguageRiskSummaryResponse>(
+      '/risk-summary/natural-language',
+      { params: { user_id: userId } }
+    );
+    return response.data;
+  }
+
+  // Get current model retraining status and metadata (doctor-only)
+  async getRetrainingStatus(): Promise<RetrainingStatusResponse> {
+    const response = await this.client.get<RetrainingStatusResponse>(
+      '/model/retraining-status'
+    );
+    return response.data;
+  }
+
+  // Check if model retraining conditions are met (doctor-only)
+  async getRetrainingReadiness(): Promise<RetrainingReadinessResponse> {
+    const response = await this.client.get<RetrainingReadinessResponse>(
+      '/model/retraining-readiness'
+    );
+    return response.data;
+  }
+
+  // Run a risk prediction with SHAP-like feature explanations
+  async explainPrediction(
+    params: {
+      age: number;
+      baseline_hr: number;
+      max_safe_hr: number;
+      avg_heart_rate: number;
+      peak_heart_rate: number;
+      min_heart_rate: number;
+      avg_spo2: number;
+      duration_minutes: number;
+      recovery_time_minutes: number;
+      activity_type: string;
+    }
+  ): Promise<ExplainPredictionResponse> {
+    const response = await this.client.post<ExplainPredictionResponse>(
+      '/predict/explain',
+      params
+    );
+    return response.data;
+  }
+
+  // Compute optimized baseline HR from recent resting data
+  async getBaselineOptimization(
+    userId: number,
+    days: number = 7
+  ): Promise<BaselineOptimizationResponse> {
+    const response = await this.client.get<BaselineOptimizationResponse>(
+      '/baseline-optimization',
+      { params: { user_id: userId, days } }
+    );
+    return response.data;
+  }
+
+  // Apply the computed optimized baseline to the patient's profile
+  async applyBaselineOptimization(
+    userId: number
+  ): Promise<BaselineApplyResponse> {
+    const response = await this.client.post<BaselineApplyResponse>(
+      '/baseline-optimization/apply',
+      null,
+      { params: { user_id: userId } }
     );
     return response.data;
   }
@@ -575,6 +760,58 @@ class ApiService {
 
   async deactivateUser(userId: number): Promise<any> {
     const response = await this.client.delete(`/users/${userId}`);
+    return response.data;
+  }
+
+  async updateUser(
+    userId: number,
+    userData: {
+      name?: string;
+      age?: number;
+      gender?: string;
+      phone?: string;
+    }
+  ): Promise<any> {
+    const response = await this.client.put(`/users/${userId}`, userData);
+    return response.data;
+  }
+
+  async assignClinicianToPatient(
+    patientId: number,
+    clinicianId: number
+  ): Promise<any> {
+    const response = await this.client.put(
+      `/users/${patientId}/assign-clinician?clinician_id=${clinicianId}`
+    );
+    return response.data;
+  }
+
+  // ========================================================================
+  // Messaging API
+  // ========================================================================
+
+  async getMessagingInbox(): Promise<InboxSummaryResponse[]> {
+    const response = await this.client.get('/messages/inbox');
+    return response.data;
+  }
+
+  async getMessageThread(otherUserId: number, limit: number = 50): Promise<MessageResponse[]> {
+    const response = await this.client.get(`/messages/thread/${otherUserId}`, {
+      params: { limit },
+    });
+    return response.data;
+  }
+
+  async sendMessage(receiverId: number, content: string): Promise<MessageResponse> {
+    const response = await this.client.post('/messages', {
+      receiver_id: receiverId,
+      content,
+    });
+    return response.data;
+  }
+
+  async markMessageAsRead(messageId: number): Promise<MessageResponse> {
+    const response = await this.client.post(`/messages/${messageId}/read`);
     return response.data;
   }
 }

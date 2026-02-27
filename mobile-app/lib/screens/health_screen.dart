@@ -9,10 +9,13 @@ Displays comprehensive health information including:
 */
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/widgets.dart';
+import '../widgets/edge_ai_status_card.dart';
 import '../services/api_client.dart';
+import '../services/edge_ai_store.dart';
 
 class HealthScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -32,6 +35,11 @@ class _HealthScreenState extends State<HealthScreen>
   bool _isLoading = true;
   Map<String, dynamic> _healthData = {};
 
+  // Profile fields used by edge ML predictions
+  int? _userAge;
+  int? _baselineHr;
+  int? _maxSafeHr;
+
   @override
   void initState() {
     super.initState();
@@ -47,37 +55,45 @@ class _HealthScreenState extends State<HealthScreen>
 
   Future<void> _loadHealthData() async {
     setState(() => _isLoading = true);
-    
-    try {
-      final vitals = await widget.apiClient.getLatestVitals().catchError(
-        (e) => {
+
+    // Load user profile + latest vitals in parallel
+    final results = await Future.wait([
+      widget.apiClient.getCurrentUser().catchError((_) => <String, dynamic>{}),
+      widget.apiClient.getLatestVitals().catchError(
+        (_) => <String, dynamic>{
           'heart_rate': 72,
           'spo2': 98,
           'systolic_bp': 120,
           'diastolic_bp': 80,
           'hrv': 45,
         },
-      );
-      
-      _healthData = {
-        'vitals': vitals,
-        'trends': _getDemoTrends(),
-        'history': _getDemoHistory(),
-      };
-    } catch (e) {
-      _healthData = {
-        'vitals': {
-          'heart_rate': 72,
-          'spo2': 98,
-          'systolic_bp': 120,
-          'diastolic_bp': 80,
-          'hrv': 45,
-        },
-        'trends': _getDemoTrends(),
-        'history': _getDemoHistory(),
-      };
+      ),
+    ]);
+
+    final profile = results[0] as Map<String, dynamic>;
+    final vitals  = results[1] as Map<String, dynamic>;
+
+    // Extract profile fields needed for edge ML risk prediction
+    final age = (profile['age'] as num?)?.toInt();
+    final baselineHr = (profile['baseline_hr'] as num?)?.toInt();
+    if (age != null && age > 0) {
+      _userAge     = age;
+      _baselineHr  = baselineHr ?? 72;
+      _maxSafeHr   = 220 - age;
     }
-    
+
+    _healthData = {
+      'vitals': vitals.isNotEmpty ? vitals : {
+        'heart_rate': 72,
+        'spo2': 98,
+        'systolic_bp': 120,
+        'diastolic_bp': 80,
+        'hrv': 45,
+      },
+      'trends': _getDemoTrends(),
+      'history': _getDemoHistory(),
+    };
+
     setState(() => _isLoading = false);
   }
 
@@ -128,8 +144,9 @@ class _HealthScreenState extends State<HealthScreen>
 
   @override
   Widget build(BuildContext context) {
+    final brightness = MediaQuery.of(context).platformBrightness;
     return Scaffold(
-      backgroundColor: AdaptivColors.bg100,
+      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -284,11 +301,39 @@ class _HealthScreenState extends State<HealthScreen>
     final diastolic = vitals['diastolic_bp'] ?? 80;
     final hrv = vitals['hrv'] ?? 45;
 
+    // Feed vitals to edge AI when they load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+        if (edgeStore.isReady && hr > 0) {
+          edgeStore.processVitals(
+            heartRate: hr,
+            spo2: spo2 > 0 ? spo2 : null,
+            bpSystolic: systolic > 0 ? systolic : null,
+            age: _userAge,
+            baselineHr: _baselineHr,
+            maxSafeHr: _maxSafeHr,
+          );
+        }
+      } catch (_) {}
+    });
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Edge AI status card — shows on-device risk + alerts
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AdaptivColors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AdaptivColors.border300),
+            ),
+            child: const EdgeAiStatusCard(),
+          ),
           Row(
             children: [
               Text(

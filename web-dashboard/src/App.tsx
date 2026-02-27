@@ -10,9 +10,11 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
+import PatientDashboardPage from './pages/PatientDashboardPage';
 import PatientsPage from './pages/PatientsPage';
 import PatientDetailPage from './pages/PatientDetailPage';
 import AdminPage from './pages/AdminPage';
+import MessagingPage from './pages/MessagingPage';
 import './App.css';
 
 interface ProtectedRouteProps {
@@ -27,6 +29,22 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   return <>{children}</>;
 };
 
+// Wrapper to show appropriate dashboard based on user role
+interface DashboardWrapperProps {}
+
+const DashboardWrapper: React.FC<DashboardWrapperProps> = () => {
+  const userStr = localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  
+  // Patient role: show patient dashboard
+  if (user?.user_role === 'patient') {
+    return <PatientDashboardPage />;
+  }
+  
+  // Clinician/Admin: show clinician dashboard
+  return <DashboardPage />;
+};
+
 function App() {
   return (
     <Router>
@@ -37,7 +55,7 @@ function App() {
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <DashboardPage />
+              <DashboardWrapper />
             </ProtectedRoute>
           }
         />
@@ -62,6 +80,14 @@ function App() {
           element={
             <ProtectedRoute>
               <PatientDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/messages"
+          element={
+            <ProtectedRoute>
+              <MessagingPage />
             </ProtectedRoute>
           }
         />

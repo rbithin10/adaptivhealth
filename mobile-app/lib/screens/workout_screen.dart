@@ -5,11 +5,16 @@ The app shows safe heart-rate zones and asks how the user feels.
 When the user taps "Start Workout", we create a workout session on the server.
 */
 
+import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
+import '../services/edge_ai_store.dart';
+import '../models/edge_prediction.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -67,18 +72,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         targetDuration: 30, // Default 30 minute workout
       );
 
+      final sessionIdValue = response['session_id'];
+      final sessionId = int.tryParse('$sessionIdValue');
+      if (sessionId == null) {
+        throw 'Invalid start-session response: missing session_id';
+      }
+
       if (mounted) {
         // Navigate to active workout screen
-        Navigator.push(
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ActiveWorkoutScreen(
               apiClient: widget.apiClient,
-              sessionId: response['session_id'],
+              sessionId: sessionId,
               wellnessLevel: _selectedWellness,
             ),
           ),
         );
+
+        if (mounted) {
+          setState(() {
+            _isStartingWorkout = false;
+          });
+        }
       }
     } catch (e) {
       setState(() {
@@ -402,9 +419,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 }
 
 // Active Workout Screen - Real-time HR monitoring during exercise
+// Edge AI processes every heart rate reading for instant risk detection
 class ActiveWorkoutScreen extends StatefulWidget {
   final ApiClient apiClient;
-  final String sessionId;
+  final int sessionId;
   final String wellnessLevel;
 
   const ActiveWorkoutScreen({
@@ -419,36 +437,128 @@ class ActiveWorkoutScreen extends StatefulWidget {
 }
 
 class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
-  // Note: _vitalStream will be used when WebSocket integration is added
-  // late Stream<Map<String, dynamic>> _vitalStream;
-  int _currentHR = 0;
-  int _maxHR = 0;
+  int _currentHR = 80;
+  int _peakHR = 0;
+  int _minHR = 999;
+  int _maxSafeHR = 185;
   bool _isEndingWorkout = false;
+  int _elapsedSeconds = 0;
+  Timer? _timer;
+  Timer? _hrSimTimer;
+
+  // Edge AI state for this workout
+  String _edgeRiskLevel = 'low';
+  double _edgeRiskScore = 0.0;
+  List<ThresholdAlert> _activeAlerts = [];
+  bool _showAlertBanner = false;
 
   @override
   void initState() {
     super.initState();
-    // Simulate live heart rate data
-    _simulateLiveHR();
+    _loadUserProfile();
+    _startWorkoutTimer();
+    _startHeartRateSimulation();
   }
 
-  void _simulateLiveHR() {
-    // In production, this would be a WebSocket stream
-    _currentHR = 80;
-    _maxHR = 150;
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _hrSimTimer?.cancel();
+    super.dispose();
+  }
+
+  // Load user profile for max safe HR calculation
+  void _loadUserProfile() async {
+    try {
+      final user = await widget.apiClient.getCurrentUser();
+      final age = user['age'] as int? ?? 35;
+      setState(() {
+        _maxSafeHR = 220 - age;
+      });
+    } catch (_) {}
+  }
+
+  // Workout elapsed timer
+  void _startWorkoutTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSeconds++);
+    });
+  }
+
+  // Simulate heart rate changes during workout
+  // In production, replace with BLE wearable stream
+  void _startHeartRateSimulation() {
+    _hrSimTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      // Simulate HR fluctuation during exercise
+      final base = 80 + (_elapsedSeconds ~/ 10).clamp(0, 60);
+      final jitter = (DateTime.now().millisecond % 15) - 7;
+      final newHR = (base + jitter).clamp(55, 200);
+
+      setState(() {
+        _currentHR = newHR;
+        if (newHR > _peakHR) _peakHR = newHR;
+        if (newHR < _minHR) _minHR = newHR;
+      });
+
+      // Feed every reading into edge AI
+      _processWithEdgeAi(newHR);
+    });
+  }
+
+  // Run edge AI on each heart rate reading
+  void _processWithEdgeAi(int heartRate) {
+    try {
+      final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+      edgeStore.processVitals(
+        heartRate: heartRate,
+        age: (220 - _maxSafeHR) > 0 ? 220 - _maxSafeHR : null, // reverse calc
+        baselineHr: 72,
+        maxSafeHr: _maxSafeHR,
+        durationMinutes: _elapsedSeconds ~/ 60,
+        recoveryTimeMinutes: 0, // still exercising
+        activityType: 'walking',
+      );
+
+      // Read back the results
+      if (mounted) {
+        setState(() {
+          _activeAlerts = edgeStore.activeAlerts;
+          _showAlertBanner = _activeAlerts.isNotEmpty;
+          if (edgeStore.latestPrediction != null) {
+            _edgeRiskLevel = edgeStore.latestPrediction!.riskLevel;
+            _edgeRiskScore = edgeStore.latestPrediction!.riskScore;
+          }
+        });
+      }
+    } catch (_) {
+      // EdgeAiStore not available— no-op
+    }
+  }
+
+  String _formatTimer(int seconds) {
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   void _endWorkout() async {
-    setState(() {
-      _isEndingWorkout = true;
-    });
+    _timer?.cancel();
+    _hrSimTimer?.cancel();
+    setState(() => _isEndingWorkout = true);
 
     try {
       await widget.apiClient.endSession(
-        sessionId: int.parse(widget.sessionId),
+        sessionId: widget.sessionId,
         avgHeartRate: _currentHR,
-        maxHeartRate: _maxHR,
+        maxHeartRate: _peakHR,
       );
+
+      // Trigger a cloud sync after workout ends
+      try {
+        final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+        edgeStore.syncNow();
+      } catch (_) {}
 
       if (mounted) {
         Navigator.pop(context);
@@ -457,144 +567,317 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
         );
       }
     } catch (e) {
-      setState(() {
-        _isEndingWorkout = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error ending workout: $e')),
-      );
+      setState(() => _isEndingWorkout = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error ending workout: $e')),
+        );
+      }
     }
+  }
+
+  // Get color based on edge AI risk level
+  Color _getHRColor() {
+    if (_edgeRiskLevel == 'high' || _activeAlerts.any((a) => a.severity == 'critical')) {
+      return AdaptivColors.critical;
+    } else if (_edgeRiskLevel == 'moderate' || _activeAlerts.any((a) => a.severity == 'warning')) {
+      return AdaptivColors.warning;
+    }
+    return AdaptivColors.stable;
   }
 
   @override
   Widget build(BuildContext context) {
-    final fillPercentage = (_currentHR / _maxHR).clamp(0.0, 1.0);
+    final fillPercentage = _maxSafeHR > 0 ? (_currentHR / _maxSafeHR).clamp(0.0, 1.0) : 0.5;
+    final hrColor = _getHRColor();
 
     return Scaffold(
-      backgroundColor: AdaptivColors.background50,
+      backgroundColor: const Color(0xFF1A1A2E),
       body: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            Column(
-              children: [
-                // Timer
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Row(
+            // Header: Timer + Risk badge
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Back button
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  // Timer
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.timer, color: Colors.white70, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          _formatTimer(_elapsedSeconds),
+                          style: GoogleFonts.dmSans(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Edge AI risk badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: hrColor.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: hrColor.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: hrColor,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _edgeRiskLevel.toUpperCase(),
+                          style: GoogleFonts.dmSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: hrColor,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Critical alert banner (edge AI threshold alerts)
+            if (_showAlertBanner && _activeAlerts.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _activeAlerts.first.severity == 'critical'
+                      ? AdaptivColors.critical.withOpacity(0.9)
+                      : AdaptivColors.warning.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _activeAlerts.first.severity == 'critical'
+                          ? Icons.error_rounded
+                          : Icons.warning_amber_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _activeAlerts.first.title,
+                            style: GoogleFonts.dmSans(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (_activeAlerts.first.actions.isNotEmpty)
+                            Text(
+                              _activeAlerts.first.actions.first,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 11,
+                                color: Colors.white70,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Dismiss
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+                      onPressed: () => setState(() => _showAlertBanner = false),
+                      constraints: const BoxConstraints(),
+                      padding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+              ),
+
+            // Giant BPM Display with edge AI risk color
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Pulsing heart icon
+                    Icon(Icons.favorite, color: hrColor, size: 36),
+                    const SizedBox(height: 8),
+                    Text(
+                      _currentHR.toString(),
+                      style: GoogleFonts.dmSans(
+                        fontSize: 110,
+                        fontWeight: FontWeight.w700,
+                        color: hrColor,
+                        height: 1.0,
+                      ),
+                    ),
+                    Text(
+                      'BPM',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.white60,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Risk score from edge AI
+                    if (_edgeRiskScore > 0)
+                      Text(
+                        'Risk: ${(_edgeRiskScore * 100).toStringAsFixed(0)}%',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: hrColor.withOpacity(0.8),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Stats row: Peak HR, Min HR, Zone
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildWorkoutStat('Peak', '$_peakHR', 'BPM'),
+                  _buildWorkoutStat('Min', '${_minHR < 999 ? _minHR : 0}', 'BPM'),
+                  _buildWorkoutStat('Max Safe', '$_maxSafeHR', 'BPM'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Zone progress bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Active Workout',
+                        'Heart Rate Zone',
                         style: GoogleFonts.dmSans(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AdaptivColors.white,
+                          fontSize: 13,
+                          color: Colors.white60,
                         ),
                       ),
                       Text(
-                        '12:34',
+                        '${(fillPercentage * 100).toInt()}% of max',
                         style: GoogleFonts.dmSans(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AdaptivColors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: hrColor,
                         ),
                       ),
                     ],
                   ),
-                ),
-
-                // Giant BPM Display
-                const SizedBox(height: 40),
-                Center(
-                  child: Column(
-                    children: [
-                      Text(
-                        _currentHR.toString(),
-                        style: GoogleFonts.dmSans(
-                          fontSize: 120,
-                          fontWeight: FontWeight.w700,
-                          color: AdaptivColors.critical,
-                        ),
-                      ),
-                      Text(
-                        'BPM',
-                        style: GoogleFonts.dmSans(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w400,
-                          color: AdaptivColors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 40),
-
-                // Zone Bar
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Workout Zone',
-                        style: GoogleFonts.dmSans(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                          color: AdaptivColors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: LinearProgressIndicator(
-                          value: fillPercentage,
-                          minHeight: 40,
-                          backgroundColor: AdaptivColors.neutral400,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            fillPercentage > 0.85
-                                ? AdaptivColors.warning
-                                : fillPercentage > 0.65
-                                ? AdaptivColors.primary
-                                : AdaptivColors.stable,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Spacer(),
-
-                // End Workout Button
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isEndingWorkout ? null : _endWorkout,
-                      icon: const Icon(Icons.stop),
-                      label: _isEndingWorkout
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Text('End Workout'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: AdaptivColors.critical,
-                      ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: fillPercentage,
+                      minHeight: 12,
+                      backgroundColor: Colors.white.withOpacity(0.1),
+                      valueColor: AlwaysStoppedAnimation<Color>(hrColor),
                     ),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // End Workout Button
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isEndingWorkout ? null : _endWorkout,
+                  icon: _isEndingWorkout
+                      ? const SizedBox(
+                          height: 20, width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.stop_rounded),
+                  label: Text(_isEndingWorkout ? 'Saving...' : 'End Workout'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: AdaptivColors.critical,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
                 ),
-              ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildWorkoutStat(String label, String value, String unit) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.dmSans(
+            fontSize: 12,
+            color: Colors.white38,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: GoogleFonts.dmSans(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          unit,
+          style: GoogleFonts.dmSans(
+            fontSize: 11,
+            color: Colors.white38,
+          ),
+        ),
+      ],
     );
   }
 }

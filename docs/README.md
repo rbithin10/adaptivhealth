@@ -16,8 +16,11 @@ This folder contains technical documentation, analysis reports, and development 
 
 | Document | Description |
 |----------|-------------|
-| [API_INTEGRATION_STATUS.md](API_INTEGRATION_STATUS.md) | Current API integration status |
+| [API_INTEGRATION_STATUS.md](API_INTEGRATION_STATUS.md) | Current API integration status (71+ endpoints) |
 | [API_UI_COVERAGE.md](API_UI_COVERAGE.md) | API coverage by UI components |
+| [MESSAGING_IMPLEMENTATION.md](MESSAGING_IMPLEMENTATION.md) | Complete messaging system documentation |
+| [MESSAGING_QUICKSTART.md](MESSAGING_QUICKSTART.md) | Quick start guide for messaging API |
+| [NUTRITION_API.md](NUTRITION_API.md) | Nutrition logging API reference |
 
 ### Architecture & Security
 
@@ -34,6 +37,8 @@ This folder contains technical documentation, analysis reports, and development 
 | Document | Description |
 |----------|-------------|
 | [FLUTTER_FILES_CREATED.md](FLUTTER_FILES_CREATED.md) | Guide to Flutter mobile app files |
+| [TEST_COVERAGE_REPORT.md](TEST_COVERAGE_REPORT.md) | Backend test coverage report (pytest) |
+| [QA/dashboard-qa.md](QA/dashboard-qa.md) | Web dashboard manual QA checklists (Admin, Patient Mgmt, Alerts) |
 
 ## Quick Links
 

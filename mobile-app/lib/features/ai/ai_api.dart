@@ -180,6 +180,51 @@ class AiApi {
   }
 
   // =========================================================================
+  // Natural Language AI Coach
+  // =========================================================================
+
+  Future<String> getNLRiskSummary() async {
+    final res = await dio.get('/nl/risk-summary');
+    if (res.data is Map && res.data['nl_summary'] != null) {
+      return res.data['nl_summary'] as String;
+    }
+    return 'Your health status is stable. Keep up your current routine.';
+  }
+
+  Future<String> getNLTodaysWorkout() async {
+    final res = await dio.get('/nl/todays-workout');
+    if (res.data is Map && res.data['nl_summary'] != null) {
+      return res.data['nl_summary'] as String;
+    }
+    return 'Check the Fitness tab for today\'s recommended activity.';
+  }
+
+  Future<String> getNLAlertExplanation({String? alertId}) async {
+    final params = <String, dynamic>{};
+    if (alertId != null) params['alert_id'] = alertId;
+
+    final res = await dio.get(
+      '/nl/alert-explanation',
+      queryParameters: params,
+    );
+    if (res.data is Map && res.data['nl_summary'] != null) {
+      return res.data['nl_summary'] as String;
+    }
+    return 'No recent alerts to explain.';
+  }
+
+  Future<String> getNLProgressSummary({String range = '7d'}) async {
+    final res = await dio.get(
+      '/nl/progress-summary',
+      queryParameters: {'range': range},
+    );
+    if (res.data is Map && res.data['nl_summary'] != null) {
+      return res.data['nl_summary'] as String;
+    }
+    return 'Great work! You\'re making positive progress.';
+  }
+
+  // =========================================================================
   // Alerts
   // =========================================================================
 

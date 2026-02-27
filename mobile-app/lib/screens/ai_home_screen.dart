@@ -14,6 +14,7 @@ class _AiHomeScreenState extends State<AiHomeScreen> {
   void initState() {
     super.initState();
     Future.microtask(() => context.read<AiStore>().loadHome());
+    Future.microtask(() => context.read<AiStore>().loadAICoachSummaries());
   }
 
   @override

@@ -6,16 +6,25 @@ Users can update their profile details and view their account settings.
 */
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
+import '../services/edge_ai_store.dart';
+import '../services/mock_vitals_service.dart';
+import '../screens/onboarding_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final ApiClient apiClient;
+  final MockVitalsService? mockVitalsService;
+  final VoidCallback? onLogout;  // Called when user logs out
 
   const ProfileScreen({
     super.key,
     required this.apiClient,
+    this.mockVitalsService,
+    this.onLogout,
   });
 
   @override
@@ -38,6 +47,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _shareState = 'SHARING_ON';
   bool _consentLoading = false;
 
+  // DEV demo stream state
+  MockVitalsService? _mockVitalsService;
+  StreamSubscription<VitalReading>? _mockVitalsSub;
+  bool _mockRunning = false;
+  bool _mockBusy = false;
+  MockScenario _mockMode = MockScenario.rest;
+  VitalReading? _lastMockReading;
+
   @override
   void initState() {
     super.initState();
@@ -46,14 +63,110 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _phoneController = TextEditingController();
     _loadProfile();
     _loadConsentStatus();
+
+    if (widget.mockVitalsService != null) {
+      _mockVitalsService = widget.mockVitalsService;
+      _mockRunning = _mockVitalsService!.isRunning;
+      _mockMode = _mockVitalsService!.currentScenario;
+      _mockVitalsSub = _mockVitalsService!.stream.listen((reading) {
+        if (!mounted) return;
+        setState(() {
+          _lastMockReading = reading;
+          _mockRunning = _mockVitalsService?.isRunning ?? false;
+        });
+      });
+    }
   }
 
   @override
   void dispose() {
+    _mockVitalsSub?.cancel();
+    if (widget.mockVitalsService == null) {
+      _mockVitalsService?.dispose();
+    }
     _nameController.dispose();
     _ageController.dispose();
     _phoneController.dispose();
     super.dispose();
+  }
+
+  Future<void> _startMockVitalsStream() async {
+    if (_mockBusy || _mockRunning) return;
+
+    setState(() => _mockBusy = true);
+    try {
+      if (_mockVitalsService == null) {
+        final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+        _mockVitalsService = MockVitalsService(
+          apiClient: widget.apiClient,
+          edgeAiStore: edgeStore,
+        );
+      }
+
+      await _mockVitalsSub?.cancel();
+      _mockVitalsSub = _mockVitalsService!.stream.listen((reading) {
+        if (!mounted) return;
+        setState(() {
+          _lastMockReading = reading;
+        });
+      });
+
+      await _mockVitalsService!.start(
+        interval: const Duration(seconds: 5),
+        scenario: _mockMode,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _mockRunning = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mock vitals stream started (DEV ONLY)'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not start mock stream: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _mockBusy = false);
+      }
+    }
+  }
+
+  Future<void> _stopMockVitalsStream() async {
+    if (_mockBusy || !_mockRunning) return;
+
+    setState(() => _mockBusy = true);
+    try {
+      _mockVitalsService?.stop();
+      await _mockVitalsSub?.cancel();
+      _mockVitalsSub = null;
+
+      if (!mounted) return;
+      setState(() {
+        _mockRunning = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mock vitals stream stopped'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _mockBusy = false);
+      }
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -181,11 +294,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = MediaQuery.of(context).platformBrightness;
     return Scaffold(
-      backgroundColor: AdaptivColors.background50,
+      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       appBar: AppBar(
         title: Text('Profile', style: AdaptivTypography.screenTitle),
-        backgroundColor: Colors.white,
+        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
         elevation: 0,
         automaticallyImplyLeading: false,
         actions: [
@@ -432,6 +546,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 24),
 
                         if (_editing) ...[
                           const SizedBox(height: 24),
@@ -536,10 +651,413 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
+
+                        const SizedBox(height: 24),
+
+                        // Edge AI Model Info section
+                        _buildEdgeAiSection(),
+
+                        const SizedBox(height: 16),
+
+                        // DEV mock wearable simulator controls
+                        _buildMockVitalsSection(),
+
+                        const SizedBox(height: 16),
+
+                        // DEV onboarding reset
+                        _buildDeveloperUtilities(),
+
+                        const SizedBox(height: 32),
+
+                        // Logout button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Sign Out?'),
+                                  content: const Text(
+                                    'You will be logged out of your account. You can sign in again later.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () async {
+                                        Navigator.pop(context); // close dialog
+                                        await widget.apiClient.logout();
+                                        // onLogout calls handleLogout in main.dart,
+                                        // which sets _isLoggedIn=false and rebuilds
+                                        // the entire widget tree to LoginScreen.
+                                        widget.onLogout?.call();
+                                      },
+                                      child: const Text(
+                                        'Sign Out',
+                                        style: TextStyle(color: AdaptivColors.critical),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AdaptivColors.criticalUltralight,
+                              foregroundColor: AdaptivColors.critical,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: const BorderSide(color: AdaptivColors.criticalLight),
+                              ),
+                            ),
+                            icon: const Icon(Icons.logout),
+                            label: const Text('Sign Out'),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
+      ),
+    );
+  }
+
+  /// Edge AI model info section — shows model version, status, sync count
+  Widget _buildEdgeAiSection() {
+    EdgeAiStore? edgeStore;
+    try {
+      edgeStore = Provider.of<EdgeAiStore>(context);
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+
+    final modelStatus = edgeStore.modelLoaded
+        ? 'Active'
+        : edgeStore.isInitializing
+            ? 'Loading...'
+            : 'Offline';
+    final statusColor = edgeStore.modelLoaded ? AdaptivColors.stable : Colors.orange;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AdaptivColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AdaptivColors.border300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AdaptivColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.memory, color: AdaptivColors.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('On-Device AI', style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      'Edge ML model for offline risk detection',
+                      style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6, height: 6,
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      modelStatus,
+                      style: AdaptivTypography.caption.copyWith(
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          // Model details
+          _buildEdgeInfoRow('Model Version', 'v${edgeStore.modelVersion}'),
+          _buildEdgeInfoRow('Inference Engine', 'Pure-Dart Random Forest'),
+          _buildEdgeInfoRow('Pending Sync', '${edgeStore.pendingSyncCount} readings'),
+          if (edgeStore.latestPrediction != null)
+            _buildEdgeInfoRow(
+              'Last Inference',
+              '${edgeStore.latestPrediction!.inferenceTimeMs}ms',
+            ),
+          const SizedBox(height: 12),
+          // Manual sync button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: edgeStore.isSyncing
+                  ? null
+                  : () async {
+                      final success = await edgeStore!.syncNow();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(success ? 'Synced successfully' : 'Sync failed — will retry'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+              icon: edgeStore.isSyncing
+                  ? const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync, size: 18),
+              label: Text(edgeStore.isSyncing ? 'Syncing...' : 'Sync Now'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AdaptivColors.primary,
+                side: const BorderSide(color: AdaptivColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMockVitalsSection() {
+    final hasEdgeStore = _hasEdgeStore();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AdaptivColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AdaptivColors.border300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Wearable Simulator (DEV ONLY)',
+            style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Manual demo control. Does not auto-start on app launch.',
+            style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600),
+          ),
+          const SizedBox(height: 10),
+          if (!hasEdgeStore)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                'Edge AI provider not initialized yet. Sign in again if Start is disabled.',
+                style: AdaptivTypography.caption.copyWith(color: Colors.orange),
+              ),
+            ),
+          DropdownButtonFormField<MockScenario>(
+            value: _mockMode,
+            decoration: const InputDecoration(
+              labelText: 'Simulation Scenario',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: MockScenario.rest,
+                child: Text('Rest — HR ~68, SpO₂ 97-99%, high HRV'),
+              ),
+              DropdownMenuItem(
+                value: MockScenario.workout,
+                child: Text('Workout — warmup → peak → cooldown (7 min)'),
+              ),
+              DropdownMenuItem(
+                value: MockScenario.sleep,
+                child: Text('Sleep — NREM/REM cycling, bradycardia'),
+              ),
+              DropdownMenuItem(
+                value: MockScenario.emergency,
+                child: Text('Emergency — critical HR/SpO₂/BP, all alerts fire'),
+              ),
+            ],
+            onChanged: _mockRunning
+                ? null
+                : (MockScenario? value) {
+                    if (value == null) return;
+                    setState(() {
+                      _mockMode = value;
+                    });
+                    _mockVitalsService?.setScenario(value);
+                  },
+          ),
+          const SizedBox(height: 10),
+          if (_lastMockReading != null)
+            _buildEdgeInfoRow(
+              'Last Mock Reading',
+              'HR ${_lastMockReading!.heartRate} | SpO₂ ${_lastMockReading!.spo2}% | BP ${_lastMockReading!.bloodPressureSystolic}/${_lastMockReading!.bloodPressureDiastolic} | Phase: ${_lastMockReading!.phase}',
+            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: (_mockBusy || _mockRunning || !hasEdgeStore)
+                      ? null
+                      : _startMockVitalsStream,
+                  icon: _mockBusy && !_mockRunning
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('Start Stream'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: (_mockBusy || !_mockRunning)
+                      ? null
+                      : _stopMockVitalsStream,
+                  icon: _mockBusy && _mockRunning
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.stop, size: 18),
+                  label: const Text('Stop Stream'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AdaptivColors.critical,
+                    side: const BorderSide(color: AdaptivColors.critical),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeveloperUtilities() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AdaptivColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AdaptivColors.border300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Developer Utilities (DEV ONLY)',
+            style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Testing tools. Not shown in production builds.',
+            style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                // Reset onboarding flag for current user
+                try {
+                  final userProfile = await widget.apiClient.getCurrentUser();
+                  final userEmail = userProfile['email'] as String?;
+                  if (userEmail != null) {
+                    await clearOnboardingFlag(userEmail);
+                  } else {
+                    // Fallback: clear all onboarding flags
+                    await clearOnboardingFlag();
+                  }
+                } catch (e) {
+                  print('ERROR: Could not reset onboarding: $e');
+                  // Fallback: clear all onboarding flags
+                  await clearOnboardingFlag();
+                }
+                
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ Onboarding reset! You will see it on next login.'),
+                    backgroundColor: AdaptivColors.stable,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Reset Onboarding'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AdaptivColors.primary,
+                side: BorderSide(color: AdaptivColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Use this to test the onboarding flow again without creating a new account.',
+            style: AdaptivTypography.caption.copyWith(
+              color: AdaptivColors.text500,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _hasEdgeStore() {
+    if (_mockVitalsService != null) {
+      return true;
+    }
+    try {
+      Provider.of<EdgeAiStore>(context, listen: false);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Widget _buildEdgeInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600)),
+          Text(value, style: AdaptivTypography.caption.copyWith(fontWeight: FontWeight.w600)),
+        ],
       ),
     );
   }

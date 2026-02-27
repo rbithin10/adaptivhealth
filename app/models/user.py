@@ -30,7 +30,7 @@ Extended with: hashed_password, role, security fields for HIPAA compliance.
 # =============================================================================
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, Float, Index
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, Float, Index, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -107,6 +107,9 @@ class User(Base):
     share_reviewed_by = Column(Integer, nullable=True)
     share_decision = Column(String(20), nullable=True)
     share_reason = Column(String(500), nullable=True)
+    
+    # Clinician Assignment (for patient messaging + care coordination)
+    assigned_clinician_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True)
 
     # -------------------------------------------------------------------------
     # Relationships - use user_id as the FK reference
@@ -136,6 +139,10 @@ class User(Base):
     )
     recommendations = relationship(
         "ExerciseRecommendation", back_populates="user",
+        cascade="all, delete-orphan", lazy="dynamic"
+    )
+    nutrition_entries = relationship(
+        "NutritionEntry", back_populates="user",
         cascade="all, delete-orphan", lazy="dynamic"
     )
 

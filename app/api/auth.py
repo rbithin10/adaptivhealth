@@ -15,22 +15,26 @@ This file handles sign up, login, and token refresh.
 #   - get_current_doctor_user...... Line 215 (Clinician role check)
 #
 # ENDPOINTS
-#   --- USER REGISTRATION ---
-#   - POST /register............... Line 245 (Admin creates new user)
+#   --- USER REGISTRATION (PUBLIC) ---
+#   - POST /register............... Line 340 (Self-service patient signup)
+#
+#   --- USER REGISTRATION (ADMIN) ---
+#   - POST /admin/register......... Line 415 (Admin creates clinicians/users)
 #
 #   --- LOGIN & TOKENS ---
-#   - POST /login.................. Line 320 (Get JWT tokens)
-#   - POST /refresh................ Line 355 (Refresh expired token)
-#   - GET /me...................... Line 395 (Get current user info)
+#   - POST /login.................. Line 475 (Get JWT tokens)
+#   - POST /refresh................ Line 512 (Refresh expired token)
+#   - GET /me...................... Line 560 (Get current user info)
 #
 #   --- PASSWORD RESET ---
-#   - POST /reset-password......... Line 405 (Request reset email)
-#   - POST /reset-password/confirm. Line 450 (Set new password)
+#   - POST /reset-password......... Line 580 (Request reset email)
+#   - POST /reset-password/confirm. Line 625 (Set new password)
 #
 # BUSINESS CONTEXT:
+# - PUBLIC /register: Patients self-register on mobile/web (PATIENT role only)
+# - ADMIN /admin/register: Admins create clinicians and other users
 # - Patients use /login on mobile app to authenticate
 # - Clinicians use /login on dashboard to access patient data
-# - Admins use /register to onboard new users
 # - Password reset flow used by all roles via mobile/web
 # =============================================================================
 """
@@ -44,6 +48,7 @@ import logging
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.auth_credential import AuthCredential
+from app.models.recommendation import ExerciseRecommendation
 from app.schemas.user import (
     UserCreate, UserResponse, LoginRequest, TokenResponse,
     RefreshTokenRequest, PasswordResetRequest, PasswordResetConfirm
@@ -328,27 +333,26 @@ def get_current_admin_or_doctor_user(current_user: User = Depends(get_current_us
 # Authentication Endpoints
 # =============================================================================
 
-# --- ENDPOINT: USER REGISTRATION (ADMIN ONLY) ---
+# --- ENDPOINT: USER REGISTRATION (PUBLIC) ---
 
 # =============================================
-# REGISTER_USER - Admin creates a new user account
-# Used by: Admin dashboard (onboarding patients/clinicians)
+# REGISTER - Self-service patient registration
+# Used by: Mobile app signup, Dashboard signup page
 # Returns: UserResponse with new user details
-# Roles: ADMIN only
+# Roles: PUBLIC (anyone can register as PATIENT)
 # =============================================
 @router.post("/register", response_model=UserResponse)
-async def register_user(
+async def register(
     user_data: UserCreate,
-    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """
-    Register a new user account. Admin access only.
+    Self-service patient registration. Public endpoint.
     
     DESIGN:
     - Email must be unique (prevents duplicate accounts)
     - Password validated for strength (min 8 chars, letters + numbers)
-    - Role defaults to PATIENT (clinicians/admins created by admin only)
+    - Role ALWAYS set to PATIENT (cannot register as clinician/admin)
     - Creates TWO records for HIPAA compliance:
       1. User record (PHI: health data, demographics)
       2. AuthCredential record (sensitive auth: password hash, login attempts)
@@ -361,7 +365,7 @@ async def register_user(
     
     - **Email**: Must be unique and valid
     - **Password**: Minimum 8 characters with letters and numbers
-    - **Role**: Defaults to patient, admin can set other roles
+    - **Role**: Always set to PATIENT for self-service registration
     """
     # Email uniqueness check prevents account enumeration
     # (though error message doesn't reveal if email exists)
@@ -378,13 +382,14 @@ async def register_user(
     
     # Create User record with health/demographic data
     # Includes Massoud's original columns from AWS RDS schema
+    # SECURITY: Force role to PATIENT (ignore user-supplied role)
     user = User(
         email=user_data.email,
         full_name=user_data.name,
         age=user_data.age,
         gender=user_data.gender,
         phone=user_data.phone,
-        role=user_data.role  # Defaults to PATIENT if not specified
+        role=UserRole.PATIENT  # Self-service always creates patients
     )
     
     # Create SEPARATE AuthCredential record
@@ -395,15 +400,112 @@ async def register_user(
         hashed_password=hashed_password
     )
     
-    # Add both records in single transaction
-    # ATOMICITY: Either both succeed or both rollback (no partial state)
+    # Seed a default exercise recommendation so the Home screen
+    # recommendation card works immediately (avoids 404 from
+    # GET /recommendations/latest before the first risk assessment).
+    default_rec = ExerciseRecommendation(
+        user=user,
+        title="Getting Started: Walking Plan",
+        suggested_activity="walking",
+        intensity_level="moderate",
+        duration_minutes=20,
+        description=(
+            "Welcome to AdaptivHealth! Start with a 20-minute brisk walk "
+            "at a comfortable pace. This plan will be personalised once "
+            "your first health assessment is completed."
+        ),
+        warnings="Consult your physician before starting any exercise programme.",
+        generated_by="system_default",
+        confidence_score=1.0,
+        status="active",
+    )
+
+    # Add all records in single transaction
+    # ATOMICITY: Either all succeed or all rollback (no partial state)
     db.add(user)
     db.add(auth_cred)
+    db.add(default_rec)
     db.commit()
     db.refresh(user)
     
     # Log registration for security audit trail
-    logger.info(f"New user registered: {user.user_id} - {user.email}")
+    logger.info(f"New user registered via self-service: {user.user_id} - {user.email}")
+    
+    return user
+
+
+# =============================================
+# REGISTER_USER_ADMIN - Admin creates users (clinicians, other admins)
+# Used by: Admin dashboard (onboarding patients/clinicians)
+# Returns: UserResponse with new user details
+# Roles: ADMIN only
+# =============================================
+@router.post("/admin/register", response_model=UserResponse)
+async def register_user_admin(
+    user_data: UserCreate,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin-only user registration. Creates users with any role.
+    
+    Use this for creating clinicians and other admins.
+    Self-service registration should use POST /register instead.
+    """
+    # Email uniqueness check
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Hash password
+    hashed_password = auth_service.hash_password(user_data.password)
+    
+    # Admin can set any role
+    user = User(
+        email=user_data.email,
+        full_name=user_data.name,
+        age=user_data.age,
+        gender=user_data.gender,
+        phone=user_data.phone,
+        role=user_data.role
+    )
+    
+    # Create auth credential
+    auth_cred = AuthCredential(
+        user=user,
+        hashed_password=hashed_password
+    )
+    
+    db.add(user)
+    db.add(auth_cred)
+
+    # Seed a default recommendation for patients created by admins
+    if (user_data.role or UserRole.PATIENT) == UserRole.PATIENT:
+        default_rec = ExerciseRecommendation(
+            user=user,
+            title="Getting Started: Walking Plan",
+            suggested_activity="walking",
+            intensity_level="moderate",
+            duration_minutes=20,
+            description=(
+                "Welcome to AdaptivHealth! Start with a 20-minute brisk walk "
+                "at a comfortable pace. This plan will be personalised once "
+                "your first health assessment is completed."
+            ),
+            warnings="Consult your physician before starting any exercise programme.",
+            generated_by="system_default",
+            confidence_score=1.0,
+            status="active",
+        )
+        db.add(default_rec)
+
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(f"User registered by admin {current_user.user_id}: {user.user_id} - {user.email} (role: {user.role})")
     
     return user
 

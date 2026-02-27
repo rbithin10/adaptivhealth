@@ -1,8 +1,11 @@
 /*
-App color palette.
+App color palette with Light Mode Support.
 
 These colors are used everywhere so the app looks consistent.
 Red means high risk, amber means caution, green means safe.
+
+DARK MODE: Colors automatically adapt based on theme.
+Use AdaptivColors.getForBrightness() or access light/dark variants directly.
 
 Design System Reference:
 - Primary Blue: #0066FF (Actions, CTA buttons)
@@ -37,11 +40,38 @@ class AdaptivColors {
   static const Color warningBorder = Color(0xFFFCD34D);
   static const Color warningText = Color(0xFF92400E);
 
-  // Clinical status: Stable (Low Risk)
-  static const Color stable = Color(0xFF00C853);       // Updated to design spec
-  static const Color stableBg = Color(0xFFF0FDF4);
-  static const Color stableBorder = Color(0xFF86EFAC);
-  static const Color stableText = Color(0xFF166534);
+  // Clinical status: Stable (Low Risk / Safe Zone)
+  static const Color stable = Color(0xFF10B981);
+  static const Color stableBg = Color(0xFFECFDF5);
+  static const Color stableBorder = Color(0xFF6EE7B7);
+  static const Color stableText = Color(0xFF065F46);
+
+  // Dark mode: text
+  static const Color textDark50 = Color(0xFFF9FAFB);
+  static const Color textDark100 = Color(0xFFD1D5DB);
+
+  // Dark mode: surfaces and backgrounds
+  static const Color surface900 = Color(0xFF1F2937);
+  static const Color background900 = Color(0xFF111827);
+  static const Color borderDark = Color(0xFF374151);
+
+  // Dark mode: primary
+  static const Color primaryDarkMode = Color(0xFF3B82F6);
+
+  // Dark mode: clinical status colors (WCAG AA on dark backgrounds)
+  static const Color criticalDarkMode = Color(0xFFF87171);
+  static const Color warningDarkMode = Color(0xFFFBBF24);
+  static const Color stableDarkMode = Color(0xFF34D399);
+
+  // Dark mode: clinical background colors
+  static const Color criticalBgDark = Color(0xFF7F1D1D);
+  static const Color warningBgDark = Color(0xFF78350F);
+  static const Color stableBgDark = Color(0xFF064E3B);
+
+  // Dark mode: clinical text colors
+  static const Color criticalTextDark = Color(0xFFFCA5A5);
+  static const Color warningTextDark = Color(0xFFFDE68A);
+  static const Color stableTextDark = Color(0xFF6EE7B7);
 
   // Heart Rate Zones (from design spec)
   static const Color zoneResting = Color(0xFF4CAF50);      // 50-70 BPM - Green
@@ -143,5 +173,87 @@ class AdaptivColors {
     if (heartRate < 140) return 'Moderate';
     if (heartRate < 170) return 'Hard';
     return 'Maximum';
+  }
+
+  // =============================================================================
+  // DARK MODE HELPERS
+  // =============================================================================
+
+  /// Get text color based on brightness (WCAG AA compliant)
+  static Color getTextColor(Brightness brightness) {
+    return brightness == Brightness.dark ? textDark50 : text900;
+  }
+
+  /// Get secondary text color based on brightness
+  static Color getSecondaryTextColor(Brightness brightness) {
+    return brightness == Brightness.dark ? textDark100 : text700;
+  }
+
+  /// Get surface/background color based on brightness
+  static Color getSurfaceColor(Brightness brightness) {
+    return brightness == Brightness.dark ? surface900 : white;
+  }
+
+  /// Get page background color based on brightness
+  static Color getBackgroundColor(Brightness brightness) {
+    return brightness == Brightness.dark ? background900 : background50;
+  }
+
+  /// Get border color based on brightness
+  static Color getBorderColor(Brightness brightness) {
+    return brightness == Brightness.dark ? borderDark : border300;
+  }
+
+  /// Get primary color based on brightness
+  static Color getPrimaryColor(Brightness brightness) {
+    return brightness == Brightness.dark ? primaryDarkMode : primary;
+  }
+
+  /// Get risk color based on risk level and brightness (WCAG AA compliant)
+  static Color getRiskColorForBrightness(String riskLevel, Brightness brightness) {
+    switch (riskLevel.toLowerCase()) {
+      case 'high':
+      case 'critical':
+        return brightness == Brightness.dark ? criticalDarkMode : critical;
+      case 'moderate':
+      case 'warning':
+        return brightness == Brightness.dark ? warningDarkMode : warning;
+      case 'low':
+      case 'stable':
+      default:
+        return brightness == Brightness.dark ? stableDarkMode : stable;
+    }
+  }
+
+  /// Get risk background color based on risk level and brightness
+  static Color getRiskBgColorForBrightness(String riskLevel, Brightness brightness) {
+    switch (riskLevel.toLowerCase()) {
+      case 'high':
+      case 'critical':
+        return brightness == Brightness.dark ? criticalBgDark : criticalBg;
+      case 'moderate':
+      case 'warning':
+        return brightness == Brightness.dark ? warningBgDark : warningBg;
+      case 'low':
+      case 'stable':
+      default:
+        return brightness == Brightness.dark ? stableBgDark : stableBg;
+    }
+  }
+
+  /// Get risk text color based on risk level and brightness
+  static Color getRiskTextColorForBrightness(String riskLevel, Brightness brightness) {
+    switch (riskLevel.toLowerCase()) {
+      case 'high':
+      case 'critical':
+        return brightness == Brightness.dark ? criticalTextDark : criticalText;
+      case 'moderate':
+      case 'warning':
+        return brightness == Brightness.dark ? warningTextDark : warningText;
+      case 'low':
+      case 'stable':
+      default:
+        return brightness == Brightness.dark ? stableTextDark : stableText;
+    }
   }
 }

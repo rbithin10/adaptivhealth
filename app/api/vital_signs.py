@@ -37,14 +37,16 @@ This file saves heart data from devices and lets the app read it back.
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 import logging
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.vital_signs import VitalSignRecord
 from app.models.alert import Alert, AlertType, SeverityLevel
+from app.models.risk_assessment import RiskAssessment
 from app.schemas.vital_signs import (
     VitalSignCreate, VitalSignResponse, VitalSignBatchCreate,
     VitalSignsSummary, VitalSignsHistoryResponse, VitalSignsStats
@@ -59,6 +61,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class EdgeBatchItem(BaseModel):
+    """Single edge sync payload entry."""
+    timestamp: Optional[str] = None
+    prediction: Optional[Dict[str, Any]] = None
+    vitals: Dict[str, Any] = Field(default_factory=dict)
+    alerts: Optional[List[Dict[str, Any]]] = None
+    gps: Optional[Dict[str, Any]] = None
+
+
+class EdgeBatchSyncRequest(BaseModel):
+    """Batch sync payload from mobile edge queue."""
+    source: str = "edge_ai"
+    batch: List[EdgeBatchItem] = Field(default_factory=list)
+    device_timestamp: Optional[str] = None
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -69,7 +87,7 @@ router = APIRouter()
 # Returns: None (creates Alert records in DB)
 # Triggers: HR>180 (critical), SpO2<90 (critical), BP>160 (warning)
 # =============================================
-def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
+def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate, db: Session = None):
     """
     Background task to check vital signs for alerts.
     
@@ -78,10 +96,13 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
     Args:
         user_id: User ID
         vital_data: Vital signs data
+        db: Optional database session (for testing). If None, creates new session.
     """
-    # Create a new database session for background task
+    # Use provided session or create new one for background task
     from app.database import SessionLocal
-    db = SessionLocal()
+    session_provided = db is not None
+    if not session_provided:
+        db = SessionLocal()
     
     try:
         logger.info(f"Checking vitals for alerts: user {user_id}")
@@ -154,7 +175,9 @@ def check_vitals_for_alerts(user_id: int, vital_data: VitalSignCreate):
             logger.info(f"Created {len(new_alerts)} alert(s) for user {user_id}")
             
     finally:
-        db.close()
+        # Only close session if we created it
+        if not session_provided:
+            db.close()
 
 
 # =============================================
@@ -222,6 +245,22 @@ def calculate_vitals_summary(
     )
     
     return summary
+
+
+def _parse_edge_timestamp(value: Optional[str]) -> datetime:
+    """Parse ISO timestamp sent by mobile edge payloads."""
+    if not value:
+        return datetime.now(timezone.utc)
+
+    try:
+        if value.endswith("Z"):
+            value = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return datetime.now(timezone.utc)
 
 
 # =============================================================================
@@ -388,6 +427,136 @@ async def submit_vitals_batch(
     return {
         "message": f"Successfully created {records_created} vital signs records",
         "records_created": records_created
+    }
+
+
+@router.post("/vitals/batch-sync")
+async def submit_vitals_batch_sync(
+    sync_payload: EdgeBatchSyncRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Sync edge-generated payloads from mobile to cloud backend.
+
+    WHY THIS ENDPOINT EXISTS:
+    - Mobile edge AI queues predictions + vitals offline.
+    - CloudSyncService flushes that queue periodically.
+    - Without this route, periodic sync attempts get 404 and data is dropped.
+    """
+    if not sync_payload.batch:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No sync items provided"
+        )
+
+    records_created = 0
+    assessments_created = 0
+    skipped = 0
+
+    for item in sync_payload.batch:
+        vitals = item.vitals or {}
+
+        heart_rate_raw = vitals.get("heart_rate")
+        if heart_rate_raw is None:
+            skipped += 1
+            continue
+
+        try:
+            heart_rate = int(heart_rate_raw)
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+
+        if heart_rate < 30 or heart_rate > 250:
+            skipped += 1
+            continue
+
+        spo2_raw = vitals.get("spo2")
+        try:
+            spo2 = float(spo2_raw) if spo2_raw is not None else None
+        except (TypeError, ValueError):
+            spo2 = None
+
+        systolic_raw = vitals.get("blood_pressure_systolic", vitals.get("bp_systolic"))
+        diastolic_raw = vitals.get("blood_pressure_diastolic", vitals.get("bp_diastolic"))
+
+        try:
+            systolic_bp = int(systolic_raw) if systolic_raw is not None else None
+        except (TypeError, ValueError):
+            systolic_bp = None
+
+        try:
+            diastolic_bp = int(diastolic_raw) if diastolic_raw is not None else None
+        except (TypeError, ValueError):
+            diastolic_bp = None
+
+        reading_timestamp = _parse_edge_timestamp(
+            vitals.get("timestamp") or item.timestamp
+        )
+
+        new_vital = VitalSignRecord(
+            user_id=current_user.user_id,
+            heart_rate=heart_rate,
+            spo2=spo2,
+            systolic_bp=systolic_bp,
+            diastolic_bp=diastolic_bp,
+            hrv=vitals.get("hrv"),
+            source_device="edge_ai_sync",
+            device_id=vitals.get("device_id", "edge_mobile"),
+            timestamp=reading_timestamp,
+            is_valid=True,
+            confidence_score=1.0,
+            processed_by_edge_ai=True,
+        )
+        db.add(new_vital)
+        records_created += 1
+
+        prediction = item.prediction or {}
+        risk_score_raw = prediction.get("risk_score")
+        risk_level_raw = prediction.get("risk_level")
+
+        if risk_score_raw is not None and risk_level_raw in {"low", "moderate", "high", "critical"}:
+            try:
+                risk_score = float(risk_score_raw)
+            except (TypeError, ValueError):
+                risk_score = None
+
+            if risk_score is not None:
+                new_assessment = RiskAssessment(
+                    user_id=current_user.user_id,
+                    risk_level=str(risk_level_raw),
+                    risk_score=risk_score,
+                    assessment_type="edge_sync",
+                    generated_by="edge_ai",
+                    input_heart_rate=heart_rate,
+                    input_spo2=spo2,
+                    input_blood_pressure_sys=systolic_bp,
+                    input_blood_pressure_dia=diastolic_bp,
+                    model_name="Edge RandomForest",
+                    model_version=str(prediction.get("model_version", "unknown")),
+                    confidence=prediction.get("confidence"),
+                    inference_time_ms=prediction.get("inference_time_ms"),
+                    risk_factors_json=str(item.alerts) if item.alerts else None,
+                    alert_triggered=bool(item.alerts),
+                )
+                db.add(new_assessment)
+                assessments_created += 1
+
+    db.commit()
+
+    logger.info(
+        f"Edge sync ingested for user {current_user.user_id}: "
+        f"records={records_created}, assessments={assessments_created}, skipped={skipped}"
+    )
+
+    return {
+        "message": "Edge batch sync processed",
+        "source": sync_payload.source,
+        "records_created": records_created,
+        "assessments_created": assessments_created,
+        "skipped": skipped,
+        "received": len(sync_payload.batch),
     }
 
 

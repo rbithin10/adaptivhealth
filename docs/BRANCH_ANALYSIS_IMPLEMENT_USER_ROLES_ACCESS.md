@@ -643,7 +643,7 @@ This branch assumes:
 
 ## XVI. QUESTIONS FOR CLARIFICATION (Pre-Integration)
 
-1. **Email-Based Password Reset:** Should password reset token be sent via email, or is logging to console OK for MVP?
+1. **Email-Based Password Reset:** Should password reset token be sent via email, or is logging to console acceptable for now?
    - Currently: Token logged to console (dev only), commented-out email send code
    
 2. **Admin Medical History Access:** Currently blocked. Is this intentional long-term?

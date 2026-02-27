@@ -12,6 +12,8 @@ from app.models.activity import ActivitySession, ActivityType, ActivityPhase
 from app.models.risk_assessment import RiskAssessment, RiskLevel
 from app.models.alert import Alert, AlertType, SeverityLevel
 from app.models.recommendation import ExerciseRecommendation, IntensityLevel, RecommendationType
+from app.models.nutrition import NutritionEntry, MealType
+from app.models.message import Message
 
 # Export all models for easy importing
 __all__ = [
@@ -41,4 +43,11 @@ __all__ = [
     "ExerciseRecommendation",
     "IntensityLevel",
     "RecommendationType",
+    
+    # Nutrition
+    "NutritionEntry",
+    "MealType",
+
+    # Messages
+    "Message",
 ]

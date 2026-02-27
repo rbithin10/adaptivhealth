@@ -5,11 +5,13 @@
 
 ## Overview
 
-This document specifies the **new backend endpoints** required to support the complete Adaptiv Health app. The existing endpoints (vitals, recommendations, alerts, activity-sessions) are already implemented. This focuses on **Nutrition** and **Messaging** modules.
+This document specifies the **new backend endpoints** required to support the complete Adaptiv Health app. The existing core endpoints (vitals, alerts, activities, and risk/recommendations) are already implemented under `/api/v1`. This focuses on **Nutrition** and **Messaging** modules.
 
 ---
 
 ## 1. Nutrition API Endpoints
+
+**Status note (current backend):** Nutrition logging is implemented via `/api/v1/nutrition`, `/api/v1/nutrition/recent`, and `/api/v1/nutrition/{entry_id}`. The recommendations endpoint below is **planned/TODO** and not yet implemented.
 
 ### 1.1 Get Daily Nutrition Recommendations
 
@@ -319,6 +321,13 @@ GET /nutrition/progress?user_id=user123&start_date=2026-02-08&end_date=2026-02-1
 
 ## 2. Messaging API Endpoints
 
+**Status note (current backend):** Messaging is implemented via REST polling with the following endpoints:
+- `GET /api/v1/messages/thread/{other_user_id}`
+- `POST /api/v1/messages`
+- `POST /api/v1/messages/{message_id}/read`
+
+The `/messaging/conversations` and WebSocket endpoints below are **planned/TODO** and not yet implemented.
+
 ### 2.1 Get Care Team Conversations
 
 **Endpoint:** `GET /messaging/conversations`
@@ -564,7 +573,7 @@ Authorization: Bearer {jwt_token}
 |-------|------|----------|-------------|
 | user_id | string | Yes | Patient ID |
 | content | string | Yes | Message text (max 2000 chars) |
-| type | enum | Yes | "text" only (for MVP) |
+| type | enum | Yes | "text" - primary message type |
 | attachments | array | No | Session summaries, vital reports |
 | schedule_send | datetime | No | Send at specific time |
 
@@ -692,18 +701,18 @@ WS ws://api.adaptihealth.com/messaging/stream?user_id=user123&token={jwt_token}
 ┌─────────────────────────────────────────────────────────────┐
 │                  Existing Endpoints (Working)               │
 ├─────────────────────────────────────────────────────────────┤
-│ GET /vital-signs                                            │
-│ GET /risk-assessment                                        │
-│ GET /alerts                                                 │
-│ GET /activity-sessions                                      │
-│ POST /activity-sessions                                     │
-│ GET /recommendations                                        │
-│ GET /anomaly-detection                                      │
-│ GET /trend-forecast                                         │
-│ GET /alerts/natural-language                                │
-│ GET /risk-summary/natural-language                          │
-│ GET /predict/explain                                        │
-│ GET /user/profile                                           │
+│ GET /api/v1/vitals/latest                                   │
+│ GET /api/v1/risk-assessments/latest                          │
+│ GET /api/v1/alerts                                          │
+│ GET /api/v1/activities                                      │
+│ POST /api/v1/activities/start                               │
+│ GET /api/v1/recommendations/latest                          │
+│ GET /api/v1/anomaly-detection                               │
+│ GET /api/v1/trend-forecast                                  │
+│ POST /api/v1/alerts/natural-language                        │
+│ GET /api/v1/risk-summary/natural-language                   │
+│ POST /api/v1/predict/explain                                │
+│ GET /api/v1/users/me                                        │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -719,6 +728,123 @@ WS ws://api.adaptihealth.com/messaging/stream?user_id=user123&token={jwt_token}
 │ WS /messaging/stream                  ← NEW PRIORITY 2     │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Deprecated legacy paths (do not use):**
+- `GET /vital-signs` → use `/api/v1/vitals/history` or `/api/v1/vitals/latest`
+- `GET /risk-assessment` → use `/api/v1/risk-assessments/latest`
+- `GET /recommendations` → use `/api/v1/recommendations/latest`
+- `GET /activity-sessions` / `POST /activity-sessions` → use `/api/v1/activities` and `/api/v1/activities/start`
+- `GET /user/profile` → use `/api/v1/users/me`
+
+### Current FastAPI Routes (Authoritative, /api/v1)
+
+#### Auth
+- `POST /register` — Admin-only create user. Body: `email`, `name`, `password`, `role`, optional `age`, `gender`, `phone`. Response: `UserResponse`.
+- `POST /login` — OAuth2 form: `username`, `password`. Response: `TokenResponse` (`access_token`, `refresh_token`, `token_type`, `expires_in`, `user`).
+- `POST /refresh` — Body: `refresh_token`. Response: `TokenResponse`.
+- `GET /me` — Current user (`UserResponse`).
+- `POST /reset-password` — Body: `email`. Response: `{message}`.
+- `POST /reset-password/confirm` — Body: `token`, `new_password`. Response: `{message}`.
+
+#### Users (`/users`)
+- `GET /users/me` — `UserProfileResponse` (includes `baseline_heart_rate`, `max_heart_rate`, `heart_rate_zones`).
+- `PUT /users/me` — Body: `name`, `age`, `gender`, `phone`. Response: `UserResponse`.
+- `PUT /users/me/medical-history` — Body: `conditions`, `medications`, `allergies`, `surgeries`, `notes`. Response: `{message}`.
+- `GET /users` — Query: `page`, `per_page`, optional `role`, `search`. Response: `UserListResponse`.
+- `GET /users/{user_id}` — `UserResponse`.
+- `PUT /users/{user_id}` — Body: `UserUpdate`. Response: `{message, user}`.
+- `POST /users` — Body: `UserCreateAdmin` (`email`, `name`, `password`, `role`, `is_active`, `is_verified`, optional demographics). Response: `{message, user}`.
+- `DELETE /users/{user_id}` — Response: `{message}`.
+- `POST /users/{user_id}/reset-password` — Body: `new_password`. Response: `{message}`.
+- `GET /users/{user_id}/medical-history` — Response: `{medical_history}` or `{message}`.
+
+#### Vital Signs
+- `POST /vitals` — Body: `heart_rate`, optional `spo2`, `blood_pressure_systolic`, `blood_pressure_diastolic`, `hrv`, `source_device`, `device_id`, `timestamp`. Response: `VitalSignResponse`.
+- `POST /vitals/batch` — Body: `{vitals: VitalSignCreate[]}`. Response: `{message, records_created}`.
+- `GET /vitals/latest` — `VitalSignResponse`.
+- `GET /vitals/summary` — Query: `days`. Response: `VitalSignsSummary` (avg/min/max HR, avg/min SpO2, avg HRV, total readings, alerts).
+- `GET /vitals/history` — Query: `days`, `page`, `per_page`. Response: `VitalSignsHistoryResponse` (vitals + summary).
+- `GET /vitals/user/{user_id}/latest` — `VitalSignResponse`.
+- `GET /vitals/user/{user_id}/summary` — `VitalSignsSummary`.
+- `GET /vitals/user/{user_id}/history` — `VitalSignsHistoryResponse`.
+
+#### Activities
+- `POST /activities/start` — Body: `start_time`, optional `end_time`, `activity_type`, HR metrics, `duration_minutes`, `calories_burned`, `recovery_time_minutes`, `feeling_before`, `user_notes`. Response: `ActivitySessionResponse`.
+- `POST /activities/end/{session_id}` — Body: `ActivitySessionUpdate` (end metrics, `status`, notes). Response: `ActivitySessionResponse`.
+- `GET /activities` — Query: `limit`, `offset`, optional `activity_type`. Response: `ActivitySessionResponse[]`.
+- `GET /activities/{session_id}` — `ActivitySessionResponse`.
+- `GET /activities/user/{user_id}` — Query: `limit`, `offset`. Response: `ActivitySessionResponse[]`.
+
+#### Alerts
+- `GET /alerts` — Query: `page`, `per_page`, optional `acknowledged`, `severity`. Response: `AlertListResponse`.
+- `PATCH /alerts/{alert_id}/acknowledge` — Response: `AlertResponse`.
+- `PATCH /alerts/{alert_id}/resolve` — Body: `AlertUpdate` (`acknowledged`, `resolved_at`, `resolved_by`, `resolution_notes`). Response: `AlertResponse`.
+- `POST /alerts` — Body: `AlertCreate` (`user_id`, `alert_type`, `severity`, `message`, optional metadata). Response: `AlertResponse`.
+- `GET /alerts/user/{user_id}` — Query: `page`, `per_page`. Response: `AlertListResponse`.
+- `GET /alerts/stats` — Query: `days`. Response: `{period_days, severity_breakdown, unacknowledged_count, generated_at}`.
+
+#### Predict / Risk
+- `GET /predict/status` — ML model status (`status`, `model_loaded`, `features_count`).
+- `POST /predict/risk` — Body: `age`, `baseline_hr`, `max_safe_hr`, `avg_heart_rate`, `peak_heart_rate`, `min_heart_rate`, `avg_spo2`, `duration_minutes`, `recovery_time_minutes`, optional `activity_type`. Response: `RiskPredictionResponse`.
+- `GET /predict/user/{user_id}/risk` — Response: `{user_id, user_name, session_id, session_date, prediction{risk_score,risk_level,high_risk,confidence,recommendation}, inference_time_ms}`.
+- `GET /predict/my-risk` — Response: `{user_id, user_name, assessment_count, risk_assessments[]}`.
+- `POST /risk-assessments/compute` — Response: `RiskAssessmentComputeResponse` (`risk_score`, `risk_level`, `drivers`, `based_on`).
+- `POST /patients/{user_id}/risk-assessments/compute` — Response: `RiskAssessmentComputeResponse`.
+- `GET /risk-assessments/latest` — Latest assessment summary with `drivers`.
+- `GET /patients/{user_id}/risk-assessments/latest` — Latest assessment summary (clinician view).
+- `GET /recommendations/latest` — Latest recommendation (single object).
+- `GET /patients/{user_id}/recommendations/latest` — Latest recommendation (clinician view).
+
+**Planned/TODO (not implemented yet):** list-all and by-id endpoints for risk assessments and recommendations.
+
+#### Consent / Data Sharing
+- `GET /consent/status` — `ConsentStatusResponse` (`share_state`, `requested_at`, `reviewed_at`, `decision`, `reason`).
+- `POST /consent/disable` — Body: `{reason?}`. Response: `{message}`.
+- `POST /consent/enable` — Response: `{message}`.
+- `GET /consent/pending` — Response: `{pending_requests: [{user_id,email,full_name,requested_at,reason}]}`.
+- `POST /consent/{patient_id}/review` — Body: `{decision, reason?}`. Response: `{message}`.
+
+#### Nutrition
+- `POST /nutrition` — Body: `meal_type`, `description?`, `calories`, `protein_grams?`, `carbs_grams?`, `fat_grams?`. Response: `NutritionResponse`.
+- `GET /nutrition/recent` — Query: `limit`. Response: `NutritionListResponse`.
+- `DELETE /nutrition/{entry_id}` — Response: 204 No Content.
+
+#### Messages
+- `GET /messages/thread/{other_user_id}` — Query: `limit`. Response: `MessageResponse[]`.
+- `POST /messages` — Body: `receiver_id`, `content`. Response: `MessageResponse`.
+- `POST /messages/{message_id}/read` — Response: `MessageResponse`.
+
+#### AI Coach (Natural Language)
+- `GET /nl/risk-summary` — `RiskSummaryResponse`.
+- `GET /nl/todays-workout` — `TodaysWorkoutResponse`.
+- `GET /nl/alert-explanation` — `AlertExplanationResponse`.
+- `GET /nl/progress-summary` — `ProgressSummaryResponse`.
+
+#### Advanced ML
+- `GET /anomaly-detection` — Query: `hours`, `z_threshold`.
+- `GET /trend-forecast` — Query: `days`, `forecast_days`.
+- `GET /baseline-optimization` — Query: `days`.
+- `POST /baseline-optimization/apply` — Apply computed baseline.
+- `GET /recommendation-ranking` — Query: `risk_level`, optional `variant`.
+- `POST /recommendation-ranking/outcome` — Body: `experiment_id`, `variant`, `outcome`, `outcome_value?`.
+- `POST /alerts/natural-language` — Body: `alert_type`, `severity`, optional trigger/threshold + risk fields.
+- `GET /risk-summary/natural-language` — Plain-language risk summary.
+- `GET /model/retraining-status` — Retraining status metadata.
+- `GET /model/retraining-readiness` — Retraining readiness summary.
+- `POST /predict/explain` — Body: same fields as `/predict/risk`.
+
+### Risk Assessment & Exercise Recommendation (Current Behavior)
+
+**Current endpoints are latest-only:**
+- `GET /risk-assessments/latest` (current user)
+- `GET /patients/{id}/risk-assessments/latest` (clinician view)
+- `GET /recommendations/latest` (current user)
+- `GET /patients/{id}/recommendations/latest` (clinician view)
+
+**Planned/TODO (not implemented yet):**
+- List-all and by-id endpoints for risk assessments and recommendations.
+
+**Frontend note:** the React dashboard wraps `latest` responses in a singleton array for list-shaped UI components.
 
 ### Recommended Implementation Order
 
@@ -934,7 +1060,7 @@ class MessagingService {
 **Document Version:** 1.0
 **Created:** February 15, 2026
 **Status:** Ready for Backend Implementation
-**Priority:** CRITICAL PATH for MVP
+**Priority:** CRITICAL for Production Release
 
 ---
 

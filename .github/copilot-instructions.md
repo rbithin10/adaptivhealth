@@ -1982,3 +1982,62 @@ if (kDebugMode) {
 10. **Always check role permissions** for sensitive endpoints
 
 For questions or clarifications, refer to inline comments in the source files - they contain extensive documentation explaining WHY decisions were made, not just WHAT the code does.
+
+This project is a graded university capstone, so you must follow these rules for everything you generate or modify:
+
+
+
+Professional deliverables only
+
+
+All code, filenames, and documentation must look like final, student‑written work suitable to show professors.
+
+
+Use clear, conventional names (e.g., reset_database.py, edge_ai_plan.md), no AI, agent, or internal nicknames.
+
+
+Do not include chat logs, prompts, “step-by-step thought process”, or internal commentary in files.
+
+
+
+
+No hidden automation or dangerous scripts
+
+
+Never create or wire scripts that automatically reset/drop the database on import or app start.
+
+
+Any destructive operation (e.g., reset DB, wipe data, reseed) must be:
+
+
+explicitly named (e.g., scripts/reset_db_dev_only.py),
+
+
+clearly marked “DEV ONLY – NOT FOR PRODUCTION/DEMO” in comments,
+
+
+only executed manually by a human (e.g., python scripts/reset_db_dev_only.py), not automatically.
+
+
+
+
+
+
+Keep internal notes separate from deliverables
+
+
+If you need to explain reasoning, debugging, or detailed step history, put it in inline comments or a short internal doc like DEV_NOTES.md that is clearly labeled “FOR INTERNAL USE ONLY – NOT FOR SUBMISSION”.
+
+
+All files intended for professors (code, diagrams, docs) must be concise and focused on the final design and behavior, not on how the AI or agents worked.
+
+
+
+
+Respect capstone integrity
+
+
+Do not add references to AI tools, agents, or prompt text in the source code, database migrations, or main documentation.
+
+
+All output should look like it was created by the student team, following good software engineering practices.

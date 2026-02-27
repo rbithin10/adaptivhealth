@@ -123,6 +123,7 @@ class ExplainPredictionRequest(BaseModel):
 async def detect_vital_anomalies(
     hours: int = Query(24, ge=1, le=168, description="Hours of data to analyze"),
     z_threshold: float = Query(2.0, ge=1.0, le=4.0, description="Z-score threshold"),
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -131,12 +132,23 @@ async def detect_vital_anomalies(
 
     Uses Z-score analysis and HR variability checks to find
     unusual patterns beyond simple threshold alerts.
+    Doctors/admins can pass user_id to view a patient's anomalies.
     """
+    # Determine target user: doctor/admin can query any patient
+    target_user_id = current_user.user_id
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can view other users' data.",
+            )
+        target_user_id = user_id
+
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     vitals = (
         db.query(VitalSignRecord)
         .filter(
-            VitalSignRecord.user_id == current_user.user_id,
+            VitalSignRecord.user_id == target_user_id,
             VitalSignRecord.timestamp >= since,
             VitalSignRecord.is_valid == True,
         )
@@ -154,7 +166,7 @@ async def detect_vital_anomalies(
     ]
 
     result = detect_anomalies(readings, z_threshold=z_threshold)
-    result["user_id"] = current_user.user_id
+    result["user_id"] = target_user_id
     result["window_hours"] = hours
     return result
 
@@ -173,6 +185,7 @@ async def detect_vital_anomalies(
 async def forecast_vital_trends(
     days: int = Query(14, ge=7, le=90, description="Days of history to analyze"),
     forecast_days: int = Query(14, ge=7, le=30, description="Days to forecast"),
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -180,12 +193,23 @@ async def forecast_vital_trends(
     Forecast vital sign trends using linear regression on historical data.
 
     Predicts future risk direction over the coming weeks.
+    Doctors/admins can pass user_id to view a patient's forecast.
     """
+    # Determine target user: doctor/admin can query any patient
+    target_user_id = current_user.user_id
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can view other users' data.",
+            )
+        target_user_id = user_id
+
     since = datetime.now(timezone.utc) - timedelta(days=days)
     vitals = (
         db.query(VitalSignRecord)
         .filter(
-            VitalSignRecord.user_id == current_user.user_id,
+            VitalSignRecord.user_id == target_user_id,
             VitalSignRecord.timestamp >= since,
             VitalSignRecord.is_valid == True,
         )
@@ -203,7 +227,7 @@ async def forecast_vital_trends(
     ]
 
     result = forecast_trends(readings, forecast_days=forecast_days)
-    result["user_id"] = current_user.user_id
+    result["user_id"] = target_user_id
     result["analysis_days"] = days
     return result
 
@@ -221,6 +245,7 @@ async def forecast_vital_trends(
 @router.get("/baseline-optimization")
 async def optimize_baseline(
     days: int = Query(7, ge=3, le=30, description="Days of resting data"),
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -228,13 +253,26 @@ async def optimize_baseline(
     Compute an optimized baseline heart rate from recent resting data.
 
     Auto-adjusts the patient's baseline HR for more accurate risk calculations.
+    Doctors/admins can pass user_id to compute baseline for a patient.
     """
+    # Determine target user: doctor/admin can query any patient
+    target_user = current_user
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can view other users' data.",
+            )
+        target_user = db.query(User).filter(User.user_id == user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
     vitals = (
         db.query(VitalSignRecord)
         .filter(
-            VitalSignRecord.user_id == current_user.user_id,
+            VitalSignRecord.user_id == target_user.user_id,
             VitalSignRecord.timestamp >= since,
             VitalSignRecord.is_valid == True,
         )
@@ -250,9 +288,9 @@ async def optimize_baseline(
 
     result = compute_optimized_baseline(
         resting_readings=resting_readings,
-        current_baseline=current_user.baseline_hr,
+        current_baseline=target_user.baseline_hr,
     )
-    result["user_id"] = current_user.user_id
+    result["user_id"] = target_user.user_id
     result["data_window_days"] = days
     return result
 
@@ -265,15 +303,32 @@ async def optimize_baseline(
 # =============================================
 @router.post("/baseline-optimization/apply")
 async def apply_baseline_optimization(
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Compute and apply the optimized baseline to the user's profile."""
+    """
+    Compute and apply the optimized baseline to the user's profile.
+
+    Doctors/admins can pass user_id to apply baseline for a patient.
+    """
+    # Determine target user: doctor/admin can apply for any patient
+    target_user = current_user
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can modify other users' data.",
+            )
+        target_user = db.query(User).filter(User.user_id == user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
     since = datetime.now(timezone.utc) - timedelta(days=7)
     vitals = (
         db.query(VitalSignRecord)
         .filter(
-            VitalSignRecord.user_id == current_user.user_id,
+            VitalSignRecord.user_id == target_user.user_id,
             VitalSignRecord.timestamp >= since,
             VitalSignRecord.is_valid == True,
         )
@@ -289,16 +344,17 @@ async def apply_baseline_optimization(
 
     result = compute_optimized_baseline(
         resting_readings=resting_readings,
-        current_baseline=current_user.baseline_hr,
+        current_baseline=target_user.baseline_hr,
     )
 
     if result.get("adjusted") and result.get("new_baseline"):
-        current_user.baseline_hr = result["new_baseline"]
+        target_user.baseline_hr = result["new_baseline"]
         db.commit()
-        db.refresh(current_user)
+        db.refresh(target_user)
         result["applied"] = True
         logger.info(
-            "Baseline updated for user %s: %s -> %s",
+            "Baseline updated for user %s by %s: %s -> %s",
+            target_user.user_id,
             current_user.user_id,
             result.get("current_baseline"),
             result["new_baseline"],
@@ -306,7 +362,7 @@ async def apply_baseline_optimization(
     else:
         result["applied"] = False
 
-    result["user_id"] = current_user.user_id
+    result["user_id"] = target_user.user_id
     return result
 
 
@@ -324,13 +380,26 @@ async def apply_baseline_optimization(
 async def get_ranked_rec(
     risk_level: str = Query("low", description="Current risk level"),
     variant: Optional[str] = Query(None, description="Force variant A or B"),
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
 ):
     """
     Get a recommendation with A/B variant assignment for testing.
+
+    Doctors/admins can pass user_id to view a patient's assigned recommendation.
     """
+    # Determine target user: doctor/admin can query any patient
+    target_user_id = current_user.user_id
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can view other users' data.",
+            )
+        target_user_id = user_id
+
     result = get_ranked_recommendation(
-        user_id=current_user.user_id,
+        user_id=target_user_id,
         risk_level=risk_level,
         variant_override=variant,
     )
@@ -346,11 +415,26 @@ async def get_ranked_rec(
 @router.post("/recommendation-ranking/outcome")
 async def record_rec_outcome(
     data: RecommendationOutcomeRequest,
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
 ):
-    """Record outcome of a recommendation for A/B analysis."""
+    """
+    Record outcome of a recommendation for A/B analysis.
+
+    Doctors/admins can pass user_id to record outcomes on behalf of a patient.
+    """
+    # Determine target user: doctor/admin can record for any patient
+    target_user_id = current_user.user_id
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can record outcomes for other users.",
+            )
+        target_user_id = user_id
+
     result = record_recommendation_outcome(
-        user_id=current_user.user_id,
+        user_id=target_user_id,
         experiment_id=data.experiment_id,
         variant=data.variant,
         outcome=data.outcome,
@@ -372,9 +456,27 @@ async def record_rec_outcome(
 @router.post("/alerts/natural-language")
 async def get_natural_language_alert(
     data: NaturalLanguageAlertRequest,
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Convert a technical alert into a patient-friendly message."""
+    """
+    Convert a technical alert into a patient-friendly message.
+
+    Doctors/admins can pass user_id to generate alerts addressed to a patient.
+    """
+    # Determine target user: doctor/admin can generate for any patient
+    target_user = current_user
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can generate alerts for other users.",
+            )
+        target_user = db.query(User).filter(User.user_id == user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
     result = generate_natural_language_alert(
         alert_type=data.alert_type,
         severity=data.severity,
@@ -382,8 +484,9 @@ async def get_natural_language_alert(
         threshold_value=data.threshold_value,
         risk_score=data.risk_score,
         risk_level=data.risk_level,
-        patient_name=current_user.full_name,
+        patient_name=target_user.full_name,
     )
+    result["user_id"] = target_user.user_id
     return result
 
 
@@ -395,13 +498,30 @@ async def get_natural_language_alert(
 # =============================================
 @router.get("/risk-summary/natural-language")
 async def get_natural_language_risk_summary(
+    user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a plain-language summary of the user's latest risk assessment."""
+    """
+    Get a plain-language summary of the user's latest risk assessment.
+
+    Doctors/admins can pass user_id to view a patient's risk summary.
+    """
+    # Determine target user: doctor/admin can query any patient
+    target_user = current_user
+    if user_id is not None and user_id != current_user.user_id:
+        if current_user.role not in ("clinician", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians or admins can view other users' data.",
+            )
+        target_user = db.query(User).filter(User.user_id == user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
     ra = (
         db.query(RiskAssessment)
-        .filter(RiskAssessment.user_id == current_user.user_id)
+        .filter(RiskAssessment.user_id == target_user.user_id)
         .order_by(desc(RiskAssessment.assessment_date))
         .first()
     )
@@ -415,11 +535,11 @@ async def get_natural_language_risk_summary(
         risk_score=ra.risk_score,
         risk_level=ra.risk_level,
         drivers=drivers,
-        patient_name=current_user.full_name,
+        patient_name=target_user.full_name,
     )
 
     return {
-        "user_id": current_user.user_id,
+        "user_id": target_user.user_id,
         "risk_score": ra.risk_score,
         "risk_level": ra.risk_level,
         "plain_summary": summary,

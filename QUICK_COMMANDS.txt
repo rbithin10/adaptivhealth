@@ -1,0 +1,133 @@
+PHASE 3: CLINICIAN ASSIGNMENT & MESSAGE ENCRYPTION
+QUICK COMMANDS - COPY & PASTE (In Order)
+
+================================================================================
+1. SETUP DATABASE (Apply migrations + create test data)
+================================================================================
+
+cd c:\Users\hp\Desktop\AdpativHealth
+python scripts/setup_clinician_assignment.py
+
+Expected: ✅ Migrations applied, test data created, assignments verified
+
+
+================================================================================
+2. RUN AUTOMATED TESTS (Verify all 10 tests pass)
+================================================================================
+
+python scripts/test_e2e_clinician_messaging.py
+
+Expected: ✅ ALL 10 TESTS PASSED
+
+
+================================================================================
+3. START BACKEND (Terminal 1)
+================================================================================
+
+python start_server.py
+
+Expected: Server started on http://0.0.0.0:8080
+
+
+================================================================================
+4. START MOBILE APP (Terminal 2)
+================================================================================
+
+cd mobile-app
+flutter run -d chrome
+
+Expected: App opens without 500 errors
+
+
+================================================================================
+5. MANUAL TESTING
+================================================================================
+
+TEST 1: Mobile app shows assigned clinician
+  • Login: patient1@test.com / password123
+  • Go to Messages tab (tab 3)
+  • Expected: Clinician name "doctor@test.com" shown (not dropdown)
+
+TEST 2: Send message from mobile
+  • Compose message: "Test encrypted message"
+  • Click Send
+  • Expected: Message appears immediately
+
+TEST 3: Clinician receives in dashboard
+  • Open: http://localhost:3000 (new browser)
+  • Login: doctor@test.com / password123
+  • Go to Messages
+  • Expected: Unread count badge shows 1, message visible
+
+TEST 4: Clinician sees only assigned patients
+  • In dashboard, go to Patients page
+  • Expected: See ONLY patient1, patient2, patient3 (NOT admin)
+  • Result: ✅ SOLVES "DOCTOR SEES ALL ACCOUNTS"
+
+TEST 5: Admin assigns patient to clinician (NEW UI)
+  • Login to web dashboard: admin@test.com / password123
+  • Navigate to Admin page
+  • Find a patient row in the user table
+  • Click "Assign" button in "Assign Clinician" column
+  • Select clinician from dropdown
+  • Click ✓ to save assignment
+  • Expected: "Patient assigned to clinician successfully" message
+  • Expected: Clinician name appears in "Assign Clinician" column (NOT "Not assigned")
+  • IMPORTANT: If still showing "Not assigned", hard-refresh page (Ctrl+Shift+R)
+  • Result: ✅ ADMIN CAN MANUALLY ASSIGN VIA UI + ✅ ASSIGNMENT DISPLAYS CORRECTLY
+
+TEST 6: Web dashboard messaging navigation (UX FIX)
+  • Login to web dashboard: doctor@test.com / password123
+  • Click "Messages" button in header OR navigate to /messages
+  • Expected: See inbox with patient list
+  • Click "Back to Dashboard" button in top-left header
+  • Expected: Navigate back to /dashboard
+  • Result: ✅ BACK BUTTON WORKS (NO LONGER STUCK IN MESSAGES)
+
+TEST 7: Mobile messaging navigation (UX FIX)
+  • Login to mobile app: patient1@test.com / password123
+  • Tap "Messages" tab at bottom
+  • Expected: See assigned clinician (Dr. Smith) and message history
+  • Tap back arrow (←) in top-left AppBar
+  • Expected: Navigate back to previous screen (Home tab)
+  • Result: ✅ BACK BUTTON WORKS (NO LONGER STUCK IN MESSAGES)
+
+
+================================================================================
+TEST DATA CREDENTIALS (Created by setup script)
+================================================================================
+
+Clinician:
+  doctor@test.com / password123
+
+Patients (all assigned to clinician):
+  patient1@test.com / password123
+  patient2@test.com / password123
+  patient3@test.com / password123
+
+Admin:
+  admin@test.com / password123
+
+
+================================================================================
+IF ANYTHING FAILS
+================================================================================
+
+• Check backend console for errors
+• Check test output for specific failures
+• Review PHASE_3_EXECUTION_GUIDE.txt troubleshooting section
+• Review PHASE_3_SUMMARY.md for architecture details
+
+
+================================================================================
+FINAL RESULT AFTER 20 MINUTES
+================================================================================
+
+✅ Clinician assignment system working
+✅ Message encryption working
+✅ Clinician sees only assigned patients (SOLVES MAIN ISSUE)
+✅ End-to-end messaging working
+✅ System production-ready
+
+
+================================================================================

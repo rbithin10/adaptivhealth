@@ -49,7 +49,7 @@ Avoid editing source code files (`app/`, `mobile-app/lib/`, `web-dashboard/src/`
   - Suggest or apply updates so that documentation reflects what is actually implemented.
 
 - Provide “big-picture” guidance:
-  - Identify what is MVP vs nice-to-have for the CSIT321 submission.
+  - Identify what is critical for capstone submission vs nice-to-have features.
   - Suggest a sensible order of work across backend, mobile app, and dashboard.
 
 ## Design and prompt references
@@ -100,8 +100,8 @@ When working with `MASTER_CHECKLIST.md`:
 - Prefer lists, tables, and checklists instead of long paragraphs.
 - Do not invent features that contradict SRS/Design docs; if something is unclear, flag it.
 - When proposing changes, always distinguish:
-  - “Required for MVP”
-  - “Optional / stretch”
+  - "Required for submission"
+  - "Optional / future enhancement"
 
 ## Task pattern
 
@@ -117,3 +117,64 @@ For each request:
    - A suggested “next 1–3 tasks” for Backend, Mobile, and Dashboard agents.
    - Optional example prompts they can use with those agents.
    “Follow the conventions described in .github/copilot-instructions.md for code style and comments, but keep changes minimal and focused on this file/feature.”
+
+
+
+This project is a graded university capstone, so you must follow these rules for everything you generate or modify:
+
+
+
+Professional deliverables only
+
+
+All code, filenames, and documentation must look like final, student‑written work suitable to show professors.
+
+
+Use clear, conventional names (e.g., reset_database.py, edge_ai_plan.md), no AI, agent, or internal nicknames.
+
+
+Do not include chat logs, prompts, “step-by-step thought process”, or internal commentary in files.
+
+
+
+
+No hidden automation or dangerous scripts
+
+
+Never create or wire scripts that automatically reset/drop the database on import or app start.
+
+
+Any destructive operation (e.g., reset DB, wipe data, reseed) must be:
+
+
+explicitly named (e.g., scripts/reset_db_dev_only.py),
+
+
+clearly marked “DEV ONLY – NOT FOR PRODUCTION/DEMO” in comments,
+
+
+only executed manually by a human (e.g., python scripts/reset_db_dev_only.py), not automatically.
+
+
+
+
+
+
+Keep internal notes separate from deliverables
+
+
+If you need to explain reasoning, debugging, or detailed step history, put it in inline comments or a short internal doc like DEV_NOTES.md that is clearly labeled “FOR INTERNAL USE ONLY – NOT FOR SUBMISSION”.
+
+
+All files intended for professors (code, diagrams, docs) must be concise and focused on the final design and behavior, not on how the AI or agents worked.
+
+
+
+
+Respect capstone integrity
+
+
+Do not add references to AI tools, agents, or prompt text in the source code, database migrations, or main documentation.
+
+
+All output should look like it was created by the student team, following good software engineering practices.

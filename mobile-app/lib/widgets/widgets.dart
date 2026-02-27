@@ -9,3 +9,4 @@ export 'recommendation_card.dart';
 export 'target_zone_indicator.dart';
 export 'week_view.dart';
 export 'floating_chatbot.dart';
+export 'edge_ai_status_card.dart';

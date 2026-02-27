@@ -11,6 +11,8 @@ from .activity import router as activity_router
 from .alert import router as alert_router
 from .advanced_ml import router as advanced_ml_router
 from .consent import router as consent_router
+from .nutrition import router as nutrition_router
+from .messages import router as messages_router
 
 # Export routers for the main app.
 __all__ = [
@@ -22,4 +24,6 @@ __all__ = [
     "alert_router",
     "advanced_ml_router",
     "consent_router",
+    "nutrition_router",
+    "messages_router",
 ]

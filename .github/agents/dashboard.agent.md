@@ -72,22 +72,21 @@ Use backend API contracts from:
   - Show complete React components or hooks being created or modified.
 - Route all API calls through a central API helper if one exists, or suggest one if the code is currently ad‑hoc.
 
-## Implementation priority (MVP)
+## Implementation priority
 
 1. Patient List page (`/patients` or equivalent):
-   - Fetch and display patient name, basic status, risk level, and last alert.
+   - Fetch and display patient name, status, risk level, and recent alerts.
 
 2. Patient Detail page:
    - Fetch vitals, alerts, and recommendations for the selected patient.
-   - Display simple charts and lists based on available data and endpoints.
+   - Display charts and data lists based on available endpoints.
 
 3. Messaging:
-   - Basic messaging UI for a single patient.
-   - Connect to backend messaging endpoints when available, otherwise structure as if they exist.
+   - Messaging UI for patient communication.
+   - Connect to backend messaging endpoints for real-time clinician inbox.
 
 4. Refinement:
    - Improve layout using insights from `ClinicalDashboard.jsx` and design analysis.
-   - Ensure accessibility and clarity for clinicians.
 
 ## Task pattern
 
@@ -95,7 +94,67 @@ For each task:
 
 1. Consult `ClinicalDashboard.jsx`, `adaptiv_health_design_analysis.jsx`, and backend specs to understand the intended UX and data. [file:76]
 2. Check existing React files to reuse components and patterns.
-3. Propose the smallest slice of UI + data integration that moves toward the MVP goals.
+3. Propose the next logical slice of UI + data integration.
 4. Implement that slice and keep the code modular and easy to extend.
 5. Iterate based on feedback and new insights from the design docs and backend capabilities.
 “Follow the conventions described in .github/copilot-instructions.md for code style and comments, but keep changes minimal and focused on this file/feature.”
+
+
+This project is a graded university capstone, so you must follow these rules for everything you generate or modify:
+
+
+
+Professional deliverables only
+
+
+All code, filenames, and documentation must look like final, student‑written work suitable to show professors.
+
+
+Use clear, conventional names (e.g., reset_database.py, edge_ai_plan.md), no AI, agent, or internal nicknames.
+
+
+Do not include chat logs, prompts, “step-by-step thought process”, or internal commentary in files.
+
+
+
+
+No hidden automation or dangerous scripts
+
+
+Never create or wire scripts that automatically reset/drop the database on import or app start.
+
+
+Any destructive operation (e.g., reset DB, wipe data, reseed) must be:
+
+
+explicitly named (e.g., scripts/reset_db_dev_only.py),
+
+
+clearly marked “DEV ONLY – NOT FOR PRODUCTION/DEMO” in comments,
+
+
+only executed manually by a human (e.g., python scripts/reset_db_dev_only.py), not automatically.
+
+
+
+
+
+
+Keep internal notes separate from deliverables
+
+
+If you need to explain reasoning, debugging, or detailed step history, put it in inline comments or a short internal doc like DEV_NOTES.md that is clearly labeled “FOR INTERNAL USE ONLY – NOT FOR SUBMISSION”.
+
+
+All files intended for professors (code, diagrams, docs) must be concise and focused on the final design and behavior, not on how the AI or agents worked.
+
+
+
+
+Respect capstone integrity
+
+
+Do not add references to AI tools, agents, or prompt text in the source code, database migrations, or main documentation.
+
+
+All output should look like it was created by the student team, following good software engineering practices.

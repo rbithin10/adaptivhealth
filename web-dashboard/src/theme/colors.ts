@@ -38,9 +38,13 @@ export const colors = {
   // Neutral palette
   neutral: {
     '900': '#111827',    // Primary text (headings, body text)
+    '800': '#1F2937',    // Dark body text, emphasis text
     '700': '#374151',    // Secondary text (descriptions, subtitles)
+    '600': '#4B5563',    // Medium gray text, icons
     '500': '#6B7280',    // Tertiary text (timestamps, metadata)
+    '400': '#9CA3AF',    // Light gray text, placeholder text
     '300': '#D1D5DB',    // Borders, dividers, disabled states
+    '200': '#E5E7EB',    // Light borders, subtle dividers
     '100': '#F3F4F6',    // Card backgrounds, table alternating rows
     '50': '#F9FAFB',     // Page background (dashboard)
     white: '#FFFFFF',    // Card surfaces, input backgrounds

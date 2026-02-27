@@ -94,9 +94,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = MediaQuery.of(context).platformBrightness;
     if (_showForgotPassword) {
       return Scaffold(
-        backgroundColor: AdaptivColors.white,
+        backgroundColor: AdaptivColors.getBackgroundColor(brightness),
         body: SafeArea(
           child: SingleChildScrollView(
             child: Padding(
@@ -110,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 24,
                       fontWeight: FontWeight.w700,
-                      color: AdaptivColors.text900,
+                      color: AdaptivColors.getTextColor(brightness),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -138,13 +139,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFE8F5E9),
+                        color: brightness == Brightness.dark ? const Color(0xFF1B5E20) : const Color(0xFFE8F5E9),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF81C784)),
+                        border: Border.all(color: brightness == Brightness.dark ? const Color(0xFF66BB6A) : const Color(0xFF81C784)),
                       ),
                       child: Text(
                         _resetMessage!,
-                        style: AdaptivTypography.caption.copyWith(color: const Color(0xFF2E7D32)),
+                        style: AdaptivTypography.caption.copyWith(color: brightness == Brightness.dark ? const Color(0xFF81C784) : const Color(0xFF2E7D32)),
                       ),
                     ),
                   const SizedBox(height: 16),
@@ -210,16 +211,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       body: Container(
-        // Image backdrop with overlay for login
+        // Image backdrop with overlay for login (theme-aware)
         decoration: BoxDecoration(
-          image: DecorationImage(
-            image: const AssetImage('assets/images/login_bg.png'),
-            fit: BoxFit.cover,
-            colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.4),
-              BlendMode.darken,
-            ),
-          ),
+          color: AdaptivColors.getBackgroundColor(brightness),
+          image: brightness == Brightness.dark
+              ? null
+              : DecorationImage(
+                  image: const AssetImage('assets/images/login_bg.png'),
+                  fit: BoxFit.cover,
+                  colorFilter: ColorFilter.mode(
+                    Colors.black.withOpacity(0.4),
+                    BlendMode.darken,
+                  ),
+                ),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
@@ -259,14 +263,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 32,
                       fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      color: brightness == Brightness.dark ? AdaptivColors.getTextColor(brightness) : Colors.white,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Welcome back',
                     style: AdaptivTypography.body.copyWith(
-                      color: Colors.white.withOpacity(0.9),
+                      color: brightness == Brightness.dark 
+                          ? AdaptivColors.getSecondaryTextColor(brightness) 
+                          : Colors.white.withOpacity(0.9),
                       fontSize: 16,
                     ),
                   ),
@@ -278,7 +284,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: brightness == Brightness.dark ? Colors.grey[900] : Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: AdaptivColors.critical,
@@ -305,7 +311,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.95),
+                    color: brightness == Brightness.dark 
+                        ? Colors.grey[900]!.withOpacity(0.95) 
+                        : Colors.white.withOpacity(0.95),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
@@ -326,7 +334,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             labelText: 'Email',
                             prefixIcon: const Icon(Icons.email_outlined),
                             filled: true,
-                            fillColor: AdaptivColors.background50,
+                            fillColor: brightness == Brightness.dark 
+                                ? Colors.grey[800] 
+                                : AdaptivColors.background50,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
@@ -371,7 +381,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               },
                             ),
                             filled: true,
-                            fillColor: AdaptivColors.background50,
+                            fillColor: brightness == Brightness.dark 
+                                ? Colors.grey[800] 
+                                : AdaptivColors.background50,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,

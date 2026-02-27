@@ -7,9 +7,14 @@ If the server is slow or down, we show safe demo values instead of a blank scree
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
+import '../services/edge_ai_store.dart';
+import '../services/mock_vitals_service.dart';
 import '../widgets/widgets.dart';
 import 'fitness_plans_screen.dart';
 import 'recovery_screen.dart';
@@ -17,14 +22,17 @@ import 'health_screen.dart';
 import 'profile_screen.dart';
 import 'nutrition_screen.dart';
 import 'doctor_messaging_screen.dart';
+import 'notifications_screen.dart';
 // Note: ChatbotScreen removed - AI Coach is now a floating widget (FloatingChatbot)
 
 class HomeScreen extends StatefulWidget {
   final ApiClient apiClient;
+  final VoidCallback? onLogout;
 
   const HomeScreen({
     super.key,
     required this.apiClient,
+    this.onLogout,
   });
 
   @override
@@ -35,12 +43,108 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<Map<String, dynamic>> _vitalsFuture;
   late Future<Map<String, dynamic>> _riskFuture;
   late Future<Map<String, dynamic>> _userFuture;
+  late Future<Map<String, dynamic>> _recommendationFuture;
+  late Future<List<dynamic>> _activitiesFuture;
+  late Future<List<dynamic>> _vitalHistoryFuture;
+
+  // Stable combined future — set once in _loadData(), never recreated.
+  // Prevents FutureBuilder from resetting to ConnectionState.waiting every
+  // time the mock-vitals stream calls setState.
+  late Future<Map<String, dynamic>> _combinedFuture;
+
   int _selectedIndex = 0;
+
+  // Draggable AI Coach button position (bottom-right default).
+  double _fabX = -1;
+  double _fabY = -1;
+
+  MockVitalsService? _mockVitalsService;
+  StreamSubscription<VitalReading>? _mockVitalsRefreshSub;
+
+  // ValueNotifiers for live vitals — updates without triggering full rebuilds.
+  final ValueNotifier<VitalReading?> _liveVitalsNotifier = ValueNotifier(null);
+  final ValueNotifier<List<VitalReading>> _vitalsHistoryNotifier =
+      ValueNotifier([]);
 
   @override
   void initState() {
     super.initState();
     _loadData();
+
+    // Initialize simulator service after first frame so Provider context is ready.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeMockVitalsServiceIfPossible();
+    });
+  }
+
+  @override
+  void dispose() {
+    _mockVitalsRefreshSub?.cancel();
+    _mockVitalsService?.dispose();
+    _liveVitalsNotifier.dispose();
+    _vitalsHistoryNotifier.dispose();
+    super.dispose();
+  }
+
+  void _initializeMockVitalsServiceIfPossible() {
+    if (_mockVitalsService != null || !mounted) return;
+
+    try {
+      final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+      _mockVitalsService = MockVitalsService(
+        apiClient: widget.apiClient,
+        edgeAiStore: edgeStore,
+      );
+
+      _mockVitalsRefreshSub = _mockVitalsService!.stream.listen((reading) {
+        if (!mounted) return;
+        // Update ValueNotifiers directly — no setState, so no full-screen rebuild.
+        _liveVitalsNotifier.value = reading;
+        final updated = [..._vitalsHistoryNotifier.value, reading];
+        if (updated.length > 50) updated.removeAt(0);
+        _vitalsHistoryNotifier.value = updated;
+      });
+    } catch (_) {
+      // EdgeAiStore may not be available yet; profile will still show guidance.
+    }
+  }
+
+  /// Feed loaded vitals into edge AI for on-device risk prediction.
+  /// Called after vitals + user data load successfully.
+  void _feedEdgeAi(Map<String, dynamic> user, Map<String, dynamic> vitals) {
+    // Safely get EdgeAiStore from provider tree (may not exist yet)
+    try {
+      final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+      if (!edgeStore.isReady && !edgeStore.isInitializing) return;
+
+      // Extract vitals
+      final heartRate = _safeToInt(vitals['heart_rate'], 0);
+      if (heartRate <= 0) return; // No valid HR, skip
+
+      final spo2 = _safeToInt(vitals['spo2'], 0);
+      final bpSystolic = _safeBloodPressure(vitals['blood_pressure'], 'systolic', 0);
+      final bpDiastolic = _safeBloodPressure(vitals['blood_pressure'], 'diastolic', 0);
+
+      // Extract user profile for ML prediction
+      final age = _safeToInt(user['age'], 0);
+      // Calculate max safe HR: 220 - age (standard formula)
+      final maxSafeHr = age > 0 ? 220 - age : 185;
+      // Use resting HR as baseline (or default 72)
+      final baselineHr = _safeToInt(user['resting_hr'] ?? user['baseline_hr'], 72);
+
+      // Run edge AI: threshold alerts + ML risk prediction + GPS if critical
+      edgeStore.processVitals(
+        heartRate: heartRate,
+        spo2: spo2 > 0 ? spo2 : null,
+        bpSystolic: bpSystolic > 0 ? bpSystolic : null,
+        bpDiastolic: bpDiastolic > 0 ? bpDiastolic : null,
+        age: age > 0 ? age : null,
+        baselineHr: baselineHr,
+        maxSafeHr: maxSafeHr,
+      );
+    } catch (_) {
+      // EdgeAiStore not in widget tree yet — skip silently
+    }
   }
 
   void _loadData() {
@@ -51,7 +155,16 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
 
-    _vitalsFuture = widget.apiClient.getLatestVitals();
+    _vitalsFuture = widget.apiClient.getLatestVitals().catchError(
+      (e) => {
+        'heart_rate': 0,
+        'spo2': 0,
+        'systolic_bp': 0,
+        'diastolic_bp': 0,
+        'timestamp': DateTime.now().toIso8601String(),
+        'error': true,
+      },
+    );
 
     _riskFuture = widget.apiClient.getLatestRiskAssessment().catchError(
       (e) => {
@@ -59,6 +172,26 @@ class _HomeScreenState extends State<HomeScreen> {
         'risk_score': 0.23,
       },
     );
+
+    _recommendationFuture = widget.apiClient.getLatestRecommendation();
+
+    _activitiesFuture = widget.apiClient.getActivities(limit: 5).catchError(
+      (e) => <dynamic>[],
+    );
+
+    _vitalHistoryFuture = widget.apiClient.getVitalHistory(days: 1).catchError(
+      (e) => <dynamic>[],
+    );
+
+    // Combine the three API calls into one stable future. Setting this once
+    // here means the FutureBuilder in _buildHomeTab() never resets to
+    // ConnectionState.waiting when mock-vitals trigger a redraw.
+    _combinedFuture = Future.wait([_userFuture, _vitalsFuture, _riskFuture])
+        .then((results) => <String, dynamic>{
+              'user': results[0],
+              'vitals': results[1],
+              'risk': results[2],
+            });
   }
 
   String _getRiskZoneLabel(int heartRate) {
@@ -83,11 +216,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = MediaQuery.of(context).platformBrightness;
     return Scaffold(
-      backgroundColor: AdaptivColors.background50,
+      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -136,15 +270,49 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.notifications_none),
               color: AdaptivColors.primary,
               onPressed: () {
-                // TODO: Navigate to notifications
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        NotificationsScreen(apiClient: widget.apiClient),
+                  ),
+                );
               },
             ),
           ),
         ],
       ),
-      body: _getSelectedScreen(),
-      // Floating AI Health Coach - always accessible
-      floatingActionButton: const FloatingChatbot(),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // Initialise FAB position to bottom-right on first layout.
+          if (_fabX < 0 || _fabY < 0) {
+            _fabX = constraints.maxWidth - 56 - 16;
+            _fabY = constraints.maxHeight - 56 - 24;
+          }
+          return Stack(
+            children: [
+              // Main tab content fills the available space.
+              Positioned.fill(child: _getSelectedScreen()),
+
+              // Draggable floating AI Health Coach.
+              Positioned(
+                left: _fabX,
+                top: _fabY,
+                child: FloatingChatbot(
+                  apiClient: widget.apiClient,
+                  posX: _fabX,
+                  posY: _fabY,
+                  onPositionChanged: (offset) {
+                    setState(() {
+                      _fabX = offset.dx;
+                      _fabY = offset.dy;
+                    });
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(
@@ -200,11 +368,15 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return FitnessPlansScreen(apiClient: widget.apiClient);
       case 2:
-        return const NutritionScreen();
+        return NutritionScreen(apiClient: widget.apiClient);
       case 3:
-        return const DoctorMessagingScreen();
+        return DoctorMessagingScreen(apiClient: widget.apiClient);
       case 4:
-        return ProfileScreen(apiClient: widget.apiClient);
+        return ProfileScreen(
+          apiClient: widget.apiClient,
+          mockVitalsService: _mockVitalsService,
+          onLogout: widget.onLogout,
+        );
       default:
         return _buildHomeTab();
     }
@@ -230,12 +402,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHomeTab() {
     return FutureBuilder<Map<String, dynamic>>(
-      future: Future.wait([_userFuture, _vitalsFuture, _riskFuture])
-          .then((results) => ({
-            'user': results[0],
-            'vitals': results[1],
-            'risk': results[2],
-          })),
+      future: _combinedFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const SizedBox.expand(
@@ -268,8 +435,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final userName = user['name'] ?? 'Patient';
         final firstName = userName.split(' ').first;
-        final heartRate = _safeToInt(vitals['heart_rate'], 72);
-        final spo2 = _safeToInt(vitals['spo2'], 98);
+        // Base values from API; overridden live by ValueListenableBuilder below
+        final apiHeartRate = _safeToInt(vitals['heart_rate'], 72);
+        final apiSpo2     = _safeToInt(vitals['spo2'], 98);
         final systolicBp = _safeBloodPressure(
           vitals['blood_pressure'],
           'systolic',
@@ -281,7 +449,12 @@ class _HomeScreenState extends State<HomeScreen> {
           80,
         );
         final riskLevel = risk['risk_level'] ?? 'low';
-        final riskScore = risk['risk_score'] ?? 0.23;
+
+        // Feed vitals into edge AI for on-device risk prediction
+        // This runs threshold checks + ML prediction + GPS emergency if critical
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _feedEdgeAi(user, vitals);
+        });
 
         return Container(
           // Image backdrop for patient dashboard
@@ -358,60 +531,161 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
-                // HERO HEART RATE RING - Enhanced design
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 15,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Center(
-                        child: _buildHeartRateRing(
-                          heartRate: heartRate,
-                          riskLevel: riskLevel,
-                          maxSafeHR: 150,
+                // HERO HEART RATE RING + EDGE AI RISK (merged).
+                // ValueListenableBuilder updates live vitals; edge AI risk
+                // is read from EdgeAiStore via Provider inside the builder.
+                ValueListenableBuilder<VitalReading?>(
+                  valueListenable: _liveVitalsNotifier,
+                  builder: (context, liveReading, _) {
+                    final heartRate = liveReading?.heartRate ?? apiHeartRate;
+                    final spo2      = liveReading?.spo2      ?? apiSpo2;
+
+                    // Read edge AI prediction (may be null if model not loaded yet)
+                    EdgeAiStore? edgeStore;
+                    try {
+                      edgeStore = Provider.of<EdgeAiStore>(context);
+                    } catch (_) {}
+                    final prediction = edgeStore?.latestPrediction;
+                    final edgeRiskLevel = prediction?.riskLevel ?? riskLevel;
+                    final edgeRiskColor = AdaptivColors.getRiskColor(edgeRiskLevel);
+
+                    return Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 15,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              Center(
+                                child: _buildHeartRateRing(
+                                  heartRate: heartRate,
+                                  riskLevel: edgeRiskLevel,
+                                  maxSafeHR: 150,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              // Edge AI risk badges (replaces old zone/status badges)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                  _buildStatusBadge(
+                                    prediction != null
+                                        ? 'Risk: ${edgeRiskLevel.toUpperCase()}'
+                                        : _getRiskZoneLabel(heartRate),
+                                    prediction != null
+                                        ? (edgeRiskLevel == 'high'
+                                            ? Icons.warning_rounded
+                                            : edgeRiskLevel == 'moderate'
+                                                ? Icons.info_rounded
+                                                : Icons.check_circle_rounded)
+                                        : Icons.directions_run,
+                                    prediction != null ? edgeRiskColor : AdaptivColors.primary,
+                                  ),
+                                  _buildStatusBadge(
+                                    prediction != null
+                                        ? 'Score: ${(prediction.riskScore * 100).toInt()}%'
+                                        : _getRiskStatus(riskLevel),
+                                    prediction != null
+                                        ? Icons.analytics_outlined
+                                        : Icons.shield_outlined,
+                                    prediction != null ? edgeRiskColor : AdaptivColors.getRiskColor(riskLevel),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              // Compact Edge AI status line
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: edgeStore?.modelLoaded == true
+                                          ? AdaptivColors.stable
+                                          : Colors.orange,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    edgeStore?.modelLoaded == true
+                                        ? 'On-Device AI • v${edgeStore!.modelVersion}'
+                                            '${prediction != null ? ' • ${prediction.inferenceTimeMs}ms' : ''}'
+                                        : edgeStore?.isInitializing == true
+                                            ? 'Edge AI Loading...'
+                                            : 'Waiting for Edge AI',
+                                    style: GoogleFonts.dmSans(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: AdaptivColors.text500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      // Activity phase & zone
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildStatusBadge(
-                            _getRiskZoneLabel(heartRate),
-                            Icons.directions_run,
-                            AdaptivColors.primary,
-                          ),
-                          _buildStatusBadge(
-                            _getRiskStatus(riskLevel),
-                            Icons.shield_outlined,
-                            AdaptivColors.getRiskColor(riskLevel),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
 
-                // Secondary Vitals Grid
-                _buildVitalsGrid(
-                  spo2: spo2,
-                  systolicBp: systolicBp,
-                  diastolicBp: diastolicBp,
-                  riskLevel: riskLevel,
-                  riskScore: riskScore,
+                        // Threshold alerts from edge AI (if any)
+                        if (edgeStore != null && edgeStore.activeAlerts.isNotEmpty)
+                          ...edgeStore.activeAlerts.map((alert) {
+                            final alertColor = alert.severity == 'critical'
+                                ? AdaptivColors.critical : Colors.orange;
+                            return Container(
+                              margin: const EdgeInsets.only(top: 10),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: alertColor.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: alertColor.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    alert.severity == 'critical'
+                                        ? Icons.error_rounded
+                                        : Icons.warning_amber_rounded,
+                                    color: alertColor, size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      alert.message,
+                                      style: GoogleFonts.dmSans(
+                                        fontSize: 12,
+                                        color: alertColor,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+
+                        const SizedBox(height: 24),
+                        // Secondary Vitals Grid
+                        _buildVitalsGrid(
+                          spo2: spo2,
+                          systolicBp: systolicBp,
+                          diastolicBp: diastolicBp,
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
 
@@ -439,6 +713,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       setState(() {
                         _loadData();
                       });
+                      // Also trigger edge AI cloud sync
+                      try {
+                        final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
+                        edgeStore.syncNow();
+                      } catch (_) {}
                     },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Refresh Data'),
@@ -610,8 +889,6 @@ class _HomeScreenState extends State<HomeScreen> {
     required int spo2,
     required int systolicBp,
     required int diastolicBp,
-    required String riskLevel,
-    required double riskScore,
   }) {
     // Sample trend data for visualization
     final hrTrend = [68.0, 72.0, 75.0, 71.0, 73.0, 72.0];
@@ -696,45 +973,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        // Risk badge row
-        Row(
-          children: [
-            RiskBadge(
-              level: _getRiskLevel(riskLevel),
-              size: RiskBadgeSize.medium,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'CV Score: ${(riskScore * 100).toInt()}',
-                style: AdaptivTypography.metricValueSmall.copyWith(
-                  color: AdaptivColors.text600,
-                ),
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
 
-  RiskLevel _getRiskLevel(String riskLevel) {
-    switch (riskLevel.toLowerCase()) {
-      case 'critical':
-        return RiskLevel.critical;
-      case 'high':
-        return RiskLevel.high;
-      case 'elevated':
-        return RiskLevel.elevated;
-      case 'moderate':
-        return RiskLevel.moderate;
-      case 'low':
-        return RiskLevel.low;
-      default:
-        return RiskLevel.minimal;
-    }
-  }
+
 
   Widget _buildQuickActions() {
     return Column(
@@ -835,65 +1078,154 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecentActivity() {
-    // Demo recent activity data
-    final recentActivities = [
-      {
-        'icon': Icons.directions_walk,
-        'title': 'Morning Walk',
-        'subtitle': '30 min • 2.1 km',
-        'time': '2h ago',
-        'color': AdaptivColors.stable,
-      },
-      {
-        'icon': Icons.monitor_heart,
-        'title': 'Heart Rate Check',
-        'subtitle': '72 BPM - Normal',
-        'time': '4h ago',
-        'color': AdaptivColors.primary,
-      },
-      {
-        'icon': Icons.spa,
-        'title': 'Breathing Exercise',
-        'subtitle': '5 min session',
-        'time': 'Yesterday',
-        'color': const Color(0xFF9C27B0),
-      },
-    ];
+  /// Map activity_type string to an icon + color for the list.
+  IconData _activityIcon(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'running':
+        return Icons.directions_run;
+      case 'cycling':
+        return Icons.directions_bike;
+      case 'swimming':
+        return Icons.pool;
+      case 'yoga':
+        return Icons.self_improvement;
+      case 'stretching':
+        return Icons.accessibility_new;
+      case 'strength_training':
+        return Icons.fitness_center;
+      case 'walking':
+      default:
+        return Icons.directions_walk;
+    }
+  }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+  Color _activityColor(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'running':
+        return AdaptivColors.warning;
+      case 'cycling':
+        return AdaptivColors.primary;
+      case 'swimming':
+        return const Color(0xFF0097A7);
+      case 'yoga':
+      case 'stretching':
+        return const Color(0xFF9C27B0);
+      case 'strength_training':
+        return AdaptivColors.critical;
+      case 'walking':
+      default:
+        return AdaptivColors.stable;
+    }
+  }
+
+  /// Format a datetime string into a relative label like "2h ago" or "Yesterday".
+  String _relativeTime(String? isoString) {
+    if (isoString == null || isoString.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(isoString);
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays == 1) return 'Yesterday';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${dt.month}/${dt.day}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Build a subtitle string from duration + peak heart rate.
+  String _activitySubtitle(Map<String, dynamic> a) {
+    final parts = <String>[];
+    final dur = a['duration_minutes'];
+    if (dur != null) parts.add('$dur min');
+    final peak = a['peak_heart_rate'];
+    if (peak != null) parts.add('Peak $peak BPM');
+    if (parts.isEmpty) {
+      final status = a['status'];
+      return status != null ? status.toString() : 'Session';
+    }
+    return parts.join(' • ');
+  }
+
+  Widget _buildRecentActivity() {
+    return FutureBuilder<List<dynamic>>(
+      future: _activitiesFuture,
+      builder: (context, snapshot) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Recent Activity',
-              style: AdaptivTypography.subtitle1.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const Spacer(),
-            GestureDetector(
-              onTap: _navigateToHealth, // Opens Health screen
-              child: Text(
-                'See All',
-                style: AdaptivTypography.label.copyWith(
-                  color: AdaptivColors.primary,
-                  fontWeight: FontWeight.w600,
+            Row(
+              children: [
+                Text(
+                  'Recent Activity',
+                  style: AdaptivTypography.subtitle1.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: _navigateToHealth,
+                  child: Text(
+                    'See All',
+                    style: AdaptivTypography.label.copyWith(
+                      color: AdaptivColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 12),
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              )
+            else if (snapshot.hasError ||
+                !snapshot.hasData ||
+                snapshot.data!.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'No recent activity yet',
+                    style: AdaptivTypography.caption.copyWith(
+                      color: AdaptivColors.text600,
+                    ),
+                  ),
+                ),
+              )
+            else
+              ...snapshot.data!.map((item) {
+                final a = item as Map<String, dynamic>;
+                final type = a['activity_type'] as String?;
+                return _buildActivityItem(
+                  icon: _activityIcon(type),
+                  title: (type ?? 'Activity')
+                      .replaceAll('_', ' ')
+                      .split(' ')
+                      .map((w) => w.isNotEmpty
+                          ? '${w[0].toUpperCase()}${w.substring(1)}'
+                          : '')
+                      .join(' '),
+                  subtitle: _activitySubtitle(a),
+                  time: _relativeTime(
+                      a['start_time']?.toString() ?? ''),
+                  color: _activityColor(type),
+                );
+              }),
           ],
-        ),
-        const SizedBox(height: 12),
-        ...recentActivities.map((activity) => _buildActivityItem(
-          icon: activity['icon'] as IconData,
-          title: activity['title'] as String,
-          subtitle: activity['subtitle'] as String,
-          time: activity['time'] as String,
-          color: activity['color'] as Color,
-        )),
-      ],
+        );
+      },
     );
   }
 
@@ -953,80 +1285,265 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHeartRateSparkline() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+    return FutureBuilder<List<dynamic>>(
+      future: _vitalHistoryFuture,
+      builder: (context, snapshot) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AdaptivColors.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.show_chart,
-                    color: AdaptivColors.primary,
-                    size: 20,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AdaptivColors.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.show_chart,
+                        color: AdaptivColors.primary,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Heart Rate Today',
+                      style: AdaptivTypography.cardTitle.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // ValueListenableBuilder re-renders the chart when new mock
+                // readings arrive, without rebuilding the whole page.
+                ValueListenableBuilder<List<VitalReading>>(
+                  valueListenable: _vitalsHistoryNotifier,
+                  builder: (context, _, __) => SizedBox(
+                    height: 100,
+                    child: _buildSparklineContent(snapshot),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  'Heart Rate Today',
-                  style: AdaptivTypography.cardTitle.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                const SizedBox(height: 12),
+                _buildSparklineTimeLabels(snapshot),
               ],
             ),
-            const SizedBox(height: 16),
-            Container(
-              height: 100,
-              decoration: BoxDecoration(
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSparklineContent(AsyncSnapshot<List<dynamic>> snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AdaptivColors.primary.withOpacity(0.1),
+              AdaptivColors.primary.withOpacity(0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    if (snapshot.hasError || !snapshot.hasData) {
+      if (_vitalsHistoryNotifier.value.isNotEmpty) {
+        final dataPoints = <FlSpot>[];
+        for (int i = 0; i < _vitalsHistoryNotifier.value.length; i++) {
+          dataPoints.add(FlSpot(i.toDouble(), _vitalsHistoryNotifier.value[i].heartRate.toDouble()));
+        }
+        return _buildSparklineChart(dataPoints);
+      }
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AdaptivColors.primary.withOpacity(0.1),
+              AdaptivColors.primary.withOpacity(0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'No heart rate data yet',
+            style: AdaptivTypography.caption.copyWith(
+              color: AdaptivColors.text600,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final vitals = snapshot.data!;
+    if (vitals.isEmpty) {
+      if (_vitalsHistoryNotifier.value.isNotEmpty) {
+        final dataPoints = <FlSpot>[];
+        for (int i = 0; i < _vitalsHistoryNotifier.value.length; i++) {
+          dataPoints.add(FlSpot(i.toDouble(), _vitalsHistoryNotifier.value[i].heartRate.toDouble()));
+        }
+        return _buildSparklineChart(dataPoints);
+      }
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AdaptivColors.primary.withOpacity(0.1),
+              AdaptivColors.primary.withOpacity(0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'No heart rate data yet',
+            style: AdaptivTypography.caption.copyWith(
+              color: AdaptivColors.text600,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Extract heart rate data points (timestamp, heart_rate)
+    final dataPoints = <FlSpot>[];
+    for (int i = 0; i < vitals.length && i < 50; i++) {
+      final vital = vitals[i] as Map<String, dynamic>;
+      final hr = vital['heart_rate'] as int?;
+      if (hr != null && hr > 0) {
+        dataPoints.add(FlSpot(i.toDouble(), hr.toDouble()));
+      }
+    }
+
+    if (dataPoints.isEmpty) {
+      if (_vitalsHistoryNotifier.value.isNotEmpty) {
+        final fallbackPoints = <FlSpot>[];
+        for (int i = 0; i < _vitalsHistoryNotifier.value.length; i++) {
+          fallbackPoints.add(FlSpot(i.toDouble(), _vitalsHistoryNotifier.value[i].heartRate.toDouble()));
+        }
+        return _buildSparklineChart(fallbackPoints);
+      }
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AdaptivColors.primary.withOpacity(0.1),
+              AdaptivColors.primary.withOpacity(0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'No heart rate data yet',
+            style: AdaptivTypography.caption.copyWith(
+              color: AdaptivColors.text600,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Reverse to show oldest to newest (left to right)
+    final reversedPoints = dataPoints.reversed.toList();
+
+    return _buildSparklineChart(reversedPoints);
+  }
+
+  Widget _buildSparklineChart(List<FlSpot> points) {
+    final hrValues = points.map((p) => p.y).toList();
+    final minHR = hrValues.reduce((a, b) => a < b ? a : b);
+    final maxHR = hrValues.reduce((a, b) => a > b ? a : b);
+    final padding = (maxHR - minHR) * 0.2;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, top: 8, bottom: 4),
+      child: LineChart(
+        LineChartData(
+          minY: (minHR - padding).clamp(40, 200),
+          maxY: (maxHR + padding).clamp(60, 220),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: 20,
+            getDrawingHorizontalLine: (value) {
+              return FlLine(
+                color: AdaptivColors.border300.withOpacity(0.3),
+                strokeWidth: 1,
+              );
+            },
+          ),
+          titlesData: FlTitlesData(show: false),
+          borderData: FlBorderData(show: false),
+          lineTouchData: LineTouchData(
+            enabled: true,
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipItems: (touchedSpots) {
+                return touchedSpots.map((spot) {
+                  return LineTooltipItem(
+                    '${spot.y.toInt()} BPM',
+                    const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  );
+                }).toList();
+              },
+            ),
+          ),
+          lineBarsData: [
+            LineChartBarData(
+              spots: points,
+              isCurved: true,
+              curveSmoothness: 0.3,
+              color: AdaptivColors.primary,
+              barWidth: 2,
+              isStrokeCapRound: true,
+              dotData: FlDotData(show: false),
+              belowBarData: BarAreaData(
+                show: true,
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    AdaptivColors.primary.withOpacity(0.1),
+                    AdaptivColors.primary.withOpacity(0.3),
                     AdaptivColors.primary.withOpacity(0.05),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(8),
               ),
-              child: Center(
-                child: Text(
-                  'Trend chart - coming soon',
-                  style: AdaptivTypography.caption.copyWith(
-                    color: AdaptivColors.text600,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('6AM', style: AdaptivTypography.caption),
-                Text('12PM', style: AdaptivTypography.caption),
-                Text('Now', style: AdaptivTypography.caption.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: AdaptivColors.primary,
-                )),
-              ],
             ),
           ],
         ),
@@ -1034,9 +1551,95 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecommendationCard(String riskLevel) {
-    final isHighRisk = riskLevel.toLowerCase() == 'high';
+  Widget _buildSparklineTimeLabels(AsyncSnapshot<List<dynamic>> snapshot) {
+    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+      if (_vitalsHistoryNotifier.value.isNotEmpty) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Sim start', style: AdaptivTypography.caption),
+            Text('Live', style: AdaptivTypography.caption),
+            Text(
+              'Now',
+              style: AdaptivTypography.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AdaptivColors.primary,
+              ),
+            ),
+          ],
+        );
+      }
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('24h ago', style: AdaptivTypography.caption),
+          Text('12h ago', style: AdaptivTypography.caption),
+          Text(
+            'Now',
+            style: AdaptivTypography.caption.copyWith(
+              fontWeight: FontWeight.w600,
+              color: AdaptivColors.primary,
+            ),
+          ),
+        ],
+      );
+    }
 
+    final vitals = snapshot.data!;
+    if (vitals.isEmpty) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('24h ago', style: AdaptivTypography.caption),
+          Text('12h ago', style: AdaptivTypography.caption),
+          Text(
+            'Now',
+            style: AdaptivTypography.caption.copyWith(
+              fontWeight: FontWeight.w600,
+              color: AdaptivColors.primary,
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Get oldest timestamp
+    String oldestLabel = '24h ago';
+    if (vitals.isNotEmpty) {
+      try {
+        final oldest = vitals.last as Map<String, dynamic>;
+        final timestamp = oldest['timestamp'] as String?;
+        if (timestamp != null) {
+          final dt = DateTime.parse(timestamp);
+          final diff = DateTime.now().difference(dt);
+          if (diff.inHours < 1) {
+            oldestLabel = '${diff.inMinutes}m ago';
+          } else if (diff.inHours < 24) {
+            oldestLabel = '${diff.inHours}h ago';
+          } else {
+            oldestLabel = '${diff.inDays}d ago';
+          }
+        }
+      } catch (_) {}
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(oldestLabel, style: AdaptivTypography.caption),
+        Text('', style: AdaptivTypography.caption), // Middle spacer
+        Text(
+          'Now',
+          style: AdaptivTypography.caption.copyWith(
+            fontWeight: FontWeight.w600,
+            color: AdaptivColors.primary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecommendationCard(String riskLevel) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1049,21 +1652,69 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        RecommendationCard(
-          activityType: isHighRisk ? ActivityType.meditation : ActivityType.walking,
-          title: isHighRisk ? 'Rest & Recovery' : 'Morning Walk',
-          description: isHighRisk
-              ? 'Your recovery score is low. Take it easy today.'
-              : 'Light cardio to maintain your heart health.',
-          duration: Duration(minutes: isHighRisk ? 15 : 30),
-          targetHRZone: isHighRisk ? HRZone.resting : HRZone.light,
-          confidence: 0.87,
-          isPriority: true,
-          onStart: () {
-            // Navigate to workout
-          },
-          onDismiss: () {
-            // Dismiss recommendation
+        FutureBuilder<Map<String, dynamic>>(
+          future: _recommendationFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AdaptivColors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AdaptivColors.border300),
+                ),
+                child: Text(
+                  'Loading recommendation...',
+                  style: AdaptivTypography.body.copyWith(
+                    color: AdaptivColors.text600,
+                  ),
+                ),
+              );
+            }
+
+            final hasError = snapshot.hasError || snapshot.data == null;
+            final recommendation = snapshot.data ?? <String, dynamic>{};
+
+            if (hasError) {
+              final isHighRisk = riskLevel.toLowerCase() == 'high';
+              final isSimulatorRunning = _mockVitalsService?.isRunning ?? false;
+              return RecommendationCard(
+                activityType: isHighRisk ? ActivityType.meditation : ActivityType.walking,
+                title: isHighRisk ? 'Rest & Recovery' : 'Steady Movement',
+                description: isSimulatorRunning
+                    ? 'Live simulator is running. Follow this safe activity guidance while values update in real time.'
+                    : (isHighRisk
+                        ? 'Your recovery score is low. Take it easy today.'
+                        : 'Light cardio to maintain your heart health.'),
+                duration: Duration(minutes: isHighRisk ? 15 : 30),
+                targetHRZone: isHighRisk ? HRZone.resting : HRZone.light,
+                confidence: 0.75,
+                isPriority: true,
+                onStart: () {
+                  setState(() => _selectedIndex = 1);
+                },
+              );
+            }
+
+            final activityType = _mapActivityType(
+              recommendation['suggested_activity'] ?? recommendation['activity_type'],
+            );
+            final durationMinutes = _safeToInt(recommendation['duration_minutes'], 20);
+            final confidence = _safeToDouble(recommendation['confidence_score'], 0.85);
+
+            return RecommendationCard(
+              activityType: activityType,
+              title: (recommendation['title'] ?? 'Today\'s Recommendation').toString(),
+              description: (recommendation['description'] ?? recommendation['warnings'])?.toString(),
+              duration: Duration(minutes: durationMinutes > 0 ? durationMinutes : 20),
+              targetHRZone: _mapIntensityToHRZone(recommendation['intensity_level']),
+              confidence: confidence,
+              isPriority: true,
+              onStart: () {
+                setState(() => _selectedIndex = 1);
+              },
+            );
           },
         ),
       ],
@@ -1087,6 +1738,52 @@ class _HomeScreenState extends State<HomeScreen> {
       return _safeToInt(bpObject[key], fallback);
     }
     return fallback;
+  }
+
+  double _safeToDouble(dynamic value, double fallback) {
+    if (value == null) return fallback;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value);
+      return parsed ?? fallback;
+    }
+    return fallback;
+  }
+
+  ActivityType _mapActivityType(dynamic rawValue) {
+    final value = (rawValue ?? '').toString().toLowerCase();
+    if (value.contains('walk')) return ActivityType.walking;
+    if (value.contains('run')) return ActivityType.running;
+    if (value.contains('cycl')) return ActivityType.cycling;
+    if (value.contains('swim')) return ActivityType.swimming;
+    if (value.contains('yoga')) return ActivityType.yoga;
+    if (value.contains('strength')) return ActivityType.strength;
+    if (value.contains('hiit') || value.contains('interval')) return ActivityType.hiit;
+    if (value.contains('stretch')) return ActivityType.stretching;
+    if (value.contains('meditat') || value.contains('breath') || value.contains('rest')) {
+      return ActivityType.meditation;
+    }
+    return ActivityType.walking;
+  }
+
+  HRZone _mapIntensityToHRZone(dynamic rawValue) {
+    final value = (rawValue ?? '').toString().toLowerCase();
+    switch (value) {
+      case 'very_high':
+      case 'maximum':
+        return HRZone.maximum;
+      case 'high':
+      case 'hard':
+        return HRZone.hard;
+      case 'moderate':
+        return HRZone.moderate;
+      case 'low':
+      case 'light':
+        return HRZone.light;
+      default:
+        return HRZone.light;
+    }
   }
 
 }

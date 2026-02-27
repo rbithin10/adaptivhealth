@@ -12,34 +12,37 @@ dependencies:
     sdk: flutter
 
   # UI & Design
-  google_fonts: ^6.1.0              # DM Sans typography
+  google_fonts: ^8.0.2              # DM Sans typography
   lucide_icons: ^0.257.0            # Icon system
 
   # Navigation
-  go_router: ^14.0.0                # Declarative routing
+  go_router: ^17.1.0                # Declarative routing
 
   # State Management
   provider: ^6.1.0                  # Simple state management
 
   # Networking
   dio: ^5.4.0                       # HTTP client (like axios)
-  flutter_secure_storage: ^9.0.0   # Secure token storage
+  flutter_secure_storage: ^10.0.0   # Secure token storage
 
   # Charts
-  fl_chart: ^0.68.0                 # Heart rate graphs
+  fl_chart: ^1.1.1                 # Heart rate graphs
 
   # Utilities
-  intl: ^0.19.0                     # Date/number formatting
+  intl: ^0.20.2                     # Date/number formatting
   cupertino_icons: ^1.0.2
+  shared_preferences: ^2.2.2        # Local persistence for theme preference
+  geolocator: ^14.0.2               # GPS location (works offline via satellite)
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
   
   assets:
     - assets/images/
+    - assets/ml_models/

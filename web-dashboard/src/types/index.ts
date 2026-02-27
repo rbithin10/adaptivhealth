@@ -39,6 +39,7 @@ export interface User {
   is_active: boolean;
   is_verified: boolean;
   user_role: 'patient' | 'clinician' | 'admin';
+  assigned_clinician_id?: number;
   created_at: string;
   updated_at?: string;
 }
@@ -285,6 +286,226 @@ export interface DatabaseHealthCheckResponse {
   status: 'healthy' | 'unhealthy';
   database: 'connected' | 'disconnected';
   timestamp: number;
+}
+
+// ============================================================================
+// Advanced ML — Anomaly Detection
+// ============================================================================
+
+export interface AnomalyItem {
+  index: number;
+  metric: 'heart_rate' | 'spo2' | 'hr_variability';
+  value: number;
+  z_score: number | null;
+  direction: 'high' | 'low' | 'spike' | 'drop';
+  timestamp: string | null;
+}
+
+export interface AnomalyDetectionResponse {
+  anomalies: AnomalyItem[];
+  total_readings: number;
+  anomaly_count: number;
+  status: 'normal' | 'anomalies_detected' | 'insufficient_data';
+  message?: string;
+  stats: {
+    hr_mean: number | null;
+    hr_std: number | null;
+    spo2_mean: number | null;
+    spo2_std: number | null;
+  };
+  z_threshold: number;
+  user_id: number;
+  window_hours: number;
+}
+
+// ============================================================================
+// Advanced ML — Model Retraining Pipeline
+// ============================================================================
+
+export interface RetrainingStatusResponse {
+  model_dir: string;
+  model_exists: boolean;
+  scaler_exists: boolean;
+  features_exists: boolean;
+  model_size_bytes?: number;
+  model_modified?: string;
+  metadata: {
+    model_name: string;
+    version: string;
+    accuracy: string;
+    note?: string;
+    records_used?: number;
+    retrained_at?: string;
+  } | null;
+}
+
+export interface RetrainingReadinessResponse {
+  ready: boolean;
+  new_records: number;
+  min_records_required: number;
+  last_retrain_date: string | null;
+  min_days_between_retrains: number;
+  reasons: string[];
+}
+
+// ============================================================================
+// Advanced ML — Prediction Explainability (SHAP-like)
+// ============================================================================
+
+export interface ExplainFeatureItem {
+  feature: string;
+  value: number;
+  contribution: number;
+  direction: 'increasing' | 'decreasing' | 'neutral';
+  explanation: string;
+  global_importance: number;
+}
+
+export interface ExplainPredictionResponse {
+  risk_score: number;
+  risk_level: string;
+  feature_importance: {
+    top_features: ExplainFeatureItem[];
+    global_importances: Record<string, number>;
+    feature_count: number;
+    method: string;
+  };
+  plain_explanation: string;
+}
+
+// ============================================================================
+// Advanced ML — Natural Language Alerts & Risk Summary
+// ============================================================================
+
+export interface NaturalLanguageAlertResponse {
+  friendly_message: string;
+  action_steps: string[];
+  urgency_level: 'act_now' | 'urgent' | 'attention_needed' | 'for_your_info';
+  risk_context: string | null;
+  original_alert_type: string;
+  original_severity: string;
+  user_id: number;
+}
+
+export interface NaturalLanguageRiskSummaryResponse {
+  user_id: number;
+  risk_score: number;
+  risk_level: string;
+  plain_summary: string;
+  assessment_date: string | null;
+}
+
+// ============================================================================
+// Advanced ML — Recommendation Ranking (A/B Testing)
+// ============================================================================
+
+export interface RankedRecommendationVariant {
+  title: string;
+  suggested_activity: string;
+  intensity_level: 'low' | 'moderate' | 'high';
+  duration_minutes: number;
+  description: string;
+}
+
+export interface RankedRecommendationResponse {
+  variant: 'A' | 'B';
+  risk_level: 'low' | 'moderate' | 'high';
+  recommendation: RankedRecommendationVariant;
+  experiment_id: string;
+  user_id: number;
+}
+
+export interface RecommendationOutcomeResponse {
+  user_id: number;
+  experiment_id: string;
+  variant: string;
+  outcome: 'completed' | 'skipped' | 'partial';
+  outcome_value: number | null;
+  status: string;
+}
+
+// ============================================================================
+// Advanced ML — Baseline Optimization
+// ============================================================================
+
+export interface BaselineOptimizationResponse {
+  status: 'ok' | 'insufficient_data' | 'insufficient_valid_data';
+  message?: string;
+  current_baseline: number | null;
+  new_baseline: number | null;
+  adjustment: number;
+  adjusted: boolean;
+  confidence: number;
+  readings_used: number;
+  readings_total: number;
+  stats: {
+    mean_hr: number;
+    std_hr: number;
+    min_hr: number;
+    max_hr: number;
+  };
+  user_id: number;
+  data_window_days: number;
+}
+
+export interface BaselineApplyResponse extends BaselineOptimizationResponse {
+  applied: boolean;
+}
+
+// ============================================================================
+// Advanced ML — Trend Forecast
+// ============================================================================
+
+export interface TrendMetric {
+  slope_per_day: number;
+  direction: 'increasing' | 'stable' | 'decreasing';
+  current_fitted: number;
+  forecasted_value: number;
+  forecast_day: number;
+  r_squared: number;
+  data_points: number;
+}
+
+export interface RiskProjection {
+  risk_direction: 'increasing' | 'stable' | 'decreasing';
+  risk_score_delta: number;
+  factors: string[];
+}
+
+export interface TrendForecastResponse {
+  status: 'ok' | 'insufficient_data';
+  message?: string;
+  total_readings: number;
+  forecast_days: number;
+  trends: {
+    heart_rate?: TrendMetric;
+    spo2?: TrendMetric;
+  };
+  risk_projection?: RiskProjection;
+  user_id: number;
+  analysis_days: number;
+}
+
+// ============================================================================
+// Messaging
+// ============================================================================
+
+export interface MessageResponse {
+  message_id: number;
+  sender_id: number;
+  receiver_id: number;
+  content: string;
+  sent_at: string;
+  is_read: boolean;
+}
+
+export interface InboxSummaryResponse {
+  patient_id: number;
+  patient_name: string;
+  last_message_content: string;
+  last_message_sender_id: number;
+  last_message_sent_at: string;
+  unread_count: number;
 }
 
 // ============================================================================

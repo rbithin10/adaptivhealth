@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import init_db, check_db_connection
-from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent
+from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent, nl_endpoints, nutrition, messages
 from app.services.ml_prediction import load_ml_model
 
 # Configure logging
@@ -161,17 +161,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     """
     Global HTTP exception handler.
     
-    Returns structured error responses.
+    Returns FastAPI standard error format for consistency with clients.
     """
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": {
-                "code": exc.status_code,
-                "message": exc.detail,
-                "type": "http_exception"
-            }
-        }
+        content={"detail": exc.detail}
     )
 
 
@@ -254,6 +248,27 @@ app.include_router(
     tags=["Consent / Data Sharing"]
 )
 
+# Natural Language AI Coach routes
+app.include_router(
+    nl_endpoints.router,
+    prefix="/api/v1/nl",
+    tags=["AI Coach Natural Language"]
+)
+
+# Nutrition routes
+app.include_router(
+    nutrition.router,
+    prefix="/api/v1",
+    tags=["Nutrition"]
+)
+
+# Messages routes
+app.include_router(
+    messages.router,
+    prefix="/api/v1",
+    tags=["Messages"]
+)
+
 
 # =============================================================================
 # Health Check Endpoints
@@ -315,7 +330,7 @@ async def root():
 # Startup Message
 # =============================================================================
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import uvicorn
     
     logger.info(f"Starting server on 0.0.0.0:8080")
