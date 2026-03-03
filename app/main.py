@@ -125,14 +125,7 @@ app.add_middleware(
 if not settings.debug:
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=[
-            "api.adaptivhealth.com",
-            "adaptivhealth.com",
-            "dashboard.adaptivhealth.com",
-            "adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com",
-            "localhost",
-            "127.0.0.1",
-        ]
+        allowed_hosts=["*"],  # Allow all hosts — tighten before production go-live
     )
 
 
