@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Allow self-signed certificate on the EC2 development server.
+        In production with a proper CA-signed certificate, remove this domain-config.
+    -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">13.201.126.13</domain>
+        <trust-anchors>
+            <!-- Trust the system CAs -->
+            <certificates src="system"/>
+            <!-- Also trust user-installed CAs (allows self-signed certs added to device) -->
+            <certificates src="user"/>
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Default: only trust system CAs for all other connections -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>
