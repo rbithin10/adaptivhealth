@@ -9,6 +9,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 
 class ApiClient {
@@ -33,7 +34,7 @@ class ApiClient {
   );
 
   // EC2 development server — used by emulator, physical device, and web.
-  static const String _ec2BaseUrl = 'http://13.201.126.13/api/v1';
+  static const String _ec2BaseUrl = 'https://13.201.126.13/api/v1';
 
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
@@ -71,7 +72,7 @@ class ApiClient {
   //     allow_headers=["*"],
   // )
   static Dio _createDio() {
-    return Dio(
+    final dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
         // Stop requests from hanging too long.
@@ -79,6 +80,18 @@ class ApiClient {
         receiveTimeout: const Duration(seconds: 10),
       ),
     );
+
+    // In debug builds, trust self-signed certificates on the EC2 dev server.
+    // This block is compiled out in release builds.
+    if (kDebugMode && !kIsWeb) {
+      (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        client.badCertificateCallback = (cert, host, port) => true;
+        return client;
+      };
+    }
+
+    return dio;
   }
 
   // Add helpers that run on every request and error.
