@@ -110,8 +110,11 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # typ
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(
-        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"   # 
-        r"|^https://(dashboard\.|www\.)?adaptivhealth\.com$"  # production dashboard
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"  # local dev
+        r"|^https://(dashboard\.|www\.)?adaptivhealth\.com$"  # custom domain
+        r"|^https?://adaptivhealth-alb-[\w-]+\.me-central-1\.elb\.amazonaws\.com(:\d+)?$"  # AWS ALB
+        r"|^https?://[\w-]+\.cloudfront\.net(:\d+)?$"  # CloudFront CDN
+        r"|^https?://[\w.-]+\.s3-website[.-][\w-]+\.amazonaws\.com(:\d+)?$"  # S3 static hosting
     ),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
