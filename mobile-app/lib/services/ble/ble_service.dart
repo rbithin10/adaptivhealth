@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -15,8 +16,12 @@ enum BleConnectionStatus {
 }
 
 /// BLE service singleton for Heart Rate Service (0x180D) devices.
+///
+/// Handles scanning, connection, auto-reconnect, and heart rate notification
+/// subscription for standard BLE heart rate monitors.
 class BleService {
   BleService._internal() {
+    _monitorAdapterState();
     unawaited(_attemptReconnectFromSavedDevice());
   }
 
@@ -45,11 +50,13 @@ class BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
   StreamSubscription<List<int>>? _heartRateSubscription;
+  StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   BluetoothDevice? _connectedDevice;
   BluetoothCharacteristic? _heartRateCharacteristic;
   bool _manualDisconnectRequested = false;
   bool _isReconnecting = false;
+  bool _isAdapterOn = true;
   String? _lastSavedDeviceId;
   String? _lastSavedDeviceName;
 
@@ -59,6 +66,34 @@ class BleService {
   Stream<BleHeartRateReading> get heartRateStream => _heartRateController.stream;
 
   BluetoothDevice? get connectedDevice => _connectedDevice;
+
+  /// Whether the Bluetooth adapter is currently powered on.
+  bool get isAdapterOn => _isAdapterOn;
+
+  /// Check whether the Bluetooth adapter is turned on.
+  ///
+  /// Returns `true` on platforms where the check is not applicable (e.g. web).
+  static Future<bool> isBluetoothOn() async {
+    try {
+      final state = await FlutterBluePlus.adapterState.first;
+      return state == BluetoothAdapterState.on;
+    } catch (_) {
+      // If we cannot determine adapter state, assume on and let scan fail
+      // naturally — the user will see a scan-failed error.
+      return true;
+    }
+  }
+
+  /// Request the OS to enable Bluetooth (Android only; no-op on iOS).
+  static Future<void> requestBluetoothOn() async {
+    if (Platform.isAndroid) {
+      try {
+        await FlutterBluePlus.turnOn();
+      } catch (_) {
+        // User declined or platform does not support.
+      }
+    }
+  }
 
   Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
     _updateConnectionStatus(BleConnectionStatus.scanning);
@@ -290,13 +325,53 @@ class BleService {
     _lastSavedDeviceId = savedDeviceId;
     _lastSavedDeviceName = savedDeviceName;
 
+    // Verify BT adapter is on before attempting reconnect.
+    final adapterOn = await isBluetoothOn();
+    if (!adapterOn) {
+      if (kDebugMode) {
+        debugPrint('BLE: Skipping reconnect — Bluetooth adapter is off');
+      }
+      return;
+    }
+
     try {
       final device = BluetoothDevice.fromId(savedDeviceId);
       await connectToDevice(device);
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('BLE: Auto-reconnect to $savedDeviceId failed: $e');
+      }
       _updateConnectionStatus(BleConnectionStatus.disconnected);
       _connectionStateController.add(BluetoothConnectionState.disconnected);
     }
+  }
+
+  /// Monitors the Bluetooth adapter state (on/off) and reacts to changes.
+  void _monitorAdapterState() {
+    _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
+      final wasOn = _isAdapterOn;
+      _isAdapterOn = (state == BluetoothAdapterState.on);
+
+      if (wasOn && !_isAdapterOn) {
+        // Bluetooth was just turned off — clean up gracefully.
+        if (kDebugMode) {
+          debugPrint('BLE: Bluetooth adapter turned off — disconnecting');
+        }
+        _manualDisconnectRequested = true;
+        _isReconnecting = false;
+        _heartRateCharacteristic = null;
+        _connectedDevice = null;
+        _updateConnectionStatus(BleConnectionStatus.disconnected);
+        _connectionStateController.add(BluetoothConnectionState.disconnected);
+      } else if (!wasOn && _isAdapterOn) {
+        // Bluetooth was just turned on — attempt reconnect to last device.
+        if (kDebugMode) {
+          debugPrint('BLE: Bluetooth adapter turned on — attempting reconnect');
+        }
+        _manualDisconnectRequested = false;
+        unawaited(_attemptReconnectFromSavedDevice());
+      }
+    });
   }
 
   void _updateConnectionStatus(BleConnectionStatus status) {
@@ -313,11 +388,30 @@ class BleService {
     return 'Unknown Device';
   }
 
+  /// Clear persistent device data (e.g. on user logout).
+  Future<void> forgetSavedDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_lastDeviceIdKey);
+    await prefs.remove(_lastDeviceNameKey);
+    _lastSavedDeviceId = null;
+    _lastSavedDeviceName = null;
+  }
+
   Future<void> dispose() async {
     await stopScan();
     await disconnect();
+
     await _scanSubscription?.cancel();
     _scanSubscription = null;
+
+    await _adapterStateSubscription?.cancel();
+    _adapterStateSubscription = null;
+
+    // Close broadcast stream controllers to release listeners.
+    await _scanResultsController.close();
+    await _connectionStateController.close();
+    await _heartRateController.close();
+
     connectionStatusNotifier.dispose();
   }
 }

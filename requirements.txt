@@ -35,7 +35,11 @@ httpx>=0.27
 websockets>=12.0
 
 # ML Model Runtime
-scikit-learn==1.8.0
+# The .pkl model files must be loaded with the same major.minor scikit-learn
+# that serialized them. Pin to 1.6.x which is the latest release available
+# on both Python 3.9 (EC2 AMI default) and Python 3.11 (Dockerfile).
+# If you retrain the model, update this pin to match the training environment.
+scikit-learn>=1.6.0,<1.7
 
 # Document Extraction (Gemini LLM + PDF parsing)
 google-generativeai>=0.8.0

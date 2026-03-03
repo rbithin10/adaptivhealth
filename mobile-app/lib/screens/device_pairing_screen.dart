@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/vitals_provider.dart';
 import '../services/api_client.dart';
 import '../services/ble/ble_permission_handler.dart';
 import '../services/ble/ble_service.dart';
@@ -58,6 +60,49 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   }
 
   Future<void> _startScan() async {
+    // Check that the Bluetooth adapter is powered on.
+    final btOn = await BleService.isBluetoothOn();
+    if (!btOn) {
+      if (!mounted) return;
+      final shouldEnable = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Bluetooth is Off'),
+          content: const Text(
+            'Bluetooth must be enabled to scan for heart rate monitors.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Enable Bluetooth'),
+            ),
+          ],
+        ),
+      );
+      if (shouldEnable == true) {
+        await BleService.requestBluetoothOn();
+        // Give the adapter a moment to turn on.
+        await Future.delayed(const Duration(seconds: 1));
+        final nowOn = await BleService.isBluetoothOn();
+        if (!nowOn) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bluetooth is still off. Please enable it in Settings.'),
+            ),
+          );
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    // Request runtime BLE permissions.
     final hasPermission = await BlePermissionHandler.requestBlePermissions();
     if (!hasPermission) {
       if (!mounted) return;
@@ -96,7 +141,11 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     });
 
     try {
-      await _bleService.connectToDevice(result.device);
+      // Connect via VitalsProvider so the unified vitals pipeline receives
+      // real BLE heart rate data (instead of staying on mock source).
+      final vitalsProvider = context.read<VitalsProvider>();
+      await vitalsProvider.connectBle(result.device);
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

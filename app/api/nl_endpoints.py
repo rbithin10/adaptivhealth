@@ -724,10 +724,14 @@ async def post_chat_with_image(
             if history_lines:
                 history_text = "\n".join(history_lines)
 
+        recent_conversation_section = ""
+        if history_text:
+            recent_conversation_section = f"Recent conversation:\n{history_text}\n\n"
+
         prompt = (
             f"{prompts[analysis_key]}\n\n"
             f"Patient message: {message}\n\n"
-            f"{f'Recent conversation:\n{history_text}\n\n' if history_text else ''}"
+            f"{recent_conversation_section}"
             "Respond in supportive, concise language appropriate for a cardiac rehab patient."
         )
 

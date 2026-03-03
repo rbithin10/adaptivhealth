@@ -15,6 +15,7 @@ import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
 import '../services/edge_ai_store.dart';
+import '../providers/vitals_provider.dart';
 import '../models/edge_prediction.dart';
 import '../widgets/ai_coach_overlay.dart';
 
@@ -538,6 +539,10 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
   Timer? _timer;
   Timer? _hrSimTimer;
 
+  // Live BLE/VitalsProvider subscription (used when a real device is paired)
+  StreamSubscription<VitalsReading>? _vitalsSubscription;
+  bool _usingLiveSource = false;
+
   // Edge AI state for this workout
   String _edgeRiskLevel = 'low';
   double _edgeRiskScore = 0.0;
@@ -549,13 +554,14 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     super.initState();
     _loadUserProfile();
     _startWorkoutTimer();
-    _startHeartRateSimulation();
+    _startHeartRateSource();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     _hrSimTimer?.cancel();
+    _vitalsSubscription?.cancel();
     super.dispose();
   }
 
@@ -581,12 +587,44 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     });
   }
 
-  // Simulate heart rate changes during workout
-  // In production, replace with BLE wearable stream
+  /// Determines whether a live vitals source (BLE or HealthKit) is available
+  /// and subscribes to it. Falls back to simulated HR when only mock data is
+  /// available (e.g. no paired device).
+  void _startHeartRateSource() {
+    try {
+      final vitals = Provider.of<VitalsProvider>(context, listen: false);
+      if (vitals.activeSource != VitalsSource.mock) {
+        // A real data source is active — subscribe to live readings.
+        _usingLiveSource = true;
+        _vitalsSubscription = vitals.vitalsStream.listen(_onLiveReading);
+        return;
+      }
+    } catch (_) {
+      // VitalsProvider may not be in the widget tree (e.g. tests).
+    }
+
+    // No live source available — use simulated HR for demo/testing.
+    _startHeartRateSimulation();
+  }
+
+  /// Handle an incoming live vitals reading from BLE or HealthKit.
+  void _onLiveReading(VitalsReading reading) {
+    if (!mounted) return;
+    final newHR = reading.heartRate.round();
+
+    setState(() {
+      _currentHR = newHR;
+      if (newHR > _peakHR) _peakHR = newHR;
+      if (newHR < _minHR) _minHR = newHR;
+    });
+
+    _processWithEdgeAi(newHR);
+  }
+
+  /// Fallback: simulate heart rate when no real data source is connected.
   void _startHeartRateSimulation() {
     _hrSimTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      // Simulate HR fluctuation during exercise
       final base = 80 + (_elapsedSeconds ~/ 10).clamp(0, 60);
       final jitter = (DateTime.now().millisecond % 15) - 7;
       final newHR = (base + jitter).clamp(55, 200);
@@ -597,7 +635,6 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
         if (newHR < _minHR) _minHR = newHR;
       });
 
-      // Feed every reading into edge AI
       _processWithEdgeAi(newHR);
     });
   }
@@ -643,6 +680,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
   void _endWorkout() async {
     _timer?.cancel();
     _hrSimTimer?.cancel();
+    _vitalsSubscription?.cancel();
     setState(() => _isEndingWorkout = true);
 
     try {

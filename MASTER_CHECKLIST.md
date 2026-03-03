@@ -69,6 +69,36 @@
 
 ---
 
+## BLE (Bluetooth Low Energy) — Heart Rate Monitor Integration
+
+### Core layer: `lib/services/ble/` — solid foundations
+- [x] `ble_service.dart` — Singleton, Heart Rate Service 0x180D scan + 0x2A37 subscribe, auto-reconnect (exponential backoff 2/4/8s), persist last device via SharedPreferences
+- [x] `ble_health_parser.dart` — Correct BLE Heart Rate Measurement parsing (Uint8/Uint16, sensor contact, energy expended, RR intervals for HRV)
+- [x] `ble_permission_handler.dart` — Android 12+ (BLUETOOTH_SCAN + BLUETOOTH_CONNECT) and Android < 12 (locationWhenInUse)
+
+### Platform configuration — complete
+- [x] `AndroidManifest.xml` — All BLE permissions declared (BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH, BLUETOOTH_ADMIN with maxSdkVersion, FOREGROUND_SERVICE_CONNECTED_DEVICE)
+- [x] `AndroidManifest.xml` — `uses-feature android.hardware.bluetooth_le` with `required="false"`
+- [x] `Info.plist` — `NSBluetoothAlwaysUsageDescription` set
+- [x] `Info.plist` — `UIBackgroundModes` includes `bluetooth-central`
+- [x] `pubspec.yaml` — `flutter_blue_plus: ^1.35.0` and `permission_handler: ^11.3.0` present
+
+### Integration gaps — require fixes
+- [x] **P0 BLE–Workout disconnect**: `ActiveWorkoutScreen` now subscribes to `VitalsProvider.vitalsStream` for live BLE/HealthKit HR; falls back to simulation only when source is mock
+- [x] **P0 DevicePairing → VitalsProvider disconnect**: `DevicePairingScreen._connect()` now calls `VitalsProvider.connectBle()` via Provider so the unified vitals pipeline receives real data
+- [x] **P1 No Bluetooth adapter state check**: `BleService.isBluetoothOn()` + `requestBluetoothOn()` added; `DevicePairingScreen._startScan()` shows "Enable Bluetooth" dialog before scanning
+- [x] **P1 Stream controllers not closed in `BleService.dispose()`**: All three broadcast StreamControllers (`_scanResultsController`, `_connectionStateController`, `_heartRateController`) now closed in `dispose()`
+- [x] **P2 Silent failure on startup reconnect**: `_attemptReconnectFromSavedDevice()` now checks `isBluetoothOn()` first and logs failures via `debugPrint` in debug mode
+- [ ] **P2 Health screen has no real-time BLE vitals**: `health_screen.dart` only shows API-fetched data — no subscription to live BLE/VitalsProvider readings (low priority: health screen is an overview, not real-time monitor)
+- [ ] **P2 iOS Podfile missing**: Not generated yet (Windows dev environment) — needs `flutter pub get` on macOS before iOS build
+- [x] **P2 No BT on/off monitoring**: `BleService._monitorAdapterState()` added — detects BT off (graceful disconnect) and BT on (auto-reconnect to last saved device)
+
+### Additional hardening (implemented)
+- [x] **P1 iOS BLE permissions**: `BlePermissionHandler` now handles iOS `Permission.bluetooth` request proactively + `hasPermissions()` check for silent reconnect
+- [x] **P2 forgetSavedDevice()**: New `BleService.forgetSavedDevice()` method for logout cleanup
+
+---
+
 ## Known Issues
 
 - [x] ~~Edge AI sync state can still misreport offline/pending (Mobile, Medium)~~ — resolved with sync stabilization
