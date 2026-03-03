@@ -25,6 +25,29 @@ Work primarily with:
 
 Avoid editing source code files (`app/`, `mobile-app/lib/`, `web-dashboard/src/`) unless explicitly asked to suggest minor documentation comments.
 
+## Technical Stack Summary
+
+| Component | Stack | Key Files |
+|-----------|-------|-----------|
+| Backend | FastAPI + SQLAlchemy 2.0 + Pydantic v2 + PostgreSQL (AWS RDS) | `app/` |
+| Auth | JWT via python-jose, Bearer token everywhere | `app/api/auth.py` |
+| Mobile | Flutter (Dart 3.x) + Provider + Dio + flutter_blue_plus | `mobile-app/lib/` |
+| Dashboard | React + TypeScript + Axios | `web-dashboard/src/` |
+| ML (backend) | scikit-learn RandomForest | `app/services/ml_prediction.py` |
+| ML (mobile) | Pure-Dart RF tree walk (NOT TFLite) | `mobile-app/lib/services/edge_ml_service.dart` |
+| AI/LLM | Gemini 2.0 Flash free tier (15 RPM) | `app/services/chat_service.py`, `document_extraction.py` |
+| BLE | flutter_blue_plus; GATT HRS 0x180D | Planned: `mobile-app/lib/services/ble/` |
+| Cloud | AWS ALB + RDS | ALB: `adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com` |
+
+## Key Constraints
+
+- **One developer, university capstone** — prefer simple working solutions over enterprise patterns
+- No Kubernetes, no microservices, no message queues beyond what exists (Celery/Redis for background tasks only)
+- Android BLE stack varies wildly across OEMs — test on real devices, not just emulator
+- HealthKit requires physical iOS device (no simulator support for health data)
+- Gemini free tier: 15 RPM limit — chat endpoint has per-user rate limiting (10 req/min)
+- All three clients (mobile, dashboard, Postman) must work against the same backend contracts
+
 ## Responsibilities
 
 - Own and maintain `MASTER_CHECKLIST.md` as the single source of truth for project progress.

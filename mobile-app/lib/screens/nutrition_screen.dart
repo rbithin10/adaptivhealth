@@ -1,7 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+
+import '../services/api_client.dart';
+import 'recipe_library_screen.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
-import '../services/api_client.dart';
 
 class NutritionScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -14,6 +20,7 @@ class NutritionScreen extends StatefulWidget {
 
 class _NutritionScreenState extends State<NutritionScreen> {
   bool _isLoading = false;
+  bool _isProcessingScan = false;
   String? _errorMessage;
   List<Map<String, dynamic>> _entries = [];
   int _totalCount = 0;
@@ -22,15 +29,83 @@ class _NutritionScreenState extends State<NutritionScreen> {
   int _totalCarbsToday = 0;
   int _totalFatToday = 0;
 
-  static const int _goalCalories = 2000;
-  static const int _goalProteinGrams = 120;
-  static const int _goalCarbsGrams = 250;
-  static const int _goalFatGrams = 70;
+  static const int _defaultGoalCalories = 2000; // default goals — personalise when profile available.
+  static const int _defaultGoalProteinGrams = 120; // default goals — personalise when profile available.
+  static const int _defaultGoalCarbsGrams = 250; // default goals — personalise when profile available.
+  static const int _defaultGoalFatGrams = 70; // default goals — personalise when profile available.
+
+  int _goalCalories = _defaultGoalCalories;
+  int _goalProteinGrams = _defaultGoalProteinGrams;
+  int _goalCarbsGrams = _defaultGoalCarbsGrams;
+  int _goalFatGrams = _defaultGoalFatGrams;
+  bool _usingDefaultGoals = true;
 
   @override
   void initState() {
     super.initState();
+    _loadPersonalizedGoals();
     _loadNutritionEntries();
+  }
+
+  Future<void> _loadPersonalizedGoals() async {
+    try {
+      final profile = await widget.apiClient.getCurrentUser();
+
+      final age = _toInt(profile['age']);
+      final weightKg = _toDouble(profile['weight_kg']);
+      final heightCm = _toDouble(profile['height_cm']);
+      final gender = (profile['gender'] as String?)?.toLowerCase();
+      final activityLevel = (profile['activity_level'] as String?)?.toLowerCase();
+
+      if (age == null || weightKg == null || heightCm == null) {
+        return;
+      }
+
+      final isMale = gender == 'male';
+      final bmr = isMale
+          ? (10 * weightKg) + (6.25 * heightCm) - (5 * age) + 5
+          : (10 * weightKg) + (6.25 * heightCm) - (5 * age) - 161;
+
+      final multiplier = _activityMultiplier(activityLevel);
+      final tdee = bmr * multiplier;
+      final calories = tdee.round();
+
+      final protein = (weightKg * 1.6).round();
+      final fat = (calories * 0.25 / 9).round();
+      final carbs = ((calories - (protein * 4) - (fat * 9)) / 4).round();
+
+      if (!mounted) return;
+      setState(() {
+        _goalCalories = calories.clamp(1400, 4000);
+        _goalProteinGrams = protein.clamp(60, 260);
+        _goalFatGrams = fat.clamp(40, 160);
+        _goalCarbsGrams = carbs.clamp(80, 500);
+        _usingDefaultGoals = false;
+      });
+    } catch (_) {
+      // Keep default goals when profile is unavailable.
+    }
+  }
+
+  double _activityMultiplier(String? activityLevel) {
+    switch (activityLevel) {
+      case 'very_active':
+        return 1.725;
+      case 'active':
+        return 1.55;
+      case 'lightly_active':
+        return 1.375;
+      case 'sedentary':
+      default:
+        return 1.2;
+    }
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   /// Load recent nutrition entries from backend
@@ -295,34 +370,385 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  Future<void> _scanFoodFromCamera() async {
+    if (_isProcessingScan) return;
+
+    final picker = ImagePicker();
+    final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    if (photo == null) {
+      return;
+    }
+
+    setState(() {
+      _isProcessingScan = true;
+    });
+
+    try {
+      final response = await widget.apiClient.analyzeFoodImage(File(photo.path));
+      if (!mounted) return;
+
+      final payload = _extractDetectedNutrition(
+        response,
+        fallbackDescription: 'Scanned meal',
+      );
+      final logged = await _showNutritionConfirmationDialog(
+        title: 'Review Scanned Food',
+        initialData: payload,
+      );
+
+      if (logged == true) {
+        _loadNutritionEntries();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Food scan failed: $e'),
+          backgroundColor: AdaptivColors.critical,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingScan = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _scanFoodByBarcode() async {
+    if (_isProcessingScan) return;
+
+    final barcode = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const MobileScannerWidget(),
+      ),
+    );
+
+    if (barcode == null || barcode.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isProcessingScan = true;
+    });
+
+    try {
+      final response = await widget.apiClient.lookupBarcode(barcode);
+      if (!mounted) return;
+
+      final payload = _extractDetectedNutrition(
+        response,
+        fallbackDescription: 'Barcode item: $barcode',
+      );
+      final logged = await _showNutritionConfirmationDialog(
+        title: 'Review Barcode Result',
+        initialData: payload,
+      );
+
+      if (logged == true) {
+        _loadNutritionEntries();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Barcode lookup failed: $e'),
+          backgroundColor: AdaptivColors.critical,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingScan = false;
+        });
+      }
+    }
+  }
+
+  Map<String, dynamic> _extractDetectedNutrition(
+    Map<String, dynamic> raw, {
+    required String fallbackDescription,
+  }) {
+    final nutrition = raw['nutrition'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(raw['nutrition'] as Map<String, dynamic>)
+        : raw['nutrition_data'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(raw['nutrition_data'] as Map<String, dynamic>)
+            : raw['detected_nutrition'] is Map<String, dynamic>
+                ? Map<String, dynamic>.from(raw['detected_nutrition'] as Map<String, dynamic>)
+                : raw;
+
+    return {
+      'meal_type': (raw['meal_type'] ?? nutrition['meal_type'] ?? 'other').toString(),
+      'description': (raw['food_name'] ??
+              raw['name'] ??
+              raw['description'] ??
+              nutrition['food_name'] ??
+              nutrition['name'] ??
+              fallbackDescription)
+          .toString(),
+      'calories': _toInt(
+        raw['calories'] ?? nutrition['calories'] ?? nutrition['calories_kcal'] ?? nutrition['energy_kcal'],
+      ),
+      'protein_grams': _toInt(
+        raw['protein_grams'] ?? nutrition['protein_grams'] ?? nutrition['protein'],
+      ),
+      'carbs_grams': _toInt(
+        raw['carbs_grams'] ?? nutrition['carbs_grams'] ?? nutrition['carbs'] ?? nutrition['carbohydrates'],
+      ),
+      'fat_grams': _toInt(
+        raw['fat_grams'] ?? nutrition['fat_grams'] ?? nutrition['fat'],
+      ),
+    };
+  }
+
+  Future<bool?> _showNutritionConfirmationDialog({
+    required String title,
+    required Map<String, dynamic> initialData,
+  }) async {
+    String mealType = initialData['meal_type']?.toString() ?? 'other';
+    if (!['breakfast', 'lunch', 'dinner', 'snack', 'other'].contains(mealType)) {
+      mealType = 'other';
+    }
+
+    final caloriesController = TextEditingController(
+      text: initialData['calories'].toString(),
+    );
+    final descriptionController = TextEditingController(
+      text: initialData['description']?.toString() ?? '',
+    );
+    final proteinController = TextEditingController(
+      text: initialData['protein_grams'].toString(),
+    );
+    final carbsController = TextEditingController(
+      text: initialData['carbs_grams'].toString(),
+    );
+    final fatController = TextEditingController(
+      text: initialData['fat_grams'].toString(),
+    );
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: mealType,
+                decoration: const InputDecoration(labelText: 'Meal Type'),
+                items: const [
+                  DropdownMenuItem(value: 'breakfast', child: Text('Breakfast')),
+                  DropdownMenuItem(value: 'lunch', child: Text('Lunch')),
+                  DropdownMenuItem(value: 'dinner', child: Text('Dinner')),
+                  DropdownMenuItem(value: 'snack', child: Text('Snack')),
+                  DropdownMenuItem(value: 'other', child: Text('Other')),
+                ],
+                onChanged: (value) {
+                  mealType = value ?? 'other';
+                },
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: descriptionController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: caloriesController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Calories *',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: proteinController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Protein (g)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: carbsController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Carbs (g)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: fatController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Fat (g)'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final calories = int.tryParse(caloriesController.text);
+              if (calories == null || calories <= 0) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Please enter valid calories')),
+                );
+                return;
+              }
+
+              try {
+                await widget.apiClient.createNutritionEntry(
+                  mealType: mealType,
+                  calories: calories,
+                  description: descriptionController.text.trim().isEmpty
+                      ? null
+                      : descriptionController.text.trim(),
+                  proteinGrams: int.tryParse(proteinController.text),
+                  carbsGrams: int.tryParse(carbsController.text),
+                  fatGrams: int.tryParse(fatController.text),
+                );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext, true);
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: AdaptivColors.critical,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Log'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Meal logged successfully!')),
+      );
+    }
+    return result;
+  }
+
+  Widget _buildNutritionActionRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildNutritionActionButton(
+            label: 'Scan Food',
+            icon: Icons.camera_alt,
+            onTap: _scanFoodFromCamera,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildNutritionActionButton(
+            label: 'Scan Barcode',
+            icon: Icons.qr_code_scanner,
+            onTap: _scanFoodByBarcode,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildNutritionActionButton(
+            label: 'Recipes',
+            icon: Icons.menu_book,
+            onTap: () async {
+              final loggedMeal = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => RecipeLibraryScreen(apiClient: widget.apiClient),
+                ),
+              );
+              if (loggedMeal == true) {
+                _loadNutritionEntries();
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNutritionActionButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: _isProcessingScan ? null : onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(
+        label,
+        style: AdaptivTypography.caption.copyWith(fontWeight: FontWeight.w600),
+      ),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final brightness = MediaQuery.of(context).platformBrightness;
-    return Scaffold(
-      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
-      appBar: AppBar(
-        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
-        elevation: 0,
-        title: Text('Nutrition', style: AdaptivTypography.screenTitle),
-        actions: [
-          if (_totalCount > 0)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Text(
-                  '$_totalCount ${_totalCount == 1 ? 'entry' : 'entries'}',
-                  style: AdaptivTypography.caption,
+    return Container(
+      color: AdaptivColors.getBackgroundColor(brightness),
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              // Inline header (replaces AppBar for tab embedding)
+              Container(
+                color: AdaptivColors.getSurfaceColor(brightness),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Row(
+                  children: [
+                    Text('Nutrition', style: AdaptivTypography.screenTitle),
+                    const Spacer(),
+                    if (_totalCount > 0)
+                      Text(
+                        '$_totalCount ${_totalCount == 1 ? 'entry' : 'entries'}',
+                        style: AdaptivTypography.caption,
+                      ),
+                  ],
                 ),
               ),
+              Expanded(child: _buildBody()),
+            ],
+          ),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.extended(
+              onPressed: _showAddEntryDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('Log Meal'),
+              backgroundColor: AdaptivColors.primary,
             ),
+          ),
         ],
-      ),
-      body: _buildBody(),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddEntryDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('Log Meal'),
-        backgroundColor: AdaptivColors.primary,
       ),
     );
   }
@@ -375,6 +801,12 @@ class _NutritionScreenState extends State<NutritionScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _buildNutritionActionRow(),
+          if (_isProcessingScan) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(),
+          ],
+          const SizedBox(height: 16),
           _buildDailyGoalsCard(),
           const SizedBox(height: 16),
           if (_entries.isEmpty)
@@ -396,6 +828,28 @@ class _NutritionScreenState extends State<NutritionScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Daily Nutrition Goals', style: AdaptivTypography.sectionTitle),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _usingDefaultGoals
+                      ? AdaptivColors.warning.withOpacity(0.15)
+                      : AdaptivColors.stable.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _usingDefaultGoals ? 'Using default goals' : 'Personalized goals',
+                  style: AdaptivTypography.caption.copyWith(
+                    color: _usingDefaultGoals
+                        ? AdaptivColors.warning
+                        : AdaptivColors.stable,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -612,5 +1066,68 @@ class _NutritionScreenState extends State<NutritionScreen> {
   String _capitalize(String text) {
     if (text.isEmpty) return text;
     return text[0].toUpperCase() + text.substring(1);
+  }
+}
+
+class MobileScannerWidget extends StatefulWidget {
+  const MobileScannerWidget({super.key});
+
+  @override
+  State<MobileScannerWidget> createState() => _MobileScannerWidgetState();
+}
+
+class _MobileScannerWidgetState extends State<MobileScannerWidget> {
+  final MobileScannerController _scannerController = MobileScannerController();
+  bool _didDetectBarcode = false;
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    super.dispose();
+  }
+
+  void _handleBarcodeCapture(BarcodeCapture capture) {
+    if (_didDetectBarcode) {
+      return;
+    }
+
+    for (final barcode in capture.barcodes) {
+      final value = barcode.rawValue;
+      if (value != null && value.isNotEmpty) {
+        _didDetectBarcode = true;
+        Navigator.pop(context, value);
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scan Barcode'),
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: _scannerController,
+            onDetect: _handleBarcodeCapture,
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: Colors.black54,
+              child: const Text(
+                'Align barcode within the camera frame',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

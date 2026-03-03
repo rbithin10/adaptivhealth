@@ -29,7 +29,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../services/api';
-import { User, AlertResponse } from '../types';
+import { User, AlertResponse, VitalSignResponse } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 
@@ -41,6 +41,12 @@ interface PatientStats {
   riskScore: number;
   avgHeartRate: number;
 }
+
+const getHttpStatus = (error: unknown): number | undefined => {
+  if (!error || typeof error !== 'object') return undefined;
+  const record = error as { response?: { status?: number } };
+  return record.response?.status;
+};
 
 const PatientDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -55,7 +61,7 @@ const PatientDashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [vitalHistory, setVitalHistory] = useState<any[]>([]);
+  const [vitalHistory, setVitalHistory] = useState<VitalSignResponse[]>([]);
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
 
   useEffect(() => {
@@ -82,9 +88,9 @@ const PatientDashboardPage: React.FC = () => {
             latestBP: bpStr,
           }));
         }
-      } catch (e: any) {
+      } catch (e) {
         // 404 is expected for new patients with no vitals yet
-        if (e.response?.status !== 404) {
+        if (getHttpStatus(e) !== 404) {
           console.error('Error loading vitals:', e);
         }
       }
@@ -99,9 +105,9 @@ const PatientDashboardPage: React.FC = () => {
             riskScore: risk.risk_score || 0,
           }));
         }
-      } catch (e: any) {
+      } catch (e) {
         // 404 is expected for new patients with no risk assessments yet
-        if (e.response?.status !== 404) {
+        if (getHttpStatus(e) !== 404) {
           console.error('Error loading risk:', e);
         }
       }
@@ -110,14 +116,14 @@ const PatientDashboardPage: React.FC = () => {
       try {
         const historyResponse = await api.getVitalSignsHistory(1, 50);
         if (historyResponse && historyResponse.vitals && historyResponse.vitals.length > 0) {
-          const chartData = historyResponse.vitals.map((v: any) => ({
+          const chartData = historyResponse.vitals.map((v) => ({
             ...v,
             heart_rate: v.heart_rate,
           }));
           setVitalHistory(chartData);
           const avgHR =
             Math.round(
-              historyResponse.vitals.reduce((sum: number, v: any) => sum + (v.heart_rate || 0), 0) /
+              historyResponse.vitals.reduce((sum: number, v) => sum + (v.heart_rate || 0), 0) /
                 historyResponse.vitals.length
             ) || 72;
           setStats((prev) => ({
@@ -125,9 +131,9 @@ const PatientDashboardPage: React.FC = () => {
             avgHeartRate: avgHR,
           }));
         }
-      } catch (e: any) {
+      } catch (e) {
         // 404 is expected for new patients
-        if (e.response?.status !== 404) {
+        if (getHttpStatus(e) !== 404) {
           console.error('Error loading history:', e);
         }
       }
@@ -138,9 +144,9 @@ const PatientDashboardPage: React.FC = () => {
         if (alerts && alerts.alerts && alerts.alerts.length > 0) {
           setRecentAlerts(alerts.alerts.slice(0, 5));
         }
-      } catch (e: any) {
+      } catch (e) {
         // Silently ignore alert loading errors - they're not critical
-        if (e.response?.status !== 404) {
+        if (getHttpStatus(e) !== 404) {
           console.error('Error loading alerts:', e);
         }
       }

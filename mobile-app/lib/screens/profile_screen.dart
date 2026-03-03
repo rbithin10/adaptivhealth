@@ -6,14 +6,20 @@ Users can update their profile details and view their account settings.
 */
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 import 'dart:async';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
 import '../services/edge_ai_store.dart';
 import '../services/mock_vitals_service.dart';
+import '../services/notification_service.dart';
+import '../services/medication_reminder_service.dart';
+import '../providers/auth_provider.dart';
 import '../screens/onboarding_screen.dart';
+import '../screens/device_pairing_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -55,6 +61,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   MockScenario _mockMode = MockScenario.rest;
   VitalReading? _lastMockReading;
 
+  // Medication reminders state
+  List<Map<String, dynamic>> _medications = [];
+  Map<String, dynamic>? _adherenceHistory;
+  bool _medicationsLoading = true;
+  Map<int, bool> _todayAdherence = {}; // medication_id -> taken status
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +75,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _phoneController = TextEditingController();
     _loadProfile();
     _loadConsentStatus();
+    _loadMedicationReminders();
 
     if (widget.mockVitalsService != null) {
       _mockVitalsService = widget.mockVitalsService;
@@ -202,7 +215,99 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Could not load consent status: $e');
+      if (kDebugMode) debugPrint('Could not load consent status: $e');
+    }
+  }
+
+  Future<void> _loadMedicationReminders() async {
+    try {
+      final medications = await widget.apiClient.getMedicationReminders();
+      final adherence = await widget.apiClient.getAdherenceHistory(days: 7);
+      
+      // Build today's adherence map from history
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final todayMap = <int, bool>{};
+      final entries = adherence['entries'] as List? ?? [];
+      for (final entry in entries) {
+        final dateStr = entry['scheduled_date']?.toString().split('T').first;
+        if (dateStr == today && entry['taken'] != null) {
+          todayMap[entry['medication_id'] as int] = entry['taken'] as bool;
+        }
+      }
+      
+      if (mounted) {
+        setState(() {
+          _medications = medications;
+          _adherenceHistory = adherence;
+          _todayAdherence = todayMap;
+          _medicationsLoading = false;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Could not load medication reminders: $e');
+      if (mounted) {
+        setState(() {
+          _medicationsLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateMedicationReminder(int medId, {String? time, bool? enabled}) async {
+    try {
+      await widget.apiClient.updateMedicationReminder(medId, time: time, enabled: enabled);
+      // Refresh local notifications
+      await MedicationReminderService().refreshReminders(widget.apiClient);
+      // Reload medications list
+      await _loadMedicationReminders();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating reminder: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _logMedicationAdherence(int medId, bool taken) async {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    try {
+      await widget.apiClient.logAdherence(medId, today, taken);
+      setState(() {
+        _todayAdherence[medId] = taken;
+      });
+      // Refresh adherence history
+      final adherence = await widget.apiClient.getAdherenceHistory(days: 7);
+      if (mounted) {
+        setState(() {
+          _adherenceHistory = adherence;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error logging adherence: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _showTimePicker(Map<String, dynamic> med) async {
+    final currentTime = med['reminder_time'] as String? ?? '08:00';
+    final parts = currentTime.split(':');
+    final initialTime = TimeOfDay(
+      hour: int.tryParse(parts[0]) ?? 8,
+      minute: int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
+    );
+    
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+    
+    if (picked != null) {
+      final timeStr = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      await _updateMedicationReminder(med['medication_id'] as int, time: timeStr);
     }
   }
 
@@ -250,11 +355,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       await widget.apiClient.updateProfile(
-        fullName: _nameController.text.trim().isNotEmpty ? _nameController.text.trim() : null,
+        fullName: _nameController.text.trim(),
         age: _ageController.text.trim().isNotEmpty ? int.parse(_ageController.text.trim()) : null,
         gender: _selectedGender,
         phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
       );
+
+      final authProvider = context.read<AuthProvider>();
+      await authProvider.refreshProfile();
+
+      if (authProvider.currentUser != null && mounted) {
+        setState(() {
+          _userProfile = authProvider.currentUser!.raw;
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -295,32 +409,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final brightness = MediaQuery.of(context).platformBrightness;
-    return Scaffold(
-      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
-      appBar: AppBar(
-        title: Text('Profile', style: AdaptivTypography.screenTitle),
-        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        actions: [
-          if (!_loading && _userProfile != null)
-            IconButton(
-              icon: Icon(_editing ? Icons.close : Icons.edit),
-              onPressed: _toggleEdit,
-            ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: const AssetImage('assets/images/profile_bg.png'),
-            fit: BoxFit.cover,
-            colorFilter: ColorFilter.mode(
-              Colors.white.withOpacity(0.85),
-              BlendMode.lighten,
+    return Container(
+      color: AdaptivColors.getBackgroundColor(brightness),
+      child: Column(
+        children: [
+          // Inline header (replaces AppBar for tab embedding)
+          Container(
+            color: AdaptivColors.getSurfaceColor(brightness),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Text('Profile', style: AdaptivTypography.screenTitle),
+                const Spacer(),
+                if (!_loading && _userProfile != null)
+                  IconButton(
+                    icon: Icon(_editing ? Icons.close : Icons.edit),
+                    onPressed: _toggleEdit,
+                  ),
+              ],
             ),
           ),
-        ),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: const AssetImage('assets/images/profile_bg.png'),
+                  fit: BoxFit.cover,
+                  colorFilter: ColorFilter.mode(
+                    Colors.white.withOpacity(0.85),
+                    BlendMode.lighten,
+                  ),
+                ),
+              ),
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
@@ -667,6 +787,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         // DEV onboarding reset
                         _buildDeveloperUtilities(),
 
+                        const SizedBox(height: 24),
+
+                        // Medication Reminders section
+                        _buildMedicationRemindersSection(),
+
                         const SizedBox(height: 32),
 
                         // Logout button
@@ -721,6 +846,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                 ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -731,6 +859,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       edgeStore = Provider.of<EdgeAiStore>(context);
     } catch (_) {
+      if (kDebugMode) debugPrint('EdgeAiStore provider not available in ProfileScreen');
       return const SizedBox.shrink();
     }
 
@@ -840,6 +969,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: AdaptivColors.primary,
                 side: const BorderSide(color: AdaptivColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DevicePairingScreen(apiClient: widget.apiClient),
+                ),
+              ),
+              icon: const Icon(Icons.bluetooth, size: 18),
+              label: const Text('Connect Heart Rate Monitor'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AdaptivColors.primary,
+                side: const BorderSide(color: AdaptivColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await NotificationService.instance.showAlert(
+                  title: 'Test Notification',
+                  body: 'Local notification is working on this device.',
+                  payload: 'qa_test_notification',
+                );
+
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Test notification sent (DEV ONLY).'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.notifications_active_outlined, size: 18),
+              label: const Text('Send Test Notification (DEV ONLY)'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.deepOrange,
+                side: const BorderSide(color: Colors.deepOrange),
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
@@ -1003,7 +1181,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     await clearOnboardingFlag();
                   }
                 } catch (e) {
-                  print('ERROR: Could not reset onboarding: $e');
+                  if (kDebugMode) debugPrint('ERROR: Could not reset onboarding: $e');
                   // Fallback: clear all onboarding flags
                   await clearOnboardingFlag();
                 }
@@ -1045,6 +1223,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       Provider.of<EdgeAiStore>(context, listen: false);
       return true;
     } catch (_) {
+      if (kDebugMode) {
+        debugPrint('EdgeAiStore provider not available in ProfileScreen');
+      }
       return false;
     }
   }
@@ -1059,6 +1240,237 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Text(value, style: AdaptivTypography.caption.copyWith(fontWeight: FontWeight.w600)),
         ],
       ),
+    );
+  }
+
+  /// Medication Reminders section with reminder settings and adherence tracking
+  Widget _buildMedicationRemindersSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AdaptivColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AdaptivColors.border300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AdaptivColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.medication_outlined, color: AdaptivColors.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Medication Reminders', style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      'Set daily reminders for your medications',
+                      style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Loading state
+          if (_medicationsLoading)
+            const Center(child: CircularProgressIndicator())
+          
+          // Empty state
+          else if (_medications.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AdaptivColors.background50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: AdaptivColors.text500, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'No medications found. Your clinician can add medications to your profile.',
+                      style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          
+          // Medications list
+          else ...[
+            // Each medication row
+            ..._medications.map((med) => _buildMedicationRow(med)),
+            
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 16),
+
+            // Today's medications checklist
+            Text(
+              "Today's Medications",
+              style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            ..._medications.where((m) => m['reminder_enabled'] == true).map((med) {
+              final medId = med['medication_id'] as int;
+              final drugName = med['drug_name'] as String? ?? 'Medication';
+              final dose = med['dose'] as String? ?? '';
+              final taken = _todayAdherence[medId];
+              
+              return CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('$drugName${dose.isNotEmpty ? ' $dose' : ''}'),
+                value: taken ?? false,
+                onChanged: (value) {
+                  if (value != null) {
+                    _logMedicationAdherence(medId, value);
+                  }
+                },
+                activeColor: AdaptivColors.stable,
+                controlAffinity: ListTileControlAffinity.leading,
+              );
+            }),
+
+            if (_medications.where((m) => m['reminder_enabled'] == true).isEmpty)
+              Text(
+                'Enable reminders for medications above to track daily adherence.',
+                style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text500),
+              ),
+
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 16),
+
+            // Weekly adherence summary
+            Text(
+              'This Week',
+              style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            _buildAdherenceSummary(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMedicationRow(Map<String, dynamic> med) {
+    final medId = med['medication_id'] as int;
+    final drugName = med['drug_name'] as String? ?? 'Medication';
+    final dose = med['dose'] as String? ?? '';
+    final reminderTime = med['reminder_time'] as String? ?? '08:00';
+    final reminderEnabled = med['reminder_enabled'] as bool? ?? false;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          // Medication name and dose
+          Expanded(
+            flex: 3,
+            child: Text(
+              '$drugName${dose.isNotEmpty ? ' $dose' : ''}',
+              style: AdaptivTypography.body,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          
+          // Time picker
+          Expanded(
+            flex: 2,
+            child: InkWell(
+              onTap: () => _showTimePicker(med),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AdaptivColors.border300),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.access_time, size: 16, color: AdaptivColors.text600),
+                    const SizedBox(width: 4),
+                    Text(
+                      reminderTime,
+                      style: AdaptivTypography.caption.copyWith(fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // Enable/disable switch
+          Switch(
+            value: reminderEnabled,
+            onChanged: (value) {
+              _updateMedicationReminder(medId, enabled: value);
+            },
+            activeColor: AdaptivColors.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdherenceSummary() {
+    if (_adherenceHistory == null) {
+      return const Text('Loading adherence data...');
+    }
+
+    final totalScheduled = _adherenceHistory!['total_scheduled'] as int? ?? 0;
+    final totalTaken = _adherenceHistory!['total_taken'] as int? ?? 0;
+    final adherencePercent = (_adherenceHistory!['adherence_percent'] as num? ?? 0).toDouble();
+
+    // Color based on percentage
+    Color progressColor;
+    if (adherencePercent >= 80) {
+      progressColor = AdaptivColors.stable;
+    } else if (adherencePercent >= 50) {
+      progressColor = AdaptivColors.warning;
+    } else {
+      progressColor = AdaptivColors.critical;
+    }
+
+    if (totalScheduled == 0) {
+      return Text(
+        'Enable reminders for your medications to track adherence.',
+        style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text500),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'You took $totalTaken of $totalScheduled scheduled doses (${adherencePercent.toStringAsFixed(0)}%)',
+          style: AdaptivTypography.caption,
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: adherencePercent / 100,
+          backgroundColor: AdaptivColors.border300,
+          valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+          minHeight: 8,
+          borderRadius: BorderRadius.circular(4),
+        ),
+      ],
     );
   }
 }

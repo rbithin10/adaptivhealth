@@ -11,6 +11,7 @@ import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
 import '../widgets/widgets.dart';
+import '../widgets/ai_coach_overlay.dart';
 
 /// Breathing exercise types
 enum BreathingType {
@@ -116,34 +117,36 @@ class _RecoveryScreenState extends State<RecoveryScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AdaptivColors.background50,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: AdaptivColors.white,
-        title: Text(
-          'Recovery',
-          style: GoogleFonts.dmSans(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AdaptivColors.text900,
-          ),
-        ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: const AssetImage('assets/images/recovery_bg.png'),
-            fit: BoxFit.cover,
-            colorFilter: ColorFilter.mode(
-              Colors.white.withOpacity(0.85),
-              BlendMode.lighten,
+    return AiCoachOverlay(
+      apiClient: widget.apiClient,
+      child: Scaffold(
+        backgroundColor: AdaptivColors.background50,
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: AdaptivColors.white,
+          title: Text(
+            'Recovery',
+            style: GoogleFonts.dmSans(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AdaptivColors.text900,
             ),
           ),
         ),
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _sessionFuture,
-          builder: (context, snapshot) {
+        body: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: const AssetImage('assets/images/recovery_bg.png'),
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                Colors.white.withOpacity(0.85),
+                BlendMode.lighten,
+              ),
+            ),
+          ),
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: _sessionFuture,
+            builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -313,7 +316,8 @@ class _RecoveryScreenState extends State<RecoveryScreen>
         },
       ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildRecoveryScoreRing(int score) {

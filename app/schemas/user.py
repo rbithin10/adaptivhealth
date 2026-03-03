@@ -35,6 +35,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from app.models.user import UserRole
+from app.schemas.medical_history import MedicalProfileSummary
 
 
 # =============================================================================
@@ -107,6 +108,16 @@ class UserUpdate(BaseModel):
     height_cm: Optional[float] = Field(None, ge=0, le=300, description="Height in centimetres")
     emergency_contact_name: Optional[str] = Field(None, max_length=255)
     emergency_contact_phone: Optional[str] = Field(None, max_length=20)
+    rehab_phase: Optional[str] = Field(None, description="Cardiac rehab phase: phase_2, phase_3, or not_in_rehab")
+    activity_level: Optional[str] = Field(None, description="Activity level: none, light, moderate, active")
+    exercise_limitations: Optional[str] = Field(None, description="JSON list of exercise limitations")
+    primary_goal: Optional[str] = Field(None, description="Primary health goal")
+    stress_level: Optional[int] = Field(None, ge=1, le=10, description="Stress level 1-10")
+    sleep_quality: Optional[str] = Field(None, description="Sleep quality: good, fair, poor")
+    smoking_status: Optional[str] = Field(None, description="Smoking status: never, former, current")
+    alcohol_frequency: Optional[str] = Field(None, description="Alcohol frequency: never, occasional, moderate, heavy")
+    sedentary_hours: Optional[float] = Field(None, ge=0, le=24, description="Sedentary hours per day (0-24)")
+    phq2_score: Optional[int] = Field(None, ge=0, le=6, description="PHQ-2 depression screening score (0-6)")
     
     @field_validator('gender')
     def validate_gender(cls, v):
@@ -115,6 +126,38 @@ class UserUpdate(BaseModel):
             allowed = ['male', 'female', 'other', 'prefer not to say']
             if v.lower() not in allowed:
                 raise ValueError(f'Gender must be one of: {allowed}')  # pragma: no cover
+        return v
+
+    @field_validator('activity_level')
+    def validate_activity_level(cls, v):
+        if v is not None:
+            allowed = ['none', 'light', 'moderate', 'active']
+            if v.lower() not in allowed:
+                raise ValueError(f'Activity level must be one of: {allowed}')
+        return v
+
+    @field_validator('sleep_quality')
+    def validate_sleep_quality(cls, v):
+        if v is not None:
+            allowed = ['good', 'fair', 'poor']
+            if v.lower() not in allowed:
+                raise ValueError(f'Sleep quality must be one of: {allowed}')
+        return v
+
+    @field_validator('smoking_status')
+    def validate_smoking_status(cls, v):
+        if v is not None:
+            allowed = ['never', 'former', 'current']
+            if v.lower() not in allowed:
+                raise ValueError(f'Smoking status must be one of: {allowed}')
+        return v
+
+    @field_validator('alcohol_frequency')
+    def validate_alcohol_frequency(cls, v):
+        if v is not None:
+            allowed = ['never', 'occasional', 'moderate', 'heavy']
+            if v.lower() not in allowed:
+                raise ValueError(f'Alcohol frequency must be one of: {allowed}')
         return v
 
 
@@ -148,8 +191,19 @@ class UserResponse(UserBase):
     is_active: bool = Field(..., description="Account active status")
     is_verified: bool = Field(..., description="Email verification status")
     assigned_clinician_id: Optional[int] = Field(None, description="ID of assigned clinician (for patients)")
+    rehab_phase: Optional[str] = Field(None, description="Cardiac rehab phase: phase_2, phase_3, or not_in_rehab")
+    activity_level: Optional[str] = Field(None, description="Activity level")
+    exercise_limitations: Optional[str] = Field(None, description="JSON list of exercise limitations")
+    primary_goal: Optional[str] = Field(None, description="Primary health goal")
+    stress_level: Optional[int] = Field(None, description="Stress level 1-10")
+    sleep_quality: Optional[str] = Field(None, description="Sleep quality")
+    smoking_status: Optional[str] = Field(None, description="Smoking status")
+    alcohol_frequency: Optional[str] = Field(None, description="Alcohol frequency")
+    sedentary_hours: Optional[float] = Field(None, description="Sedentary hours per day")
+    phq2_score: Optional[int] = Field(None, description="PHQ-2 screening score")
     created_at: datetime = Field(..., description="Account creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    medical_profile_summary: Optional[MedicalProfileSummary] = None
     
     class Config:
         from_attributes = True
@@ -174,6 +228,16 @@ class UserProfileResponse(BaseModel):
     baseline_heart_rate: Optional[int] = Field(None, description="Resting HR")
     max_heart_rate: Optional[int] = Field(None, description="Max HR")
     heart_rate_zones: Optional[dict] = Field(None, description="HR training zones")
+    rehab_phase: Optional[str] = Field(None, description="Cardiac rehab phase")
+    activity_level: Optional[str] = Field(None, description="Activity level")
+    exercise_limitations: Optional[str] = Field(None, description="JSON list of exercise limitations")
+    primary_goal: Optional[str] = Field(None, description="Primary health goal")
+    stress_level: Optional[int] = Field(None, description="Stress level 1-10")
+    sleep_quality: Optional[str] = Field(None, description="Sleep quality")
+    smoking_status: Optional[str] = Field(None, description="Smoking status")
+    alcohol_frequency: Optional[str] = Field(None, description="Alcohol frequency")
+    sedentary_hours: Optional[float] = Field(None, description="Sedentary hours per day")
+    phq2_score: Optional[int] = Field(None, description="PHQ-2 screening score")
     is_active: bool
     created_at: datetime
     

@@ -17,8 +17,16 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { FavoriteOutlined } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (!error || typeof error !== 'object') return fallback;
+  const record = error as {
+    response?: { data?: { error?: { message?: string }; detail?: string } };
+  };
+  return record.response?.data?.error?.message || record.response?.data?.detail || fallback;
+};
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -33,13 +41,19 @@ const LoginPage: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!email.trim() || !password.trim()) {
+      setError('Email and password are required.');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const response = await api.login(email, password);
       localStorage.setItem('token', response.access_token);
-      if ((response as any).refresh_token) {
-        localStorage.setItem('refresh_token', (response as any).refresh_token);
+      if (response.refresh_token) {
+        localStorage.setItem('refresh_token', response.refresh_token);
       }
       
       // Fetch and store user data
@@ -47,14 +61,14 @@ const LoginPage: React.FC = () => {
       localStorage.setItem('user', JSON.stringify(user));
       
       // Role-based routing
-      const role = (user as any).role || (user as any).user_role;
+      const role = user.user_role;
       if (role === 'admin') {
         navigate('/admin');
       } else {
         navigate('/dashboard');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || err.response?.data?.detail || 'Login failed. Please check your credentials.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Login failed. Please check your credentials.'));
     } finally {
       setLoading(false);
     }
@@ -69,8 +83,8 @@ const LoginPage: React.FC = () => {
     try {
       const resp = await api.requestPasswordReset(resetEmail);
       setResetMessage(resp.message || 'If the email exists, a reset link has been sent.');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Password reset request failed.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Password reset request failed.'));
     } finally {
       setLoading(false);
     }
@@ -92,7 +106,16 @@ const LoginPage: React.FC = () => {
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            {resetMessage && <Alert severity="success" sx={{ mb: 2 }}>{resetMessage}</Alert>}
+            {resetMessage && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                  {resetMessage}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Local testing: open /reset-password?token=&lt;jwt_token&gt; from your reset email link.
+                </Typography>
+              </Alert>
+            )}
 
             <form onSubmit={handleForgotPassword}>
               <TextField
@@ -191,7 +214,14 @@ const LoginPage: React.FC = () => {
           </form>
 
           <Typography variant="body2" color="text.secondary" textAlign="center" mt={2}>
-            Demo credentials: test@example.com / Pass1234
+            Use your assigned clinician account credentials.
+          </Typography>
+
+          <Typography variant="body2" color="text.secondary" textAlign="center" mt={1}>
+            Need a new account?{' '}
+            <Link to="/register" style={{ color: '#2563EB', fontWeight: 600, textDecoration: 'none' }}>
+              Register here
+            </Link>
           </Typography>
         </Paper>
       </Box>

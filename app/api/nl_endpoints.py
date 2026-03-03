@@ -24,13 +24,15 @@ FastAPI routes for AI coach natural-language summaries.
 import logging
 from datetime import datetime, date, timedelta, timezone
 from typing import Optional
+import json
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.api.auth import get_current_user
 from sqlalchemy import func as sa_func
+from app.config import settings
 
 from app.models.user import User
 from app.models.recommendation import ExerciseRecommendation
@@ -57,6 +59,11 @@ from app.services.nl_builders import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+DISCLAIMER_SUFFIX = (
+    "\n\n_I'm an AI health coach, not a doctor. "
+    "For medical decisions, please consult your care team._"
+)
 
 
 # =============================================================================
@@ -571,3 +578,175 @@ async def get_progress_summary(
         trend=trend,
         nl_summary=nl_summary,
     )
+
+
+# =============================================================================
+# CHAT ENDPOINT (Hybrid Template + Gemini LLM)
+# =============================================================================
+
+from app.schemas.nl import ChatRequest, ChatResponse
+
+# Simple per-user rate limiting for chat (protects Gemini free-tier quota)
+import time
+from collections import defaultdict
+
+_chat_rate: dict[int, list[float]] = defaultdict(list)
+_CHAT_MAX_REQUESTS = 10  # max requests per window
+_CHAT_WINDOW_SECONDS = 60  # rolling window
+
+
+def _check_chat_rate_limit(user_id: int) -> None:
+    """Raise 429 if user exceeds chat rate limit."""
+    now = time.monotonic()
+    timestamps = _chat_rate[user_id]
+    # Prune expired entries
+    _chat_rate[user_id] = [t for t in timestamps if now - t < _CHAT_WINDOW_SECONDS]
+    if len(_chat_rate[user_id]) >= _CHAT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many messages. Please wait before sending another (limit: {_CHAT_MAX_REQUESTS} per minute).",
+        )
+    _chat_rate[user_id].append(now)
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def post_chat(
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    AI health coach chat endpoint.
+
+    Routes messages through a hybrid pipeline:
+    1. Keyword match → fast template response (~50ms)
+    2. No match → Gemini LLM with de-identified patient context (~2-3s)
+    3. Gemini failure → generic fallback
+
+    Patient data is de-identified before being sent to the external LLM.
+    No PII (names, emails, IDs) is ever included in the LLM prompt.
+
+    Args:
+        request: ChatRequest with message and optional conversation history.
+        db: Database session (injected).
+        current_user: Authenticated user (injected via JWT).
+
+    Returns:
+        ChatResponse with response text and source indicator.
+    """
+    from app.services.chat_service import generate_chat_response
+
+    _check_chat_rate_limit(current_user.user_id)
+
+    logger.info(f"Chat request from user {current_user.user_id}: {request.message[:50]}...")
+
+    result = await generate_chat_response(
+        user_message=request.message,
+        user_id=current_user.user_id,
+        db=db,
+        conversation_history=request.conversation_history,
+        screen_context=request.screen_context,
+    )
+
+    return ChatResponse(
+        response=result["response"],
+        source=result["source"],
+    )
+
+
+@router.post("/chat-with-image", response_model=ChatResponse)
+async def post_chat_with_image(
+    image: UploadFile = File(...),
+    message: str = Form(...),
+    analysis_type: str = Form("general"),
+    conversation_history: str = Form("[]"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Gemini Vision chat endpoint for image + text analysis.
+
+    Accepts multipart form data and returns a natural-language response
+    tailored for a cardiac rehabilitation patient.
+    """
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=503, detail="Gemini API key not configured")
+
+    try:
+        history_data = json.loads(conversation_history)
+        if not isinstance(history_data, list):
+            history_data = []
+    except Exception:
+        history_data = []
+
+    prompts = {
+        "food": (
+            "Analyze this food image for a cardiac rehabilitation patient. "
+            "Identify the food items, estimate nutrition (calories, protein, carbs, fat), "
+            "and assess cardiac friendliness. Note concerns about saturated fat "
+            "or highly processed ingredients."
+        ),
+        "pill": (
+            "Identify this medication from the image. Provide the drug name, common uses, "
+            "and note any cardiac-relevant interactions or considerations."
+        ),
+        "edema": (
+            "Assess this image for signs of peripheral edema (swelling). Describe what you "
+            "observe regarding swelling severity, location, and whether the patient should "
+            "contact their care team. This is for a cardiac patient."
+        ),
+        "general": (
+            "Describe what you see in this image and provide any health-relevant observations "
+            "for a cardiac rehabilitation patient."
+        ),
+    }
+
+    analysis_key = analysis_type.lower().strip()
+    if analysis_key not in prompts:
+        analysis_key = "general"
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        image_bytes = await image.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded image is empty")
+
+        history_text = ""
+        if history_data:
+            history_lines = []
+            for msg in history_data[-10:]:
+                if isinstance(msg, dict):
+                    role = "Patient" if msg.get("role") == "user" else "Assistant"
+                    history_lines.append(f"{role}: {msg.get('text', '')}")
+            if history_lines:
+                history_text = "\n".join(history_lines)
+
+        prompt = (
+            f"{prompts[analysis_key]}\n\n"
+            f"Patient message: {message}\n\n"
+            f"{f'Recent conversation:\n{history_text}\n\n' if history_text else ''}"
+            "Respond in supportive, concise language appropriate for a cardiac rehab patient."
+        )
+
+        image_part = {
+            "mime_type": image.content_type or "image/jpeg",
+            "data": image_bytes,
+        }
+
+        response = model.generate_content([prompt, image_part])
+        text = (response.text or "").strip()
+        if not text:
+            text = "I couldn't analyze the image clearly. Please try a clearer photo or provide more details."
+
+        return ChatResponse(
+            response=text + DISCLAIMER_SUFFIX,
+            source="gemini_vision",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Gemini Vision chat failed for user {current_user.user_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Image analysis is temporarily unavailable")

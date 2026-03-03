@@ -111,6 +111,29 @@ class RecommendationCard extends StatelessWidget {
     }
   }
 
+  String? get _exerciseImageAsset {
+    switch (activityType) {
+      case ActivityType.walking:
+        return 'assets/exercises/walking.png';
+      case ActivityType.running:
+      case ActivityType.hiit:
+        return 'assets/exercises/light_jogging.png';
+      case ActivityType.cycling:
+        return 'assets/exercises/cycling.png';
+      case ActivityType.swimming:
+        return 'assets/exercises/swimming.png';
+      case ActivityType.yoga:
+        return 'assets/exercises/yoga.png';
+      case ActivityType.strength:
+        return 'assets/exercises/resistance_bands.png';
+      case ActivityType.stretching:
+        return 'assets/exercises/stretching.png';
+      case ActivityType.meditation:
+      case ActivityType.other:
+        return null;
+    }
+  }
+
   Color get _activityColor {
     switch (activityType) {
       case ActivityType.walking:
@@ -219,11 +242,24 @@ class RecommendationCard extends StatelessWidget {
                     color: _activityColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    _activityIcon,
-                    size: 24,
-                    color: _activityColor,
-                  ),
+                  child: _exerciseImageAsset != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.asset(
+                            _exerciseImageAsset!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Icon(
+                              _activityIcon,
+                              size: 24,
+                              color: _activityColor,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          _activityIcon,
+                          size: 24,
+                          color: _activityColor,
+                        ),
                 ),
                 const SizedBox(width: 12),
                 // Title and description
@@ -439,6 +475,29 @@ class CompactRecommendationCard extends StatelessWidget {
     }
   }
 
+  String? get _exerciseImageAsset {
+    switch (activityType) {
+      case ActivityType.walking:
+        return 'assets/exercises/walking.png';
+      case ActivityType.running:
+      case ActivityType.hiit:
+        return 'assets/exercises/light_jogging.png';
+      case ActivityType.cycling:
+        return 'assets/exercises/cycling.png';
+      case ActivityType.swimming:
+        return 'assets/exercises/swimming.png';
+      case ActivityType.yoga:
+        return 'assets/exercises/yoga.png';
+      case ActivityType.strength:
+        return 'assets/exercises/resistance_bands.png';
+      case ActivityType.stretching:
+        return 'assets/exercises/stretching.png';
+      case ActivityType.meditation:
+      case ActivityType.other:
+        return null;
+    }
+  }
+
   Color get _activityColor {
     switch (activityType) {
       case ActivityType.walking:
@@ -478,11 +537,24 @@ class CompactRecommendationCard extends StatelessWidget {
                 color: _activityColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(
-                _activityIcon,
-                size: 20,
-                color: _activityColor,
-              ),
+              child: _exerciseImageAsset != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.asset(
+                        _exerciseImageAsset!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                          _activityIcon,
+                          size: 20,
+                          color: _activityColor,
+                        ),
+                      ),
+                    )
+                  : Icon(
+                      _activityIcon,
+                      size: 20,
+                      color: _activityColor,
+                    ),
             ),
             const SizedBox(width: 12),
             Expanded(

@@ -39,9 +39,12 @@ export interface User {
   is_active: boolean;
   is_verified: boolean;
   user_role: 'patient' | 'clinician' | 'admin';
+  risk_level?: 'low' | 'moderate' | 'high' | 'critical';
+  risk_score?: number;
   assigned_clinician_id?: number;
   created_at: string;
   updated_at?: string;
+  medical_profile_summary?: MedicalProfileSummary;
 }
 
 export interface UserProfileResponse extends User {
@@ -90,6 +93,8 @@ export interface VitalSignsSummary {
   alerts_triggered: number;
 }
 
+export interface VitalSignsSummaryResponse extends VitalSignsSummary {}
+
 export interface VitalSignsHistoryResponse {
   vitals: VitalSignResponse[];
   summary?: VitalSignsSummary;
@@ -136,7 +141,7 @@ export interface RiskAssessmentComputeResponse {
   /** Risk factors that drove the assessment */
   drivers: string[];
   /** Aggregated vitals and features used */
-  based_on: Record<string, any>;
+  based_on: Record<string, unknown>;
 }
 
 export interface RiskAssessmentListResponse {
@@ -509,6 +514,109 @@ export interface InboxSummaryResponse {
 }
 
 // ============================================================================
+// Medical History & Medications
+// ============================================================================
+
+export interface MedicalCondition {
+  history_id: number;
+  user_id: number;
+  condition_type: string;
+  condition_detail?: string;
+  diagnosis_date?: string;
+  status: 'active' | 'resolved' | 'managed';
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Medication {
+  medication_id: number;
+  user_id: number;
+  drug_class: string;
+  drug_name: string;
+  dose?: string;
+  frequency: string;
+  is_hr_blunting: boolean;
+  is_anticoagulant: boolean;
+  status: 'active' | 'discontinued' | 'on_hold';
+  start_date?: string;
+  end_date?: string;
+  prescribed_by?: string;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MedicalProfile {
+  user_id: number;
+  conditions: MedicalCondition[];
+  medications: Medication[];
+  has_prior_mi: boolean;
+  has_heart_failure: boolean;
+  heart_failure_class?: string;
+  is_on_beta_blocker: boolean;
+  is_on_anticoagulant: boolean;
+  is_on_antiplatelet: boolean;
+  active_condition_count: number;
+  active_medication_count: number;
+  uploaded_documents?: UploadedDocumentSummary[];
+  latest_document_url?: string;
+  has_document_storage_warning?: boolean;
+  missing_document_count?: number;
+}
+
+export interface MedicalProfileSummary {
+  user_id: number;
+  has_prior_mi: boolean;
+  has_heart_failure: boolean;
+  is_on_beta_blocker: boolean;
+  is_on_anticoagulant: boolean;
+  has_uploaded_document?: boolean;
+  has_accessible_document?: boolean;
+  active_condition_count: number;
+  active_medication_count: number;
+}
+
+export interface UploadedDocumentSummary {
+  document_id: number;
+  filename: string;
+  file_type: string;
+  status: string;
+  created_at?: string;
+  view_url: string;
+  file_available?: boolean;
+}
+
+export interface DocumentUploadResponse {
+  document_id: number;
+  filename: string;
+  status: string;
+  extracted_conditions: MedicalConditionCreate[];
+  extracted_medications: MedicationCreate[];
+  extraction_message: string;
+}
+
+export interface MedicalConditionCreate {
+  condition_type: string;
+  condition_detail?: string;
+  diagnosis_date?: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface MedicationCreate {
+  drug_class: string;
+  drug_name: string;
+  dose?: string;
+  frequency?: string;
+  status?: string;
+  start_date?: string;
+  end_date?: string;
+  prescribed_by?: string;
+  notes?: string;
+}
+
+// ============================================================================
 // Error Response
 // ============================================================================
 
@@ -519,4 +627,63 @@ export interface ErrorResponse {
     type: string;
     details?: string;
   };
+}
+
+export interface MedicalExtractionStatusResponse {
+  feature: string;
+  provider: string;
+  model: string;
+  gemini_key_configured: boolean;
+  gemini_sdk_available: boolean;
+  ready: boolean;
+}
+
+// ============================================================================
+// Consent / Sharing
+// ============================================================================
+
+export interface ConsentStatusResponse {
+  share_state: string;
+  consent_request_pending?: boolean;
+  requested_share_state?: string;
+  consent_updated_at?: string;
+}
+
+export interface PendingConsentRequest {
+  user_id: number;
+  email?: string;
+  full_name?: string;
+  reason?: string;
+  requested_at?: string;
+}
+
+export interface PendingConsentRequestsResponse {
+  pending_requests: PendingConsentRequest[];
+  total?: number;
+}
+
+export interface ReviewConsentResponse {
+  status: string;
+  message?: string;
+  user_id?: number;
+  decision?: 'approve' | 'reject';
+}
+
+// ============================================================================
+// Admin
+// ============================================================================
+
+export interface AdminResetPasswordResponse {
+  message: string;
+  user_id?: number;
+}
+
+export interface DeactivateUserResponse {
+  message: string;
+}
+
+export interface AssignClinicianResponse {
+  message: string;
+  patient_id?: number;
+  clinician_id?: number;
 }

@@ -1320,7 +1320,7 @@ class TestDatabasePostgresqlBranch:
         original_settings = config_module.settings
 
         mock_settings = MagicMock()
-        mock_settings.database_url = "postgresql+psycopg2://user:pass@localhost/adaptiv_test"
+        mock_settings.database_url = "postgresql+psycopg://user:pass@localhost/adaptiv_test"
         mock_settings.debug = False
 
         with patch.object(config_module, "settings", mock_settings), \

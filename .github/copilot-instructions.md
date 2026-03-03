@@ -10,6 +10,34 @@ AdaptivHealth is a clinical-grade cardiovascular monitoring platform with three 
 
 ---
 
+## Technical Stack (Shared Context)
+
+All agents must respect this stack. Do not suggest alternative libraries or patterns.
+
+| Layer | Stack |
+|-------|-------|
+| **Backend** | FastAPI + SQLAlchemy 2.0 + Pydantic v2 + PostgreSQL (AWS RDS) |
+| **Auth** | JWT via python-jose; `get_current_user` FastAPI dependency; Bearer token in all clients |
+| **Mobile** | Flutter (Dart 3.x), Provider for state, Dio for HTTP, flutter_blue_plus for BLE |
+| **Dashboard** | React + TypeScript + Axios, localStorage for auth tokens |
+| **ML (backend)** | scikit-learn RandomForest (`risk_model.pkl`) in `app/services/ml_prediction.py` |
+| **ML (mobile)** | Pure-Dart decision-tree walk over JSON-exported RF (100 trees) — NOT TFLite |
+| **AI/LLM** | Gemini 2.0 Flash free tier — chat service + document extraction |
+| **Cloud** | AWS ALB: `https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com` |
+| **BLE** | flutter_blue_plus; GATT Heart Rate Service 0x180D, characteristic 0x2A37 |
+
+**Vitals pipeline (mobile → backend):**
+```
+BLE/HealthKit/Mock → VitalsProvider → EdgeAiStore (pure-Dart RF, ~10ms)
+    → CloudSyncService (offline queue, 15min batch) → POST /vitals/batch-sync → Backend
+```
+
+**Alert thresholds (backend):** HR > 180 → CRITICAL, SpO2 < 90 → CRITICAL, Systolic BP > 160 → WARNING
+
+**Constraints:** University capstone, one developer. Prefer simple working solutions over enterprise patterns. No Kubernetes, no microservices, no message queues beyond what exists.
+
+---
+
 ## 1. CODE STYLE & CONVENTIONS
 
 ### Python Backend (FastAPI)

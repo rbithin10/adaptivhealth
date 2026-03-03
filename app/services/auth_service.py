@@ -26,7 +26,8 @@ This file handles password hashing and token creation.
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -222,7 +223,7 @@ class AuthService:
                 algorithms=[settings.algorithm]
             )
             return payload
-        except JWTError as e:
+        except InvalidTokenError as e:
             # Token is invalid or expired.
             logger.warning(f"JWT decode error: {e}")
             return None

@@ -37,6 +37,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _parse_conversation_id(conversation_id: str) -> int:
+    """Parse conversation identifier into other_user_id.
+
+    Supports both numeric IDs ("12") and prefixed IDs ("conv_12").
+    """
+    normalized = conversation_id.strip()
+    if normalized.lower().startswith("conv_"):
+        normalized = normalized[5:]
+
+    try:
+        return int(normalized)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid conversation_id format"
+        ) from exc
+
+
 # =============================================================================
 # Message Endpoints
 # =============================================================================
@@ -302,3 +320,233 @@ async def get_messaging_inbox(
     )
     
     return inbox_list
+
+
+# =============================================
+# GET_CONVERSATIONS_COMPAT - Spec-compatible conversations list
+# Used by: UI contracts expecting /messaging/conversations
+# Returns: Conversation summaries with unread count
+# Roles: ALL authenticated users
+# =============================================
+@router.get("/messaging/conversations")
+async def get_messaging_conversations(
+    include_unread: bool = Query(default=True, description="Include unread count"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List active conversations in a spec-compatible response shape."""
+    rows = (
+        db.query(Message)
+        .filter(
+            or_(
+                Message.sender_id == current_user.user_id,
+                Message.receiver_id == current_user.user_id,
+            )
+        )
+        .order_by(Message.sent_at.desc())
+        .all()
+    )
+
+    conversations = {}
+    for msg in rows:
+        other_user_id = msg.sender_id if msg.receiver_id == current_user.user_id else msg.receiver_id
+        if other_user_id not in conversations:
+            other_user = db.query(User).filter(User.user_id == other_user_id).first()
+            if not other_user:
+                continue
+
+            conversations[other_user_id] = {
+                "conversation_id": f"conv_{other_user_id}",
+                "participant": {
+                    "id": other_user.user_id,
+                    "name": other_user.full_name or f"User {other_user.user_id}",
+                    "role": str(other_user.role),
+                },
+                "last_message": {
+                    "message_id": msg.message_id,
+                    "sender_id": msg.sender_id,
+                    "content": msg.content,
+                    "timestamp": msg.sent_at,
+                    "type": "text",
+                },
+                "unread_count": 0,
+                "updated_at": msg.sent_at,
+            }
+
+        if include_unread and msg.sender_id == other_user_id and msg.receiver_id == current_user.user_id and not msg.is_read:
+            conversations[other_user_id]["unread_count"] += 1
+
+    items = list(conversations.values())
+    items.sort(key=lambda item: item["updated_at"], reverse=True)
+
+    return {
+        "user_id": current_user.user_id,
+        "conversations": items,
+        "total_conversations": len(items),
+        "total_unread": sum(item["unread_count"] for item in items),
+    }
+
+
+# =============================================
+# GET_CONVERSATION_MESSAGES_COMPAT - Spec-compatible thread history
+# Used by: UI contracts expecting /messaging/conversations/{id}/messages
+# Returns: Paginated conversation message list
+# Roles: ALL authenticated users
+# =============================================
+@router.get("/messaging/conversations/{conversation_id}/messages")
+async def get_conversation_messages(
+    conversation_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retrieve message history for a conversation in spec-compatible shape."""
+    other_user_id = _parse_conversation_id(conversation_id)
+    other_user = db.query(User).filter(User.user_id == other_user_id).first()
+    if other_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation does not exist")
+
+    base_query = db.query(Message).filter(
+        or_(
+            and_(Message.sender_id == current_user.user_id, Message.receiver_id == other_user_id),
+            and_(Message.sender_id == other_user_id, Message.receiver_id == current_user.user_id),
+        )
+    )
+
+    total_messages = base_query.count()
+    messages = (
+        base_query
+        .order_by(asc(Message.sent_at))
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    payload = []
+    for msg in messages:
+        sender_user = current_user if msg.sender_id == current_user.user_id else other_user
+        payload.append({
+            "message_id": msg.message_id,
+            "sender": {
+                "id": msg.sender_id,
+                "type": "patient" if str(sender_user.role).lower().endswith("patient") else "clinician",
+                "name": sender_user.full_name or f"User {sender_user.user_id}",
+            },
+            "content": msg.content,
+            "timestamp": msg.sent_at,
+            "type": "text",
+            "read_by_recipient": msg.is_read,
+            "read_at": msg.read_at,
+        })
+
+    return {
+        "conversation_id": f"conv_{other_user_id}",
+        "participant": {
+            "id": other_user.user_id,
+            "name": other_user.full_name or f"User {other_user.user_id}",
+            "role": str(other_user.role),
+        },
+        "messages": payload,
+        "pagination": {
+            "total_messages": total_messages,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total_messages,
+        },
+    }
+
+
+# =============================================
+# SEND_CONVERSATION_MESSAGE_COMPAT - Spec-compatible send endpoint
+# Used by: UI contracts expecting /messaging/conversations/{id}/messages
+# Returns: Sent message envelope
+# Roles: ALL authenticated users
+# =============================================
+@router.post("/messaging/conversations/{conversation_id}/messages", status_code=status.HTTP_201_CREATED)
+async def send_conversation_message(
+    conversation_id: str,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a conversation message in a spec-compatible request/response shape."""
+    other_user_id = _parse_conversation_id(conversation_id)
+    receiver = db.query(User).filter(User.user_id == other_user_id).first()
+    if receiver is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation does not exist")
+
+    content = str(payload.get("content", "")).strip()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="content is required")
+
+    try:
+        encrypted_content = encryption_service.encrypt_text(content)
+    except Exception:
+        encrypted_content = None
+
+    message = Message(
+        sender_id=current_user.user_id,
+        receiver_id=other_user_id,
+        content=content,
+        encrypted_content=encrypted_content,
+        sent_at=datetime.now(timezone.utc),
+        is_read=False,
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+
+    return {
+        "message_id": message.message_id,
+        "conversation_id": f"conv_{other_user_id}",
+        "sender": {
+            "id": current_user.user_id,
+            "type": "patient" if str(current_user.role).lower().endswith("patient") else "clinician",
+        },
+        "content": message.content,
+        "timestamp": message.sent_at,
+        "type": "text",
+        "read_by_recipient": False,
+        "status": "sent",
+        "attachments": payload.get("attachments", []),
+    }
+
+
+# =============================================
+# MARK_CONVERSATION_READ_COMPAT - Mark thread unread messages as read
+# Used by: UI contracts expecting /messaging/conversations/{id}/read
+# Returns: Count of messages marked read
+# Roles: ALL authenticated users
+# =============================================
+@router.put("/messaging/conversations/{conversation_id}/read")
+async def mark_conversation_read(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark all unread incoming messages in a conversation as read."""
+    other_user_id = _parse_conversation_id(conversation_id)
+
+    unread_messages = (
+        db.query(Message)
+        .filter(
+            Message.sender_id == other_user_id,
+            Message.receiver_id == current_user.user_id,
+            Message.is_read.is_(False),
+        )
+        .all()
+    )
+
+    now = datetime.now(timezone.utc)
+    for message in unread_messages:
+        message.is_read = True
+        message.read_at = now
+
+    db.commit()
+
+    return {
+        "conversation_id": f"conv_{other_user_id}",
+        "messages_marked_read": len(unread_messages),
+        "read_at": now,
+    }

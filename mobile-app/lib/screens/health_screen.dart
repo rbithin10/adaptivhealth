@@ -9,11 +9,13 @@ Displays comprehensive health information including:
 */
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/widgets.dart';
 import '../widgets/edge_ai_status_card.dart';
+import '../widgets/ai_coach_overlay.dart';
 import '../services/api_client.dart';
 import '../services/edge_ai_store.dart';
 
@@ -145,92 +147,73 @@ class _HealthScreenState extends State<HealthScreen>
   @override
   Widget build(BuildContext context) {
     final brightness = MediaQuery.of(context).platformBrightness;
-    return Scaffold(
-      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadHealthData,
-              child: CustomScrollView(
-                slivers: [
-                  // Header
-                  SliverToBoxAdapter(
-                    child: _buildHeader(),
-                  ),
-                  // Vital cards grid
-                  SliverToBoxAdapter(
-                    child: _buildVitalsSection(),
-                  ),
-                  // Tab bar
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _TabBarDelegate(
-                      tabController: _tabController,
-                    ),
-                  ),
-                  // Tab content
-                  SliverFillRemaining(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildTrendsTab(),
-                        _buildHistoryTab(),
-                        _buildInsightsTab(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+    return AiCoachOverlay(
+      apiClient: widget.apiClient,
+      child: Scaffold(
+        backgroundColor: AdaptivColors.getBackgroundColor(brightness),
+        appBar: AppBar(
+          backgroundColor: AdaptivColors.getSurfaceColor(brightness),
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          title: Text('Health Insights', style: AdaptivTypography.screenTitle),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.share_outlined),
+              color: AdaptivColors.text600,
+              onPressed: () {
+                // Export health report
+              },
             ),
+          ],
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _loadHealthData,
+                child: CustomScrollView(
+                  slivers: [
+                    // Header
+                    SliverToBoxAdapter(
+                      child: _buildHeader(),
+                    ),
+                    // Vital cards grid
+                    SliverToBoxAdapter(
+                      child: _buildVitalsSection(),
+                    ),
+                    // Tab bar
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _TabBarDelegate(
+                        tabController: _tabController,
+                      ),
+                    ),
+                    // Tab content
+                    SliverFillRemaining(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildTrendsTab(),
+                          _buildHistoryTab(),
+                          _buildInsightsTab(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 60, 16, 16),
-      decoration: BoxDecoration(
-        color: AdaptivColors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AdaptivColors.primaryBg,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.monitor_heart,
-                  color: AdaptivColors.primary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Health',
-                style: AdaptivTypography.screenTitle,
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.share_outlined),
-                color: AdaptivColors.text600,
-                onPressed: () {
-                  // Export health report
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
           // Health score summary
           Container(
             padding: const EdgeInsets.all(16),
@@ -315,7 +298,11 @@ class _HealthScreenState extends State<HealthScreen>
             maxSafeHr: _maxSafeHr,
           );
         }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('Error in _buildVitalsSection.feedEdgeAi: $e');
+        }
+      }
     });
 
     return Padding(
@@ -334,6 +321,36 @@ class _HealthScreenState extends State<HealthScreen>
             ),
             child: const EdgeAiStatusCard(),
           ),
+          // Risk badge from edge AI prediction
+          Builder(builder: (context) {
+            RiskLevel riskLevel = RiskLevel.low;
+            try {
+              final edgeStore = Provider.of<EdgeAiStore>(context);
+              final prediction = edgeStore.latestPrediction;
+              if (prediction != null) {
+                final level = prediction.riskLevel.toLowerCase();
+                riskLevel = RiskLevel.values.firstWhere(
+                  (e) => e.name == level,
+                  orElse: () => RiskLevel.low,
+                );
+              }
+            } catch (_) {}
+            return Row(
+              children: [
+                Expanded(child: RiskBadge(level: riskLevel, label: 'CV Risk')),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TargetZoneIndicator(
+                    currentBPM: hr as int,
+                    maxHR: _maxSafeHr ?? 190,
+                    showLabels: false,
+                    showCurrentValue: true,
+                  ),
+                ),
+              ],
+            );
+          }),
+          const SizedBox(height: 16),
           Row(
             children: [
               Text(
@@ -356,43 +373,55 @@ class _HealthScreenState extends State<HealthScreen>
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                VitalCard(
-                  icon: Icons.favorite,
-                  label: 'Heart Rate',
-                  value: hr.toString(),
-                  unit: 'BPM',
-                  status: _getHRStatus(hr),
-                  trend: [68.0, 70.0, 72.0, 71.0, 73.0, hr.toDouble()],
-                  onTap: () => _showVitalDetail('Heart Rate'),
+                SizedBox(
+                  width: 160,
+                  child: VitalCard(
+                    icon: Icons.favorite,
+                    label: 'Heart Rate',
+                    value: hr.toString(),
+                    unit: 'BPM',
+                    status: _getHRStatus(hr),
+                    trend: [68.0, 70.0, 72.0, 71.0, 73.0, hr.toDouble()],
+                    onTap: () => _showVitalDetail('Heart Rate'),
+                  ),
                 ),
                 const SizedBox(width: 12),
-                VitalCard(
-                  icon: Icons.air,
-                  label: 'SpO2',
-                  value: spo2.toString(),
-                  unit: '%',
-                  status: spo2 < 95 ? VitalStatus.warning : VitalStatus.safe,
-                  trend: [97.0, 98.0, 98.0, 97.0, 98.0, spo2.toDouble()],
-                  onTap: () => _showVitalDetail('SpO2'),
+                SizedBox(
+                  width: 160,
+                  child: VitalCard(
+                    icon: Icons.air,
+                    label: 'SpO2',
+                    value: spo2.toString(),
+                    unit: '%',
+                    status: spo2 < 95 ? VitalStatus.warning : VitalStatus.safe,
+                    trend: [97.0, 98.0, 98.0, 97.0, 98.0, spo2.toDouble()],
+                    onTap: () => _showVitalDetail('SpO2'),
+                  ),
                 ),
                 const SizedBox(width: 12),
-                VitalCard(
-                  icon: Icons.water_drop,
-                  label: 'Blood Pressure',
-                  value: '$systolic/$diastolic',
-                  unit: 'mmHg',
-                  status: _getBPStatus(systolic),
-                  onTap: () => _showVitalDetail('Blood Pressure'),
+                SizedBox(
+                  width: 160,
+                  child: VitalCard(
+                    icon: Icons.water_drop,
+                    label: 'Blood Pressure',
+                    value: '$systolic/$diastolic',
+                    unit: 'mmHg',
+                    status: _getBPStatus(systolic),
+                    onTap: () => _showVitalDetail('Blood Pressure'),
+                  ),
                 ),
                 const SizedBox(width: 12),
-                VitalCard(
-                  icon: Icons.timeline,
-                  label: 'HRV',
-                  value: hrv.toString(),
-                  unit: 'ms',
-                  status: hrv > 40 ? VitalStatus.safe : VitalStatus.caution,
-                  trend: [42.0, 44.0, 45.0, 43.0, 46.0, hrv.toDouble()],
-                  onTap: () => _showVitalDetail('HRV'),
+                SizedBox(
+                  width: 160,
+                  child: VitalCard(
+                    icon: Icons.timeline,
+                    label: 'HRV',
+                    value: hrv.toString(),
+                    unit: 'ms',
+                    status: hrv > 40 ? VitalStatus.safe : VitalStatus.caution,
+                    trend: [42.0, 44.0, 45.0, 43.0, 46.0, hrv.toDouble()],
+                    onTap: () => _showVitalDetail('HRV'),
+                  ),
                 ),
                 const SizedBox(width: 12),
               ],

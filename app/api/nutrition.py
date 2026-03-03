@@ -39,11 +39,42 @@ from app.schemas.nutrition import (
     NutritionResponse,
     NutritionListResponse,
     NutritionRecommendationResponse,
+    NutritionLogCreate,
+    NutritionLogResponse,
 )
 from app.api.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _save_nutrition_entry(
+    db: Session,
+    current_user: User,
+    meal_type: str,
+    calories: int,
+    description: Optional[str] = None,
+    protein_grams: Optional[int] = None,
+    carbs_grams: Optional[int] = None,
+    fat_grams: Optional[int] = None,
+    timestamp: Optional[datetime] = None,
+) -> NutritionEntry:
+    """Persist a nutrition entry and return the saved model."""
+    nutrition_entry = NutritionEntry(
+        user_id=current_user.user_id,
+        meal_type=meal_type,
+        description=description,
+        calories=calories,
+        protein_grams=protein_grams,
+        carbs_grams=carbs_grams,
+        fat_grams=fat_grams,
+        timestamp=timestamp or datetime.now(timezone.utc),
+    )
+
+    db.add(nutrition_entry)
+    db.commit()
+    db.refresh(nutrition_entry)
+    return nutrition_entry
 
 
 # =============================================================================
@@ -77,21 +108,17 @@ async def create_nutrition_entry(
         400: Invalid input data
     """
     try:
-        # Create new nutrition entry
-        nutrition_entry = NutritionEntry(
-            user_id=current_user.user_id,
+        nutrition_entry = _save_nutrition_entry(
+            db=db,
+            current_user=current_user,
             meal_type=entry_data.meal_type,
             description=entry_data.description,
             calories=entry_data.calories,
             protein_grams=entry_data.protein_grams,
             carbs_grams=entry_data.carbs_grams,
             fat_grams=entry_data.fat_grams,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=entry_data.logged_at,
         )
-        
-        db.add(nutrition_entry)
-        db.commit()
-        db.refresh(nutrition_entry)
         
         logger.info(
             f"Nutrition entry created: entry_id={nutrition_entry.entry_id}, "
@@ -107,6 +134,73 @@ async def create_nutrition_entry(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to create nutrition entry"
+        )
+
+
+# =============================================
+# LOG_MEAL_CONSUMPTION - Compatibility endpoint for nutrition logs
+# Used by: UI contracts documented in backend API specification
+# Returns: Logging receipt with adherence feedback
+# Roles: ALL authenticated users
+# =============================================
+@router.post("/nutrition/logs", response_model=NutritionLogResponse, status_code=status.HTTP_201_CREATED)
+async def log_meal_consumption(
+    log_data: NutritionLogCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Log meal consumption using the `/nutrition/logs` contract.
+
+    The underlying storage uses `nutrition_entries` to keep compatibility with
+    existing mobile/dashboard behavior.
+    """
+    try:
+        item_names = [item.food_name for item in log_data.items if item.food_name]
+        desc_parts: List[str] = []
+        if item_names:
+            desc_parts.append(", ".join(item_names))
+        if log_data.notes:
+            desc_parts.append(f"notes: {log_data.notes}")
+        if log_data.meal_id:
+            desc_parts.append(f"meal_id: {log_data.meal_id}")
+        description = " | ".join(desc_parts) if desc_parts else None
+
+        nutrition_entry = _save_nutrition_entry(
+            db=db,
+            current_user=current_user,
+            meal_type=log_data.meal_type,
+            description=description,
+            calories=log_data.total_calories,
+            timestamp=log_data.timestamp,
+        )
+
+        has_recommendation_link = bool(log_data.meal_id)
+        has_item_details = len(log_data.items) > 0
+        adherence = 0.95 if has_recommendation_link and has_item_details else 0.85
+
+        feedback = "Excellent choice! High fiber and nutrient-dense."
+        if log_data.satisfaction_rating is not None and log_data.satisfaction_rating <= 5:
+            feedback = "Logged successfully. Consider adjusting portions or meal choices for better adherence."
+
+        return NutritionLogResponse(
+            log_id=f"log_{nutrition_entry.entry_id}",
+            user_id=current_user.user_id,
+            meal_type=nutrition_entry.meal_type,
+            timestamp=nutrition_entry.timestamp,
+            total_calories=nutrition_entry.calories,
+            adherence_to_recommendation=adherence,
+            feedback=feedback,
+            status="logged",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to log meal for user {current_user.user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to log meal consumption",
         )
 
 
@@ -229,7 +323,7 @@ async def delete_nutrition_entry(
 
 # =============================================================================
 # Cardiac Diet Library (hardcoded, clinically reviewed)
-# WHY: Low-sodium, high-potassium, anti-inflammatory meals aligned with
+# WHY: Heart-healthy, high-potassium, anti-inflammatory meals aligned with
 #      AHA dietary guidelines for cardiovascular patients.
 # =============================================================================
 
@@ -237,7 +331,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
     "low": {
         "goals": {
             "calories_target": 2100,
-            "sodium_limit_mg": 2300,
             "potassium_mg": 3500,
             "water_liters": 2.5,
             "fiber_grams": 28,
@@ -256,7 +349,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 340,
-                    "sodium_mg": 150,
                     "potassium_mg": 460,
                     "protein_grams": 14,
                     "fiber_grams": 8,
@@ -279,14 +371,13 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 520,
-                    "sodium_mg": 200,
                     "potassium_mg": 650,
                     "protein_grams": 35,
                     "fiber_grams": 5,
                     "saturated_fat_grams": 2.0,
                 },
                 "benefits": "Lean protein, whole grains, rich in vitamins",
-                "cardiovascular_notes": "Low sodium preparation supports blood pressure management",
+                "cardiovascular_notes": "Focus on whole foods to support blood pressure management",
                 "prep_time_minutes": 20,
                 "difficulty": "easy",
             },
@@ -300,7 +391,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 180,
-                    "sodium_mg": 0,
                     "potassium_mg": 195,
                     "protein_grams": 6,
                     "fiber_grams": 4,
@@ -322,7 +412,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 480,
-                    "sodium_mg": 180,
                     "potassium_mg": 800,
                     "protein_grams": 32,
                     "fiber_grams": 6,
@@ -339,7 +428,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
     "moderate": {
         "goals": {
             "calories_target": 2000,
-            "sodium_limit_mg": 1500,
             "potassium_mg": 4000,
             "water_liters": 2.5,
             "fiber_grams": 30,
@@ -358,13 +446,12 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 380,
-                    "sodium_mg": 5,
                     "potassium_mg": 550,
                     "protein_grams": 12,
                     "fiber_grams": 9,
                     "saturated_fat_grams": 1.0,
                 },
-                "benefits": "High potassium, anti-inflammatory, low sodium",
+                "benefits": "High potassium, anti-inflammatory",
                 "cardiovascular_notes": "Walnuts provide alpha-linolenic acid; cinnamon may support healthy blood pressure",
                 "prep_time_minutes": 10,
                 "difficulty": "easy",
@@ -380,7 +467,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 450,
-                    "sodium_mg": 350,
                     "potassium_mg": 700,
                     "protein_grams": 22,
                     "fiber_grams": 12,
@@ -401,7 +487,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 130,
-                    "sodium_mg": 160,
                     "potassium_mg": 280,
                     "protein_grams": 5,
                     "fiber_grams": 5,
@@ -423,7 +508,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 440,
-                    "sodium_mg": 220,
                     "potassium_mg": 750,
                     "protein_grams": 34,
                     "fiber_grams": 7,
@@ -435,12 +519,11 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 "difficulty": "medium",
             },
         ],
-        "note": "Moderate risk detected — focusing on anti-inflammatory foods and strict sodium control. Continue hydration.",
+        "note": "Moderate risk detected — focusing on anti-inflammatory foods and consistent hydration.",
     },
     "high": {
         "goals": {
             "calories_target": 1800,
-            "sodium_limit_mg": 1200,
             "potassium_mg": 4500,
             "water_liters": 3.0,
             "fiber_grams": 35,
@@ -458,13 +541,12 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 280,
-                    "sodium_mg": 20,
                     "potassium_mg": 400,
                     "protein_grams": 8,
                     "fiber_grams": 12,
                     "saturated_fat_grams": 2.0,
                 },
-                "benefits": "Very high fiber, omega-3 from chia, virtually sodium-free",
+                "benefits": "Very high fiber, omega-3 from chia",
                 "cardiovascular_notes": "Chia seeds reduce inflammation markers and support arterial health",
                 "prep_time_minutes": 5,
                 "difficulty": "easy",
@@ -481,7 +563,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 390,
-                    "sodium_mg": 120,
                     "potassium_mg": 950,
                     "protein_grams": 20,
                     "fiber_grams": 10,
@@ -502,13 +583,12 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 200,
-                    "sodium_mg": 5,
                     "potassium_mg": 350,
                     "protein_grams": 6,
                     "fiber_grams": 3,
                     "saturated_fat_grams": 1.5,
                 },
-                "benefits": "Potassium-rich, minimal sodium, heart-healthy fats",
+                "benefits": "Potassium-rich, heart-healthy fats",
                 "cardiovascular_notes": "Dried apricots are one of the highest potassium snack sources",
                 "prep_time_minutes": 0,
                 "difficulty": "easy",
@@ -524,7 +604,6 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 },
                 "nutritional_info": {
                     "calories": 430,
-                    "sodium_mg": 140,
                     "potassium_mg": 820,
                     "protein_grams": 30,
                     "fiber_grams": 7,
@@ -536,7 +615,7 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
                 "difficulty": "medium",
             },
         ],
-        "note": "High risk detected — strict sodium restriction and maximised potassium intake. Prioritise anti-inflammatory omega-3 sources.",
+        "note": "High risk detected — prioritise anti-inflammatory omega-3 sources and consistent hydration.",
     },
 }
 
@@ -548,7 +627,6 @@ def _build_daily_summary(meals: List[Dict]) -> Dict:
     """Aggregate nutritional totals across all meals."""
     totals = {
         "total_calories": 0,
-        "total_sodium_mg": 0,
         "total_potassium_mg": 0,
         "total_protein_grams": 0,
         "total_fiber_grams": 0,
@@ -557,7 +635,6 @@ def _build_daily_summary(meals: List[Dict]) -> Dict:
     for meal in meals:
         info = meal["nutritional_info"]
         totals["total_calories"] += info["calories"]
-        totals["total_sodium_mg"] += info["sodium_mg"]
         totals["total_potassium_mg"] += info["potassium_mg"]
         totals["total_protein_grams"] += info["protein_grams"]
         totals["total_fiber_grams"] += info["fiber_grams"]
@@ -567,10 +644,8 @@ def _build_daily_summary(meals: List[Dict]) -> Dict:
 
 def _build_status_vs_goals(summary: Dict, goals: Dict) -> Dict:
     """Compare meal totals against daily goals."""
-    sodium_pct = round(summary["total_sodium_mg"] / goals["sodium_limit_mg"] * 100)
     potassium_pct = round(summary["total_potassium_mg"] / goals["potassium_mg"] * 100)
     return {
-        "sodium": f"Within limits ({sodium_pct}% of daily allowance)",
         "potassium": f"{potassium_pct}% of recommended daily intake",
         "water": f"Track throughout the day ({goals['water_liters']} liters goal)",
         "notes": "Excellent for cardiovascular recovery. Focus on hydration.",
@@ -597,8 +672,8 @@ async def get_nutrition_recommendations(
     Get personalised daily meal recommendations based on cardiovascular risk.
 
     Selects meals from a clinically-reviewed cardiac diet library,
-    using the user's latest risk assessment to determine sodium limits,
-    potassium targets, and anti-inflammatory emphasis.
+    using the user's latest risk assessment to determine potassium targets,
+    hydration goals, and anti-inflammatory emphasis.
 
     Args:
         date_str: Optional date string (YYYY-MM-DD). Defaults to today.
@@ -659,7 +734,7 @@ async def get_nutrition_recommendations(
         date=str(recommendation_date),
         user_id=current_user.user_id,
         daily_nutrition_goals=goals,
-        meal_restrictions=["high_sodium", "saturated_fats", "processed_foods"],
+        meal_restrictions=["saturated_fats", "processed_foods"],
         meals=meals,
         daily_summary=daily_summary,
         status_vs_goals=status_vs_goals,
@@ -667,3 +742,128 @@ async def get_nutrition_recommendations(
         confidence_score=0.88,
         last_updated=datetime.now(timezone.utc),
     )
+
+
+# =============================================
+# GET_NUTRITION_PROGRESS - Date-range nutrition tracking summary
+# Used by: Nutrition tab progress charts
+# Returns: Daily summaries + trend and goal status
+# Roles: ALL authenticated users
+# =============================================
+@router.get("/nutrition/progress")
+async def get_nutrition_progress(
+    start_date: str = Query(..., description="Start date in YYYY-MM-DD format"),
+    end_date: str = Query(..., description="End date in YYYY-MM-DD format"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return nutrition progress summary for a date range."""
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid date format. Use YYYY-MM-DD",
+        ) from exc
+
+    if end_dt < start_dt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_date must be on or after start_date",
+        )
+
+    start_ts = datetime.combine(start_dt, datetime.min.time(), tzinfo=timezone.utc)
+    end_ts = datetime.combine(end_dt, datetime.max.time(), tzinfo=timezone.utc)
+
+    entries = (
+        db.query(NutritionEntry)
+        .filter(
+            NutritionEntry.user_id == current_user.user_id,
+            NutritionEntry.timestamp >= start_ts,
+            NutritionEntry.timestamp <= end_ts,
+        )
+        .order_by(NutritionEntry.timestamp.asc())
+        .all()
+    )
+
+    grouped = {}
+    for entry in entries:
+        key = entry.timestamp.date().isoformat()
+        grouped.setdefault(key, []).append(entry)
+
+    daily_summaries = []
+    daily_calories = []
+    daily_adherence_scores = []
+    for day_key in sorted(grouped.keys()):
+        day_entries = grouped[day_key]
+        total_calories = sum(item.calories or 0 for item in day_entries)
+
+        linked_count = 0
+        for item in day_entries:
+            description = (item.description or "").lower()
+            if "meal_id:" in description:
+                linked_count += 1
+
+        adherence_score = 0.0
+        if day_entries:
+            adherence_score = round((linked_count / len(day_entries)) * 0.4 + 0.55, 2)
+
+        daily_summaries.append({
+            "date": day_key,
+            "meals_logged": len(day_entries),
+            "total_calories": total_calories,
+            "adherence_score": adherence_score,
+            "notes": "Good day, followed recommendations" if adherence_score >= 0.85 else "Keep improving meal consistency",
+        })
+        daily_calories.append(total_calories)
+        daily_adherence_scores.append(adherence_score)
+
+    days_total = (end_dt - start_dt).days + 1
+    days_tracked = len(daily_summaries)
+    avg_calories = round(sum(daily_calories) / days_tracked, 2) if days_tracked else 0
+    avg_adherence = round(sum(daily_adherence_scores) / days_tracked, 2) if days_tracked else 0
+
+    calorie_trend = "No data"
+    if len(daily_calories) >= 2:
+        delta = daily_calories[-1] - daily_calories[0]
+        if abs(delta) <= 100:
+            calorie_trend = "Stable"
+        elif delta > 100:
+            calorie_trend = "Increasing"
+        else:
+            calorie_trend = "Decreasing"
+
+    adherence_trend = "No data"
+    if len(daily_adherence_scores) >= 2:
+        delta = daily_adherence_scores[-1] - daily_adherence_scores[0]
+        if abs(delta) <= 0.05:
+            adherence_trend = "Stable"
+        elif delta > 0.05:
+            adherence_trend = "Improving"
+        else:
+            adherence_trend = "Declining"
+
+    consistency_text = f"Good - {days_tracked}/{days_total} days logged" if days_total else "No period selected"
+
+    return {
+        "period": {
+            "start_date": start_dt.isoformat(),
+            "end_date": end_dt.isoformat(),
+            "days_tracked": days_tracked,
+        },
+        "daily_summaries": daily_summaries,
+        "weekly_average": {
+            "calories_per_day": avg_calories,
+            "adherence_to_recommendations": avg_adherence,
+            "consistency": consistency_text,
+        },
+        "trends": {
+            "calorie_trend": calorie_trend,
+            "recommendation_adherence": adherence_trend,
+        },
+        "goals_status": {
+            "hydration": "Track throughout the day against hydration target",
+            "recommendation": "Maintain consistent meal logging and hydration",
+        },
+    }

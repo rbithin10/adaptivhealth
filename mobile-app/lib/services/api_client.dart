@@ -5,6 +5,9 @@ It also keeps the login token and sends it with each request.
 All screens reuse this one client so everything stays consistent.
 */
 
+import 'dart:io';
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -19,9 +22,22 @@ class ApiClient {
     defaultValue: '',
   );
 
+  // AWS ALB production endpoint.
+  // Use: flutter run --dart-define=USE_PRODUCTION=true
+  static const String _productionBaseUrl =
+      'https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com/api/v1';
+
+  static const String _useProduction = String.fromEnvironment(
+    'USE_PRODUCTION',
+    defaultValue: 'false',
+  );
+
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
       return _configuredBaseUrl;
+    }
+    if (_useProduction == 'true') {
+      return _productionBaseUrl;
     }
     if (kIsWeb) {
       return 'http://localhost:8080/api/v1';
@@ -278,6 +294,16 @@ class ApiClient {
     double? heightCm,
     String? emergencyContactName,
     String? emergencyContactPhone,
+    String? activityLevel,
+    String? exerciseLimitations,
+    String? primaryGoal,
+    String? rehabPhase,
+    int? stressLevel,
+    String? sleepQuality,
+    String? smokingStatus,
+    String? alcoholFrequency,
+    double? sedentaryHours,
+    int? phq2Score,
   }) async {
     try {
       final data = <String, dynamic>{};
@@ -293,6 +319,18 @@ class ApiClient {
       if (emergencyContactPhone != null) {
         data['emergency_contact_phone'] = emergencyContactPhone;
       }
+      if (activityLevel != null) data['activity_level'] = activityLevel;
+      if (exerciseLimitations != null) {
+        data['exercise_limitations'] = exerciseLimitations;
+      }
+      if (primaryGoal != null) data['primary_goal'] = primaryGoal;
+      if (rehabPhase != null) data['rehab_phase'] = rehabPhase;
+      if (stressLevel != null) data['stress_level'] = stressLevel;
+      if (sleepQuality != null) data['sleep_quality'] = sleepQuality;
+      if (smokingStatus != null) data['smoking_status'] = smokingStatus;
+      if (alcoholFrequency != null) data['alcohol_frequency'] = alcoholFrequency;
+      if (sedentaryHours != null) data['sedentary_hours'] = sedentaryHours;
+      if (phq2Score != null) data['phq2_score'] = phq2Score;
 
       final response = await _dio.put('/users/me', data: data);
       return response.data;
@@ -363,6 +401,11 @@ class ApiClient {
         '/vitals/history',
         queryParameters: {'days': days},
       );
+      // Backend returns {vitals: [...], summary: ..., total, page, per_page}
+      if (response.data is Map && response.data['vitals'] is List) {
+        return response.data['vitals'];
+      }
+      // Fallback for raw list responses
       return response.data is List ? response.data : [];
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -516,6 +559,57 @@ class ApiClient {
   }
 
   // ============ Alert Endpoints ============
+
+  /// Create a new alert for the current user.
+  ///
+  /// Used by patient-side emergency actions (e.g., SOS button).
+  /// Backend contract requires: user_id, alert_type, severity, message.
+  Future<Map<String, dynamic>> createAlert({
+    required String alertType,
+    required String severity,
+    String? notes,
+    String? title,
+    String? actionRequired,
+    String? triggerValue,
+    String? thresholdValue,
+  }) async {
+    try {
+      final profile = await getCurrentUser();
+      final userIdRaw = profile['user_id'] ?? profile['id'];
+      if (userIdRaw == null) {
+        throw 'Unable to determine current user ID';
+      }
+
+      final userId = userIdRaw is int
+          ? userIdRaw
+          : int.tryParse(userIdRaw.toString());
+      if (userId == null) {
+        throw 'Invalid current user ID format';
+      }
+
+      final response = await _dio.post(
+        '/alerts',
+        data: {
+          'user_id': userId,
+          'alert_type': alertType,
+          'severity': severity.toLowerCase(),
+          'message': (notes != null && notes.trim().isNotEmpty)
+              ? notes.trim()
+              : 'Manual alert triggered by patient',
+          if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+          if (actionRequired != null && actionRequired.trim().isNotEmpty)
+            'action_required': actionRequired.trim(),
+          if (triggerValue != null && triggerValue.trim().isNotEmpty)
+            'trigger_value': triggerValue.trim(),
+          if (thresholdValue != null && thresholdValue.trim().isNotEmpty)
+            'threshold_value': thresholdValue.trim(),
+        },
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
 
   /// Get my alerts with pagination and filtering.
   Future<Map<String, dynamic>> getAlerts({
@@ -733,7 +827,107 @@ class ApiClient {
     return getNLRiskSummary();
   }
 
+  /// Send a chat message to the hybrid AI coach (template + Gemini).
+  ///
+  /// Sends the user message and recent conversation history to
+  /// POST /nl/chat. The backend routes to fast templates for known
+  /// topics or Gemini LLM for open-ended questions.
+  Future<String> postNLChat(
+    String message,
+    List<Map<String, String>> conversationHistory,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/nl/chat',
+        data: {
+          'message': message,
+          'conversation_history': conversationHistory,
+        },
+      );
+      if (response.data is Map && response.data['response'] != null) {
+        return response.data['response'] as String;
+      }
+      return 'I can help with your health, workouts, and alerts. What would you like to know?';
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Send an image + chat prompt for multimodal analysis.
+  ///
+  /// Sends multipart form-data to POST /nl/chat-with-image with:
+  /// - image
+  /// - message
+  /// - analysis_type
+  /// - conversation_history (JSON-encoded string)
+  Future<String> postNLChatWithImage(
+    File imageFile,
+    String message,
+    String analysisType,
+    List<Map<String, String>> history,
+  ) async {
+    try {
+      final filename = imageFile.path.split(RegExp(r'[\\/]')).last;
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(
+          imageFile.path,
+          filename: filename,
+        ),
+        'message': message,
+        'analysis_type': analysisType,
+        'conversation_history': jsonEncode(history),
+      });
+
+      final response = await _dio.post(
+        '/nl/chat-with-image',
+        data: formData,
+        options: Options(contentType: 'multipart/form-data'),
+      );
+
+      if (response.data is Map && response.data['response'] != null) {
+        return response.data['response'] as String;
+      }
+      return 'I analyzed the image, but could not format a full response. Please try again.';
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
   // ============ Nutrition Endpoints ============
+
+  /// Analyze a food photo and return detected nutrition data.
+  ///
+  /// Sends multipart form-data to POST /food/analyze-image with field name `image`.
+  Future<Map<String, dynamic>> analyzeFoodImage(File imageFile) async {
+    try {
+      final filename = imageFile.path.split(RegExp(r'[\\/]')).last;
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(
+          imageFile.path,
+          filename: filename,
+        ),
+      });
+
+      final response = await _dio.post(
+        '/food/analyze-image',
+        data: formData,
+        options: Options(contentType: 'multipart/form-data'),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Lookup nutrition data by barcode.
+  Future<Map<String, dynamic>> lookupBarcode(String barcode) async {
+    try {
+      final response = await _dio.get('/food/barcode/$barcode');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
 
   /// Get recent nutrition entries for the current user
   /// 
@@ -880,6 +1074,139 @@ class ApiClient {
   Future<Map<String, dynamic>> markMessageRead(int messageId) async {
     try {
       final response = await _dio.post('/messages/$messageId/read');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  // ============ Medication Reminder Endpoints ============
+
+  /// Get all medication reminders for the current user.
+  /// Returns list of active medications with reminder settings.
+  Future<List<Map<String, dynamic>>> getMedicationReminders() async {
+    try {
+      final response = await _dio.get('/medications/reminders');
+      final data = response.data;
+      if (data is List) {
+        return List<Map<String, dynamic>>.from(data);
+      }
+      return [];
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Update reminder settings for a specific medication.
+  /// 
+  /// PARAMETERS:
+  /// - medId: ID of the medication
+  /// - time: Optional reminder time in HH:MM format (e.g., '08:00')
+  /// - enabled: Optional flag to enable/disable reminders
+  Future<Map<String, dynamic>> updateMedicationReminder(
+    int medId, {
+    String? time,
+    bool? enabled,
+  }) async {
+    try {
+      final data = <String, dynamic>{};
+      if (time != null) data['reminder_time'] = time;
+      if (enabled != null) data['reminder_enabled'] = enabled;
+
+      final response = await _dio.put(
+        '/medications/$medId/reminder',
+        data: data,
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Log whether a medication was taken or skipped for a given day.
+  /// 
+  /// PARAMETERS:
+  /// - medId: ID of the medication
+  /// - date: Date string in YYYY-MM-DD format
+  /// - taken: True if taken, False if skipped
+  Future<Map<String, dynamic>> logAdherence(
+    int medId,
+    String date,
+    bool taken,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/medications/adherence',
+        data: {
+          'medication_id': medId,
+          'date': date,
+          'taken': taken,
+        },
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Get medication adherence history for the current user.
+  /// 
+  /// PARAMETERS:
+  /// - days: Number of days to look back (default 7, max 90)
+  /// 
+  /// RETURNS:
+  /// Map with entries, total_scheduled, total_taken, adherence_percent
+  Future<Map<String, dynamic>> getAdherenceHistory({int days = 7}) async {
+    try {
+      final response = await _dio.get(
+        '/medications/adherence/history',
+        queryParameters: {'days': days},
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  // ============ Rehab Program Endpoints ============
+
+  /// Get the user's active rehab program with session plan and progress.
+  /// Returns the full program object or throws on 404 (not in rehab).
+  Future<Map<String, dynamic>> getRehabProgram() async {
+    try {
+      final response = await _dio.get('/rehab/current-program');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Record a completed rehab session. Returns updated progress.
+  Future<Map<String, dynamic>> completeRehabSession({
+    required int actualDurationMinutes,
+    int? avgHeartRate,
+    int? peakHeartRate,
+    required String activityType,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'actual_duration_minutes': actualDurationMinutes,
+        'activity_type': activityType,
+      };
+      if (avgHeartRate != null) data['avg_heart_rate'] = avgHeartRate;
+      if (peakHeartRate != null) data['peak_heart_rate'] = peakHeartRate;
+
+      final response = await _dio.post('/rehab/complete-session', data: data);
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Get rehab progress summary without modifying state.
+  Future<Map<String, dynamic>> getRehabProgress() async {
+    try {
+      final response = await _dio.get('/rehab/progress');
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
       throw _handleDioError(e);

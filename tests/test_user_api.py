@@ -12,6 +12,7 @@ Covers functions in app/api/user.py:
 - create_user (POST /api/v1/)
 - deactivate_user (DELETE /api/v1/{user_id})
 - get_user_medical_history (GET /api/v1/{user_id}/medical-history)
+- assign_clinician_to_patient (PUT /api/v1/{user_id}/assign-clinician)
 - admin_reset_user_password (POST /api/v1/{user_id}/reset-password - missing branches)
 
 Run with:
@@ -594,6 +595,141 @@ class TestAdminUserManagement:
         )
 
         assert response.status_code == 403
+
+    # =============================================================================
+    # PUT /{user_id}/assign-clinician - Assign clinician to patient
+    # =============================================================================
+
+    def test_assign_clinician_admin_assigns_successfully(self, db_session):
+        """Test admin can assign clinician to patient."""
+        admin = make_user(db_session, "admin_assign@example.com", "Admin Assign", "admin")
+        clinician = make_user(db_session, "doctor_assign@example.com", "Doctor Assign", "clinician")
+        patient = make_user(db_session, "patient_assign@example.com", "Patient Assign", "patient")
+
+        admin_token = get_token(client, "admin_assign@example.com")
+
+        response = client.put(
+            f"/api/v1/users/{patient.user_id}/assign-clinician",
+            params={"clinician_id": clinician.user_id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["patient_id"] == patient.user_id
+        assert body["clinician_id"] == clinician.user_id
+
+        db_session.refresh(patient)
+        assert patient.assigned_clinician_id == clinician.user_id
+
+    def test_assign_clinician_non_admin_returns_403(self, db_session):
+        """Test non-admin cannot assign clinician."""
+        clinician = make_user(db_session, "doctor_nonadmin@example.com", "Doctor NonAdmin", "clinician")
+        patient = make_user(db_session, "patient_nonadmin@example.com", "Patient NonAdmin", "patient")
+
+        patient_token = get_token(client, "patient_nonadmin@example.com")
+
+        response = client.put(
+            f"/api/v1/users/{patient.user_id}/assign-clinician",
+            params={"clinician_id": clinician.user_id},
+            headers={"Authorization": f"Bearer {patient_token}"}
+        )
+
+        assert response.status_code == 403
+
+    def test_assign_clinician_invalid_target_or_role_returns_400(self, db_session):
+        """Test assignment fails when target is not a patient."""
+        admin = make_user(db_session, "admin_invalid_target@example.com", "Admin Invalid", "admin")
+        clinician = make_user(db_session, "doctor_invalid_target@example.com", "Doctor Invalid", "clinician")
+
+        admin_token = get_token(client, "admin_invalid_target@example.com")
+
+        response = client.put(
+            f"/api/v1/users/{admin.user_id}/assign-clinician",
+            params={"clinician_id": clinician.user_id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+
+        assert response.status_code == 400
+        assert "patient" in response.json()["detail"].lower()
+
+    def test_assign_clinician_not_found_returns_404(self, db_session):
+        """Test assignment returns 404 when patient or clinician is missing."""
+        admin = make_user(db_session, "admin_missing_assign@example.com", "Admin Missing", "admin")
+        patient = make_user(db_session, "patient_missing_assign@example.com", "Patient Missing", "patient")
+
+        admin_token = get_token(client, "admin_missing_assign@example.com")
+
+        missing_patient_response = client.put(
+            "/api/v1/users/99999/assign-clinician",
+            params={"clinician_id": patient.user_id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert missing_patient_response.status_code == 404
+
+        missing_clinician_response = client.put(
+            f"/api/v1/users/{patient.user_id}/assign-clinician",
+            params={"clinician_id": 99999},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert missing_clinician_response.status_code == 404
+
+    # =============================================================================
+    # End-to-end admin dashboard workflow
+    # =============================================================================
+
+    def test_admin_user_management_end_to_end_crud_and_assignment(self, db_session):
+        """Test create, update, assign clinician, and delete user in one flow."""
+        admin = make_user(db_session, "admin_e2e@example.com", "Admin E2E", "admin")
+        clinician = make_user(db_session, "doctor_e2e@example.com", "Doctor E2E", "clinician")
+
+        admin_token = get_token(client, "admin_e2e@example.com")
+
+        create_response = client.post(
+            "/api/v1/users",
+            json={
+                "email": "patient_e2e@example.com",
+                "password": "PatientE2E123",
+                "name": "Patient E2E",
+                "age": 29,
+                "gender": "female",
+                "phone": "+13334445555",
+                "role": "patient",
+                "is_active": True,
+                "is_verified": True
+            },
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert create_response.status_code == 200
+
+        created_patient = db_session.query(User).filter(User.email == "patient_e2e@example.com").first()
+        assert created_patient is not None
+
+        update_response = client.put(
+            f"/api/v1/users/{created_patient.user_id}",
+            json={"age": 31, "phone": "+19998887777"},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert update_response.status_code == 200
+
+        assign_response = client.put(
+            f"/api/v1/users/{created_patient.user_id}/assign-clinician",
+            params={"clinician_id": clinician.user_id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert assign_response.status_code == 200
+
+        deactivate_response = client.delete(
+            f"/api/v1/users/{created_patient.user_id}",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert deactivate_response.status_code == 200
+
+        db_session.refresh(created_patient)
+        assert created_patient.age == 31
+        assert created_patient.phone == "+19998887777"
+        assert created_patient.assigned_clinician_id == clinician.user_id
+        assert created_patient.is_active is False
 
     # =============================================================================
     # GET /{user_id}/medical-history - Get user medical history

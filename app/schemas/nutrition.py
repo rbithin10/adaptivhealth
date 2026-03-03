@@ -64,11 +64,63 @@ class NutritionEntryBase(BaseModel):
 class NutritionCreate(NutritionEntryBase):
     """
     Schema for creating a new nutrition entry.
-    
+
     User ID is inferred from authentication.
     Timestamp defaults to current time.
     """
-    pass
+    logged_at: Optional[datetime] = Field(
+        None,
+        description="Optional timestamp for the meal. Defaults to current time if omitted. "
+                    "Allows patients to log meals retroactively.",
+    )
+
+
+class NutritionLogItem(BaseModel):
+    """Single food item included in a logged meal."""
+    food_name: str = Field(..., min_length=1, max_length=200)
+    portion: Optional[str] = Field(None, max_length=100)
+    calories: Optional[int] = Field(None, ge=0, le=5000)
+
+
+class NutritionLogCreate(BaseModel):
+    """Schema for the /nutrition/logs endpoint payload."""
+    user_id: Optional[int] = Field(
+        None,
+        description="Optional user ID from client payload. Server uses authenticated user.",
+    )
+    meal_type: str = Field(..., description="Type of meal")
+    meal_id: Optional[str] = Field(None, max_length=100, description="Recommendation meal ID")
+    items: List[NutritionLogItem] = Field(default_factory=list, description="Meal items")
+    total_calories: int = Field(..., ge=0, le=10000, description="Total meal calories")
+    timestamp: Optional[datetime] = Field(None, description="Meal timestamp")
+    notes: Optional[str] = Field(None, max_length=500, description="Optional user notes")
+    satisfaction_rating: Optional[int] = Field(None, ge=1, le=10, description="Satisfaction 1-10")
+
+    @field_validator("meal_type")
+    @classmethod
+    def validate_meal_type_for_log(cls, v: str) -> str:
+        """Validate meal type for meal logs."""
+        allowed = [mt.value for mt in MealType]
+        if v.lower() not in allowed:
+            raise ValueError(f"meal_type must be one of: {', '.join(allowed)}")
+        return v.lower()
+
+
+class NutritionLogResponse(BaseModel):
+    """Response schema for /nutrition/logs endpoint."""
+    log_id: str
+    user_id: int
+    meal_type: str
+    timestamp: datetime
+    total_calories: int
+    adherence_to_recommendation: float = Field(..., ge=0.0, le=1.0)
+    feedback: str
+    status: str = "logged"
+    meal_date: Optional[date] = Field(
+        None,
+        description="Date the meal was consumed (YYYY-MM-DD). "
+                    "Used for daily grouping/aggregation. Defaults to today.",
+    )
 
 
 class NutritionResponse(NutritionEntryBase):
@@ -104,7 +156,6 @@ class NutritionListResponse(BaseModel):
 class DailyNutritionGoals(BaseModel):
     """Daily macro and micronutrient targets based on cardiac health profile."""
     calories_target: int = Field(..., description="Daily calorie target")
-    sodium_limit_mg: int = Field(..., description="Maximum daily sodium in milligrams")
     potassium_mg: int = Field(..., description="Daily potassium target in milligrams")
     water_liters: float = Field(..., description="Daily water intake goal in liters")
     fiber_grams: int = Field(..., description="Daily fiber target in grams")
@@ -114,7 +165,6 @@ class DailyNutritionGoals(BaseModel):
 class MealNutritionalInfo(BaseModel):
     """Nutritional breakdown for a single meal."""
     calories: int = Field(..., ge=0, description="Calories")
-    sodium_mg: int = Field(..., ge=0, description="Sodium in milligrams")
     potassium_mg: int = Field(..., ge=0, description="Potassium in milligrams")
     protein_grams: int = Field(..., ge=0, description="Protein in grams")
     fiber_grams: int = Field(..., ge=0, description="Fiber in grams")
@@ -137,7 +187,6 @@ class MealRecommendation(BaseModel):
 class DailySummary(BaseModel):
     """Aggregated totals for all recommended meals."""
     total_calories: int = Field(..., ge=0)
-    total_sodium_mg: int = Field(..., ge=0)
     total_potassium_mg: int = Field(..., ge=0)
     total_protein_grams: int = Field(..., ge=0)
     total_fiber_grams: int = Field(..., ge=0)
@@ -146,7 +195,6 @@ class DailySummary(BaseModel):
 
 class StatusVsGoals(BaseModel):
     """Comparison of recommendations against daily targets."""
-    sodium: str = Field(..., description="Sodium status relative to limit")
     potassium: str = Field(..., description="Potassium status relative to target")
     water: str = Field(..., description="Hydration reminder")
     notes: str = Field(..., description="Overall diet quality note")

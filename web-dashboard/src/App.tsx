@@ -9,6 +9,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import PatientDashboardPage from './pages/PatientDashboardPage';
 import PatientsPage from './pages/PatientsPage';
@@ -21,11 +22,44 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
+interface RoleProtectedRouteProps extends ProtectedRouteProps {
+  allowedRoles: Array<'patient' | 'clinician' | 'admin'>;
+}
+
+const getStoredUserRole = (): 'patient' | 'clinician' | 'admin' | null => {
+  const raw = localStorage.getItem('user');
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { user_role?: string; role?: string };
+    const role = (parsed.user_role || parsed.role || '').toLowerCase();
+    if (role === 'patient' || role === 'clinician' || role === 'admin') {
+      return role;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const token = localStorage.getItem('token');
   if (!token) {
     return <Navigate to="/login" replace />;
   }
+  return <>{children}</>;
+};
+
+const RoleProtectedRoute: React.FC<RoleProtectedRouteProps> = ({ children, allowedRoles }) => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const role = getStoredUserRole();
+  if (!role || !allowedRoles.includes(role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <>{children}</>;
 };
 
@@ -51,6 +85,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           path="/dashboard"
           element={
@@ -62,33 +97,33 @@ function App() {
         <Route
           path="/admin"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['admin']}>
               <AdminPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/patients"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['clinician']}>
               <PatientsPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/patients/:patientId"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['clinician']}>
               <PatientDetailPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/messages"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['clinician']}>
               <MessagingPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

@@ -10,24 +10,28 @@ This loads the trained model and returns a risk score.
 # MODEL STATE (globals)................ Line 35
 #
 # FUNCTIONS
-#   - load_ml_model().................. Line 42  (Load model files on startup)
-#   - is_model_loaded()................ Line 82  (Check model state)
-#   - engineer_features().............. Line 88  (Calculate derived features)
-#   - predict_risk()................... Line 145 (Core prediction function)
+#   - load_ml_model().................. Line 50  (Load model files on startup)
+#   - is_model_loaded()................ Line 105 (Check model state)
+#   - ensure_model_loaded()............ Line 110 (Lazy load with retry)
+#   - reload_ml_model()................ Line 130 (Force reload for recovery)
+#   - engineer_features().............. Line 140 (Calculate derived features)
+#   - predict_risk()................... Line 200 (Core prediction function)
 #
 # CLASS
-#   - MLPredictionService.............. Line 218 (Wrapper for DI)
-#   - get_ml_service()................. Line 229 (Singleton factory)
+#   - MLPredictionService.............. Line 275 (Wrapper for DI)
+#   - get_ml_service()................. Line 290 (Singleton factory)
 #
 # BUSINESS CONTEXT:
 # - Random Forest model predicts cardiac risk 0.0-1.0
 # - Uses 17 engineered features (HR ratios, reserves, zones)
 # - Loaded once at startup, shared across all requests
+# - Auto-retries on failure (max 3 attempts with backoff)
 # =============================================================================
 """
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 import threading
@@ -48,8 +52,13 @@ FEATURES_PATH = BASE_DIR / "ml_models" / "feature_columns.json"
 model = None
 scaler = None
 feature_columns = None
-_model_load_attempted = False
 _model_load_lock = threading.Lock()
+
+# ---- Retry configuration ----
+_MAX_LOAD_RETRIES = 3
+_load_attempt_count = 0
+_last_load_attempt_time: float = 0.0
+_RETRY_COOLDOWN_SECONDS = 30  # Wait 30s between retry attempts
 
 
 def _load_ml_model_inner(result: dict) -> None:
@@ -78,7 +87,7 @@ def _load_ml_model_inner(result: dict) -> None:
         result["ok"] = False
 
 
-def load_ml_model(timeout: int = 15) -> bool:
+def load_ml_model(timeout: int = 30) -> bool:
     """
     Load the model files from disk on app startup with a timeout.
 
@@ -86,14 +95,17 @@ def load_ml_model(timeout: int = 15) -> bool:
     (e.g. version mismatch) does not block server startup forever.
 
     Args:
-        timeout: Maximum seconds to wait for model loading (default 15).
+        timeout: Maximum seconds to wait for model loading (default 30).
 
     Returns:
         True if successful, False on any error or timeout.
     """
-    global model, scaler, feature_columns, _model_load_attempted
+    global model, scaler, feature_columns, _load_attempt_count, _last_load_attempt_time
 
-    _model_load_attempted = True
+    _load_attempt_count += 1
+    _last_load_attempt_time = time.time()
+
+    logger.info(f"ML model load attempt {_load_attempt_count}/{_MAX_LOAD_RETRIES}")
 
     result: dict = {"ok": False}
     loader = threading.Thread(target=_load_ml_model_inner, args=(result,), daemon=True)
@@ -112,6 +124,7 @@ def load_ml_model(timeout: int = 15) -> bool:
         model = result["model"]
         scaler = result["scaler"]
         feature_columns = result["feature_columns"]
+        logger.info("ML model loaded successfully")
         return True
 
     return False
@@ -119,19 +132,62 @@ def load_ml_model(timeout: int = 15) -> bool:
 
 def ensure_model_loaded() -> bool:
     """
-    Ensure the ML model is loaded, attempting once if needed.
+    Ensure the ML model is loaded, retrying if previous attempts failed.
+
+    Allows up to _MAX_LOAD_RETRIES attempts with a cooldown period
+    between retries to avoid hammering the disk on repeated failures.
 
     Returns:
         True if model is loaded, False otherwise.
     """
+    global _load_attempt_count
+
     if is_model_loaded():
         return True
 
     with _model_load_lock:
+        # Double-check after acquiring lock
         if is_model_loaded():
             return True
-        if _model_load_attempted:
+
+        # Check if we've exhausted all retries
+        if _load_attempt_count >= _MAX_LOAD_RETRIES:
+            logger.warning(
+                f"ML model load exhausted all {_MAX_LOAD_RETRIES} retries. "
+                "Use reload_ml_model() or restart the server to try again."
+            )
             return False
+
+        # Enforce cooldown between retry attempts
+        elapsed = time.time() - _last_load_attempt_time
+        if _load_attempt_count > 0 and elapsed < _RETRY_COOLDOWN_SECONDS:
+            logger.info(
+                f"ML model retry cooldown: {_RETRY_COOLDOWN_SECONDS - elapsed:.0f}s remaining"
+            )
+            return False
+
+        return load_ml_model()
+
+
+def reload_ml_model() -> bool:
+    """
+    Force-reload the ML model, resetting retry counters.
+
+    Use this to recover from a failed load without restarting the server.
+    Can be called from an admin endpoint or a management command.
+
+    Returns:
+        True if model loaded successfully, False otherwise.
+    """
+    global _load_attempt_count, _last_load_attempt_time, model, scaler, feature_columns
+
+    with _model_load_lock:
+        logger.info("Force-reloading ML model (resetting retry counters)")
+        _load_attempt_count = 0
+        _last_load_attempt_time = 0.0
+        model = None
+        scaler = None
+        feature_columns = None
         return load_ml_model()
 
 
@@ -287,3 +343,56 @@ def get_ml_service() -> MLPredictionService:
     """Get the ML prediction service (for backward compatibility)."""
     ensure_model_loaded()
     return MLPredictionService()
+
+
+# =============================================================================
+# Medical History Risk Adjustments
+# =============================================================================
+
+def apply_medical_adjustments(
+    risk_score: float,
+    medical_profile: Dict[str, Any]
+) -> tuple:
+    """
+    Post-process ML risk score using patient medical history.
+
+    Applied AFTER the RandomForest prediction to account for
+    clinical factors not in the training data.
+
+    Returns:
+        (adjusted_risk_score, list_of_adjustment_reasons)
+    """
+    adjustments = []
+
+    # Prior MI: +0.10 risk
+    if medical_profile.get("has_prior_mi"):
+        risk_score = min(1.0, risk_score + 0.10)
+        adjustments.append("Prior MI: +0.10 risk")
+
+    # Heart failure: +0.05 to +0.20 based on NYHA class
+    if medical_profile.get("has_heart_failure"):
+        nyha_bumps = {"I": 0.05, "II": 0.10, "III": 0.15, "IV": 0.20}
+        hf_class = medical_profile.get("heart_failure_class", "II")
+        bump = nyha_bumps.get(hf_class, 0.10)
+        risk_score = min(1.0, risk_score + bump)
+        adjustments.append(f"Heart failure NYHA {hf_class}: +{bump:.2f} risk")
+
+    # Anticoagulant: +0.05 (fall/bleed risk during exercise)
+    if medical_profile.get("is_on_anticoagulant"):
+        risk_score = min(1.0, risk_score + 0.05)
+        adjustments.append("On anticoagulant (bleed risk): +0.05 risk")
+
+    return round(risk_score, 4), adjustments
+
+
+def get_adjusted_max_hr(age: int, is_on_beta_blocker: bool) -> int:
+    """
+    Calculate max heart rate adjusted for beta-blocker therapy.
+
+    Beta-blockers blunt HR response by ~25%. Uses conservative
+    Kokkinos-adjusted formula: (220 - age) * 0.75.
+    """
+    base_max = 220 - age if age else 180
+    if is_on_beta_blocker:
+        return int(base_max * 0.75)
+    return base_max

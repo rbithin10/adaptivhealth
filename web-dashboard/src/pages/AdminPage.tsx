@@ -19,6 +19,7 @@ import {
   XCircle,
   Edit2,
 } from 'lucide-react';
+import { Snackbar, Alert as MuiAlert } from '@mui/material';
 import { api } from '../services/api';
 import { User } from '../types';
 import { colors } from '../theme/colors';
@@ -57,6 +58,32 @@ const AdminPage: React.FC = () => {
   const [editPhone, setEditPhone] = useState('');
   const [editMessage, setEditMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
+
+  const showSnackbar = (message: string, severity: 'success' | 'error') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
+
+  const getErrorMessage = (err: unknown, fallback: string): string => {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'response' in err &&
+      typeof (err as { response?: { data?: { error?: { message?: string }; detail?: string } } }).response === 'object'
+    ) {
+      const responseData = (err as { response?: { data?: { error?: { message?: string }; detail?: string } } }).response?.data;
+      return responseData?.error?.message || responseData?.detail || fallback;
+    }
+    return err instanceof Error ? err.message : fallback;
+  };
+
+  const getUserRole = (user: Partial<User> & { role?: string; user_role?: string }): string => {
+    return ((user.user_role || user.role || '') as string).toLowerCase();
+  };
 
   useEffect(() => {
     loadData();
@@ -72,7 +99,7 @@ const AdminPage: React.FC = () => {
       setCurrentUser(user);
 
       // Check admin role
-      const role = (user as any).role || (user as any).user_role;
+      const role = getUserRole(user as User);
       if (role !== 'admin') {
         navigate('/dashboard');
         return;
@@ -81,9 +108,7 @@ const AdminPage: React.FC = () => {
       setUsers(usersList.users);
       
       // Filter clinicians for assignment dropdown
-      const clinicianList = usersList.users.filter(
-        (u: any) => (u.role === 'clinician' || u.role === 'CLINICIAN')
-      );
+      const clinicianList = usersList.users.filter((u) => getUserRole(u) === 'clinician');
       setClinicians(clinicianList);
     } catch (error) {
       console.error('Error loading admin data:', error);
@@ -113,9 +138,9 @@ const AdminPage: React.FC = () => {
       setNewName('');
       setNewPassword('');
       setShowCreateForm(false);
-      loadData();
-    } catch (err: any) {
-      setCreateMessage(err.response?.data?.error?.message || err.response?.data?.detail || 'Failed to create user');
+      await loadData();
+    } catch (err: unknown) {
+      setCreateMessage(getErrorMessage(err, 'Failed to create user'));
     } finally {
       setIsSubmitting(false);
     }
@@ -131,8 +156,8 @@ const AdminPage: React.FC = () => {
       setResetMessage('Password reset successfully');
       setResetUserId(null);
       setResetPassword('');
-    } catch (err: any) {
-      setResetMessage(err.response?.data?.error?.message || err.response?.data?.detail || 'Failed to reset password');
+    } catch (err: unknown) {
+      setResetMessage(getErrorMessage(err, 'Failed to reset password'));
     } finally {
       setIsSubmitting(false);
     }
@@ -143,9 +168,9 @@ const AdminPage: React.FC = () => {
     setIsSubmitting(true);
     try {
       await api.deactivateUser(userId);
-      loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to deactivate user');
+      await loadData();
+    } catch (err: unknown) {
+      showSnackbar(getErrorMessage(err, 'Failed to deactivate user'), 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -175,12 +200,8 @@ const AdminPage: React.FC = () => {
       setEditMessage('User updated successfully');
       setEditUserId(null);
       loadData();
-    } catch (err: any) {
-      setEditMessage(
-        err.response?.data?.error?.message ||
-        err.response?.data?.detail ||
-        'Failed to update user'
-      );
+    } catch (err: unknown) {
+      setEditMessage(getErrorMessage(err, 'Failed to update user'));
     } finally {
       setIsSubmitting(false);
     }
@@ -194,13 +215,9 @@ const AdminPage: React.FC = () => {
       setAssignMessage(`Patient assigned to clinician successfully`);
       setAssigningPatient(null);
       setSelectedClinician(null);
-      loadData(); // Reload to show updated assignment
-    } catch (err: any) {
-      setAssignMessage(
-        err.response?.data?.error?.message ||
-        err.response?.data?.detail ||
-        'Failed to assign clinician'
-      );
+      await loadData(); // Reload to show updated assignment
+    } catch (err: unknown) {
+      setAssignMessage(getErrorMessage(err, 'Failed to assign clinician'));
     } finally {
       setIsSubmitting(false);
     }
@@ -457,9 +474,9 @@ const AdminPage: React.FC = () => {
           </div>
 
           {users.map((u, idx) => {
-            const userRole = (u as any).role || (u as any).user_role;
-            const isPatient = userRole === 'patient' || userRole === 'PATIENT';
-            const assignedClinicianId = (u as any).assigned_clinician_id;
+            const userRole = getUserRole(u);
+            const isPatient = userRole === 'patient';
+            const assignedClinicianId = u.assigned_clinician_id;
             const assignedClinician = assignedClinicianId 
               ? clinicians.find(c => c.user_id === assignedClinicianId)
               : null;
@@ -478,8 +495,8 @@ const AdminPage: React.FC = () => {
                 </div>
                 <div style={{
                   display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
-                  backgroundColor: userRole === 'admin' || userRole === 'ADMIN' ? '#E3F2FD' : (userRole === 'clinician' || userRole === 'CLINICIAN') ? '#E8F5E9' : '#FFF3E0',
-                  color: userRole === 'admin' || userRole === 'ADMIN' ? '#1565C0' : (userRole === 'clinician' || userRole === 'CLINICIAN') ? '#2E7D32' : '#E65100',
+                  backgroundColor: userRole === 'admin' ? '#E3F2FD' : userRole === 'clinician' ? '#E8F5E9' : '#FFF3E0',
+                  color: userRole === 'admin' ? '#1565C0' : userRole === 'clinician' ? '#2E7D32' : '#E65100',
                 }}>
                   {userRole}
                 </div>
@@ -651,6 +668,17 @@ const AdminPage: React.FC = () => {
           Showing {users.length} users. Admin users cannot view patient health data (PHI).
         </p>
       </main>
+
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={4000}
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <MuiAlert onClose={() => setSnackbarOpen(false)} severity={snackbarSeverity} variant="filled">
+          {snackbarMessage}
+        </MuiAlert>
+      </Snackbar>
     </div>
   );
 };

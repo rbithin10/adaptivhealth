@@ -20,6 +20,17 @@ Work ONLY inside:
 - `design files/BACKEND_API_SPECIFICATIONS.md`
 - `adaptiv_health_design_analysis.jsx`
 
+## Technical Constraints
+
+- **HTTP client**: Axios with interceptors — see `web-dashboard/src/services/api.ts`
+- **Auth**: Bearer token stored in `localStorage`; Axios request interceptor adds it automatically
+- **API base**: Configurable via `REACT_APP_API_URL` env var; defaults to AWS ALB (`https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com`)
+- **Types**: TypeScript interfaces in `web-dashboard/src/types/index.ts`
+- **State**: Local component state + Axios; no Redux/MobX
+- **Central API service**: `ApiService` class in `api.ts` — route ALL API calls through it, never use raw `fetch()` or standalone Axios
+- **Device source display**: Show `source_device` field on patient vitals (e.g., "Polar H10", "Apple Watch", "Mock") so clinicians know data provenance
+- **Do not change backend API contracts**; consume existing endpoints cleanly
+
 ## Responsibilities
 
 Implement clinician workflows that mirror and complement the patient app:

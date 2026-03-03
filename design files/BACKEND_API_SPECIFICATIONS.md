@@ -41,14 +41,12 @@ GET /nutrition/recommendations?user_id=user123&date=2026-02-15&include_recipes=t
   "user_id": "user123",
   "daily_nutrition_goals": {
     "calories_target": 2000,
-    "sodium_limit_mg": 2300,
     "potassium_mg": 3500,
     "water_liters": 2.5,
     "fiber_grams": 25,
     "protein_grams": 75
   },
   "meal_restrictions": [
-    "high_sodium",
     "saturated_fats",
     "processed_foods"
   ],
@@ -76,7 +74,6 @@ GET /nutrition/recommendations?user_id=user123&date=2026-02-15&include_recipes=t
       },
       "nutritional_info": {
         "calories": 320,
-        "sodium_mg": 150,
         "potassium_mg": 450,
         "protein_grams": 12,
         "fiber_grams": 8,
@@ -111,14 +108,13 @@ GET /nutrition/recommendations?user_id=user123&date=2026-02-15&include_recipes=t
       },
       "nutritional_info": {
         "calories": 520,
-        "sodium_mg": 200,
         "potassium_mg": 650,
         "protein_grams": 35,
         "fiber_grams": 5,
         "saturated_fat_grams": 2
       },
       "benefits": "Lean protein, whole grains, rich in vitamins",
-      "cardiovascular_notes": "Low sodium preparation supports blood pressure management",
+      "cardiovascular_notes": "Minimally processed preparation supports blood pressure management",
       "recipe_id": "recipe_002",
       "prep_time_minutes": 20,
       "difficulty": "easy"
@@ -133,7 +129,6 @@ GET /nutrition/recommendations?user_id=user123&date=2026-02-15&include_recipes=t
       },
       "nutritional_info": {
         "calories": 180,
-        "sodium_mg": 0,
         "potassium_mg": 195,
         "protein_grams": 6,
         "fiber_grams": 4,
@@ -156,7 +151,6 @@ GET /nutrition/recommendations?user_id=user123&date=2026-02-15&include_recipes=t
       },
       "nutritional_info": {
         "calories": 480,
-        "sodium_mg": 180,
         "potassium_mg": 800,
         "protein_grams": 32,
         "fiber_grams": 6,
@@ -168,14 +162,12 @@ GET /nutrition/recommendations?user_id=user123&date=2026-02-15&include_recipes=t
   ],
   "daily_summary": {
     "total_calories": 1500,
-    "total_sodium_mg": 530,
     "total_potassium_mg": 2095,
     "total_protein_grams": 85,
     "total_fiber_grams": 23,
     "total_saturated_fat_grams": 6
   },
   "status_vs_goals": {
-    "sodium": "Within limits (23% of daily allowance)",
     "potassium": "60% of recommended daily intake",
     "water": "Track throughout the day (2.5 liters goal)",
     "notes": "Excellent for cardiovascular recovery. Focus on hydration."
@@ -224,14 +216,12 @@ Authorization: Bearer {jwt_token}
     {
       "food_name": "oatmeal",
       "portion": "0.5 cup dry",
-      "calories": 150,
-      "sodium_mg": 100
+      "calories": 150
     },
     {
       "food_name": "berries",
       "portion": "1 cup mixed",
-      "calories": 85,
-      "sodium_mg": 5
+      "calories": 85
     }
   ],
   "total_calories": 235,
@@ -249,9 +239,8 @@ Authorization: Bearer {jwt_token}
   "meal_type": "breakfast",
   "timestamp": "2026-02-15T08:30:00Z",
   "total_calories": 235,
-  "total_sodium_mg": 105,
   "adherence_to_recommendation": 0.95,  # How well it matched suggestion
-  "feedback": "Excellent choice! Low sodium, high fiber.",
+  "feedback": "Excellent choice! High fiber and nutrient-dense.",
   "status": "logged"
 }
 ```
@@ -285,7 +274,6 @@ GET /nutrition/progress?user_id=user123&start_date=2026-02-08&end_date=2026-02-1
       "date": "2026-02-15",
       "meals_logged": 4,
       "total_calories": 1500,
-      "avg_sodium_mg": 530,
       "adherence_score": 0.92,
       "notes": "Good day, followed recommendations"
     },
@@ -293,24 +281,20 @@ GET /nutrition/progress?user_id=user123&start_date=2026-02-08&end_date=2026-02-1
       "date": "2026-02-14",
       "meals_logged": 3,
       "total_calories": 1450,
-      "avg_sodium_mg": 580,
       "adherence_score": 0.85,
-      "notes": "Slightly high sodium at dinner"
+      "notes": "Slightly heavy dinner portions"
     }
   ],
   "weekly_average": {
     "calories_per_day": 1500,
-    "sodium_per_day_mg": 550,
     "adherence_to_recommendations": 0.89,
     "consistency": "Good - 6/7 days logged"
   },
   "trends": {
-    "sodium_trend": "Decreasing (good for BP management)",
     "calorie_trend": "Stable",
     "recommendation_adherence": "Improving"
   },
   "goals_status": {
-    "sodium_control": "On track",
     "hydration": "Below target (avg 1.8L/day, goal 2.5L)",
     "recommendation": "Increase water intake by 700ml daily"
   }
@@ -423,7 +407,7 @@ GET /messaging/conversations?user_id=user123&include_unread=true
       "last_message": {
         "message_id": "msg_458",
         "sender_id": "doc_003",
-        "content": "Reduce sodium intake to below 2300mg daily. Avoid processed foods.",
+        "content": "Focus on minimally processed foods and balanced meals. Stay hydrated.",
         "timestamp": "2026-02-13T11:00:00Z",
         "type": "text"
       },
@@ -968,7 +952,6 @@ Messaging Endpoints:
 ### Nutrition API Testing
 - [ ] GET /nutrition/recommendations returns valid meal data
 - [ ] POST /nutrition/logs correctly records meals
-- [ ] Sodium limits enforced based on cardiovascular status
 - [ ] Potassium recommendations increase during cardiac recovery
 - [ ] Nutritionist assignments properly linked
 - [ ] Offline data caching works for recommendations

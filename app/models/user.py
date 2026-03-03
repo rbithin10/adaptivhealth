@@ -108,6 +108,20 @@ class User(Base):
     share_decision = Column(String(20), nullable=True)
     share_reason = Column(String(500), nullable=True)
     
+    # Cardiac Rehab Phase (set during onboarding)
+    rehab_phase = Column(String(30), nullable=True, default="not_in_rehab")  # phase_2, phase_3, not_in_rehab
+
+    # Lifestyle & wellness data (collected during onboarding)
+    activity_level = Column(String(20), nullable=True)       # none, light, moderate, active
+    exercise_limitations = Column(Text, nullable=True)       # JSON list, e.g. '["joint_pain","shortness_of_breath"]'
+    primary_goal = Column(String(50), nullable=True)         # reduce_bp, lose_weight, post_surgery_recovery, general_heart_health
+    stress_level = Column(Integer, nullable=True)            # 1-10
+    sleep_quality = Column(String(10), nullable=True)        # good, fair, poor
+    smoking_status = Column(String(20), nullable=True)       # never, former, current
+    alcohol_frequency = Column(String(20), nullable=True)    # never, occasional, moderate, heavy
+    sedentary_hours = Column(Float, nullable=True)           # 0-24
+    phq2_score = Column(Integer, nullable=True)              # 0-6
+
     # Clinician Assignment (for patient messaging + care coordination)
     assigned_clinician_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True)
 
@@ -144,6 +158,16 @@ class User(Base):
     nutrition_entries = relationship(
         "NutritionEntry", back_populates="user",
         cascade="all, delete-orphan", lazy="dynamic"
+    )
+    medical_conditions = relationship(
+        "PatientMedicalHistory", back_populates="user",
+        cascade="all, delete-orphan", lazy="dynamic",
+        foreign_keys="[PatientMedicalHistory.user_id]"
+    )
+    medications = relationship(
+        "PatientMedication", back_populates="user",
+        cascade="all, delete-orphan", lazy="dynamic",
+        foreign_keys="[PatientMedication.user_id]"
     )
 
     # -------------------------------------------------------------------------

@@ -31,6 +31,9 @@ class ChatStore extends ChangeNotifier {
   /// Whether the AI is currently generating a response.
   bool _isTyping = false;
 
+  /// Current app section used to provide context for AI responses.
+  String _currentScreen = 'home';
+
   // ---------------------------------------------------------------------------
   // Public getters
   // ---------------------------------------------------------------------------
@@ -39,6 +42,14 @@ class ChatStore extends ChangeNotifier {
   List<ChatMessage> get messages => List.unmodifiable(_messages);
 
   bool get isTyping => _isTyping;
+
+  String get currentScreen => _currentScreen;
+
+  set currentScreen(String value) {
+    if (_currentScreen == value) return;
+    _currentScreen = value;
+    notifyListeners();
+  }
 
   // ---------------------------------------------------------------------------
   // Mutations

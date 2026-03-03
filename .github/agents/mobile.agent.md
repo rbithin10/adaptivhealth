@@ -22,6 +22,39 @@ Work ONLY inside:
 - `design files/CURRENT_APP_ANALYSIS.md`
 - `PROFESSIONAL_UX_REDESIGN.md`
 
+## Technical Constraints
+
+- **State management**: Provider only (not Riverpod, Bloc, GetX)
+- **HTTP client**: Dio (not http package) — see `mobile-app/lib/services/api_client.dart`
+- **BLE**: flutter_blue_plus (not flutter_reactive_ble or quick_blue)
+- **ML**: EdgeMLService is a pure-Dart RandomForest walk (NOT TFLite) — see `mobile-app/lib/services/edge_ml_service.dart`
+- **Never change backend API contracts**; respect existing JSON models and fields like `source_device`, `device_id`, `confidence_score`, `processed_by_edge_ai`
+
+## Vitals Pipeline (Critical Path)
+
+```
+BLE/HealthKit/Mock → VitalsProvider → EdgeAiStore.processVitals()
+    → EdgeMLService (pure-Dart RF, ~10ms) + EdgeAlertService (thresholds)
+    → CloudSyncService (offline queue, 15min batch sync)
+    → ApiClient.submitVitalSigns() → POST /vitals/batch-sync
+```
+
+Key services:
+- `mock_vitals_service.dart` — dev/demo mode (keep working, don't break)
+- `edge_ai_store.dart` — orchestrates ML + alerts + GPS + sync
+- `edge_ml_service.dart` — loads `assets/ml_models/tree_ensemble.json` (100 trees)
+- `cloud_sync_service.dart` — offline-first queue with 15min background sync
+- `api_client.dart` — all HTTP calls, JWT auth via Dio interceptors
+
+## BLE Integration (Upcoming)
+
+- **Package**: flutter_blue_plus
+- **Target**: GATT Heart Rate Service `0x180D`, characteristic `0x2A37` (HR + RR-intervals for HRV)
+- **Devices**: Coospo H808S, Polar H10 (standard GATT, no proprietary SDK needed)
+- **Architecture**: Build `BleService` that feeds `VitalsProvider` → existing `EdgeAiStore` pipeline unchanged
+- **Fallback chain**: BLE → HealthKit/Google Fit (`health` package) → Mock
+- **Permissions**: Android 12+: `BLUETOOTH_SCAN` + `BLUETOOTH_CONNECT`; Android <12: + `ACCESS_FINE_LOCATION`; iOS: `NSBluetoothAlwaysUsageDescription` + `bluetooth-central` background mode
+
 ## Responsibilities
 
 Implement the main patient flows described in the design documents and UX redesign:
@@ -42,7 +75,7 @@ Implement the main patient flows described in the design documents and UX redesi
   - Activity history. [file:74]
 
 - **NUTRITION TAB**
-  - Daily goals (e.g., calories, sodium).
+  - Daily goals (e.g., calories).
   - Meal recommendations.
   - Meal logging.
   - Weekly nutrition progress. [file:74]

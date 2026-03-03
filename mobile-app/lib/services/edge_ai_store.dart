@@ -22,6 +22,7 @@ import 'edge_ml_service.dart';
 import 'edge_alert_service.dart';
 import 'gps_location_service.dart';
 import 'cloud_sync_service.dart';
+import 'notification_service.dart';
 import '../models/edge_prediction.dart';
 
 // ============================================================================
@@ -58,15 +59,23 @@ class EdgeAiStore extends ChangeNotifier {
   // Sync status
   bool isSyncing = false;
   int pendingSyncCount = 0;
+  CloudSyncState syncState = CloudSyncState.idle;
+  bool isConnectivityOnline = false;
+  DateTime? lastConnectivityProbeAt;
   DateTime? lastSyncTime;
   String? lastSyncErrorType;
   String? lastSyncErrorMessage;
   DateTime? lastSyncErrorAt;
+  String? lastQueueEventType;
+  String? lastQueueEventMessage;
+  DateTime? lastQueueEventAt;
 
   // Model info
   String modelVersion = 'unknown';
   bool modelLoaded = false;
   bool _isDisposed = false;
+  DateTime? _lastEdgeAlertNotificationAt;
+  bool _wasCriticalPreviousCycle = false;
 
   // ---- Rolling window for realistic ML features ----
   // The Random Forest was trained on activity sessions (30+ readings), not
@@ -86,10 +95,16 @@ class EdgeAiStore extends ChangeNotifier {
       if (_isDisposed) return;
       isSyncing = _syncService.isSyncing;
       pendingSyncCount = _syncService.pendingCount;
+      syncState = _syncService.syncState;
+      isConnectivityOnline = _syncService.isConnectivityOnline;
+      lastConnectivityProbeAt = _syncService.lastConnectivityProbeAt;
       lastSyncTime = _syncService.lastSyncTime;
       lastSyncErrorType = _syncService.lastSyncErrorType;
       lastSyncErrorMessage = _syncService.lastSyncErrorMessage;
       lastSyncErrorAt = _syncService.lastSyncErrorAt;
+      lastQueueEventType = _syncService.lastQueueEventType;
+      lastQueueEventMessage = _syncService.lastQueueEventMessage;
+      lastQueueEventAt = _syncService.lastQueueEventAt;
       notifyListeners();
     });
   }
@@ -121,10 +136,16 @@ class EdgeAiStore extends ChangeNotifier {
       await _syncService.initialize();
       pendingSyncCount = _syncService.pendingCount;
       isSyncing = _syncService.isSyncing;
+      syncState = _syncService.syncState;
+      isConnectivityOnline = _syncService.isConnectivityOnline;
+      lastConnectivityProbeAt = _syncService.lastConnectivityProbeAt;
       lastSyncTime = _syncService.lastSyncTime;
       lastSyncErrorType = _syncService.lastSyncErrorType;
       lastSyncErrorMessage = _syncService.lastSyncErrorMessage;
       lastSyncErrorAt = _syncService.lastSyncErrorAt;
+      lastQueueEventType = _syncService.lastQueueEventType;
+      lastQueueEventMessage = _syncService.lastQueueEventMessage;
+      lastQueueEventAt = _syncService.lastQueueEventAt;
 
       isReady = true;
 
@@ -220,6 +241,8 @@ class EdgeAiStore extends ChangeNotifier {
     final isCritical = activeAlerts.any((a) => a.severity == 'critical') ||
         (latestPrediction != null && latestPrediction!.riskScore >= 0.80);
 
+    _maybeNotifyCriticalDetection(isCritical);
+
     if (isCritical) {
       await _captureGpsEmergency(
         heartRate: heartRate,
@@ -262,10 +285,16 @@ class EdgeAiStore extends ChangeNotifier {
 
     isSyncing = _syncService.isSyncing;
     pendingSyncCount = _syncService.pendingCount;
+    syncState = _syncService.syncState;
+    isConnectivityOnline = _syncService.isConnectivityOnline;
+    lastConnectivityProbeAt = _syncService.lastConnectivityProbeAt;
     lastSyncTime = _syncService.lastSyncTime;
     lastSyncErrorType = _syncService.lastSyncErrorType;
     lastSyncErrorMessage = _syncService.lastSyncErrorMessage;
     lastSyncErrorAt = _syncService.lastSyncErrorAt;
+    lastQueueEventType = _syncService.lastQueueEventType;
+    lastQueueEventMessage = _syncService.lastQueueEventMessage;
+    lastQueueEventAt = _syncService.lastQueueEventAt;
     notifyListeners();
 
     return success;
@@ -331,11 +360,36 @@ class EdgeAiStore extends ChangeNotifier {
     Future.microtask(() async {
       await _syncService.trySync();
       pendingSyncCount = _syncService.pendingCount;
+      syncState = _syncService.syncState;
+      isConnectivityOnline = _syncService.isConnectivityOnline;
+      lastConnectivityProbeAt = _syncService.lastConnectivityProbeAt;
       lastSyncTime = _syncService.lastSyncTime;
       lastSyncErrorType = _syncService.lastSyncErrorType;
       lastSyncErrorMessage = _syncService.lastSyncErrorMessage;
       lastSyncErrorAt = _syncService.lastSyncErrorAt;
+      lastQueueEventType = _syncService.lastQueueEventType;
+      lastQueueEventMessage = _syncService.lastQueueEventMessage;
+      lastQueueEventAt = _syncService.lastQueueEventAt;
       notifyListeners();
     });
+  }
+
+  void _maybeNotifyCriticalDetection(bool isCritical) {
+    final now = DateTime.now();
+    final isNewCriticalCycle = isCritical && !_wasCriticalPreviousCycle;
+    final lastNotified = _lastEdgeAlertNotificationAt;
+    final outsideDebounce =
+        lastNotified == null || now.difference(lastNotified) >= const Duration(minutes: 5);
+
+    if (isNewCriticalCycle && outsideDebounce) {
+      NotificationService.instance.showAlert(
+        title: 'Health Alert',
+        body: 'Abnormal vitals detected — please check your readings',
+        payload: 'edge_ai_critical',
+      );
+      _lastEdgeAlertNotificationAt = now;
+    }
+
+    _wasCriticalPreviousCycle = isCritical;
   }
 }

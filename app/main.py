@@ -9,13 +9,16 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import init_db, check_db_connection
-from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent, nl_endpoints, nutrition, messages
+from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent, nl_endpoints, nutrition, messages, medical_history, medication_reminder, rehab, food_analysis
+from app.rate_limiter import limiter
 from app.services.ml_prediction import load_ml_model
 
 # Configure logging
@@ -85,6 +88,18 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
+# SlowAPI rate limiter
+app.state.limiter = limiter
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Return 429 with Retry-After header when rate limit is hit."""
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}"},
+        headers={"Retry-After": str(getattr(exc, "retry_after", 60))},
+    )
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
 
 # =============================================================================
 # Middleware
@@ -94,10 +109,13 @@ app = FastAPI(
 # Using regex to allow any localhost/127.0.0.1 port for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
+    allow_origin_regex=(
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"   # 
+        r"|^https://(dashboard\.|www\.)?adaptivhealth\.com$"  # production dashboard
+    ),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
 # Trusted host middleware for security
@@ -108,8 +126,9 @@ if not settings.debug:
             "api.adaptivhealth.com",
             "adaptivhealth.com",
             "dashboard.adaptivhealth.com",
+            "adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com",
             "localhost",
-            "127.0.0.1"
+            "127.0.0.1",
         ]
     )
 
@@ -156,28 +175,40 @@ async def log_requests(request: Request, call_next):
 # Exception Handlers
 # =============================================================================
 
+def _cors_headers(request: Request) -> dict:
+    """Build CORS headers from request origin so error responses aren't blocked by the browser."""
+    origin = request.headers.get("origin", "")
+    if re.match(r"^http://(localhost|127\.0\.0\.1):\d+$", origin):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """
     Global HTTP exception handler.
-    
+
     Returns FastAPI standard error format for consistency with clients.
     """
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail}
+        content={"detail": exc.detail},
+        headers=_cors_headers(request),
     )
 
 
 @app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
+async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Global exception handler for unhandled errors.
-    
+
     Logs error and returns generic response.
     """
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    
+
     return JSONResponse(
         status_code=500,
         content={
@@ -186,7 +217,8 @@ async def general_exception_handler(request: Request, exc: Exception):
                 "message": "Internal server error",
                 "type": "server_error"
             }
-        }
+        },
+        headers=_cors_headers(request),
     )
 
 
@@ -267,6 +299,34 @@ app.include_router(
     messages.router,
     prefix="/api/v1",
     tags=["Messages"]
+)
+
+# Medical History & Medications routes
+app.include_router(
+    medical_history.router,
+    prefix="/api/v1",
+    tags=["Medical Profile"]
+)
+
+# Medication Reminders routes
+app.include_router(
+    medication_reminder.router,
+    prefix="/api/v1",
+    tags=["Medication Reminders"]
+)
+
+# Rehab Programs routes
+app.include_router(
+    rehab.router,
+    prefix="/api/v1",
+    tags=["Rehab Programs"]
+)
+
+# Food Analysis routes
+app.include_router(
+    food_analysis.router,
+    prefix="/api/v1/food",
+    tags=["Food Analysis"]
 )
 
 

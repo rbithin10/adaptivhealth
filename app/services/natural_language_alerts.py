@@ -25,7 +25,72 @@ patient-friendly, plain-language messages.
 import logging
 from typing import Dict, Any, Optional, List
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
+
+
+def generate_ai_risk_summary(
+    risk_score: float,
+    risk_level: str,
+    drivers: List[str],
+    avg_heart_rate: Optional[int] = None,
+    avg_spo2: Optional[int] = None,
+    alert_count_24h: Optional[int] = None,
+) -> str:
+    """
+    Generate a Gemini-powered natural-language risk summary.
+
+    Raises:
+        RuntimeError: If Gemini is not configured or generation fails.
+    """
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise RuntimeError("Gemini API key is not configured")
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        context_lines = [
+            f"Risk level: {risk_level}",
+            f"Risk score: {risk_score:.2f}",
+            f"Top risk drivers: {', '.join(drivers[:5]) if drivers else 'No explicit drivers provided'}",
+        ]
+        if avg_heart_rate is not None:
+            context_lines.append(f"Average heart rate (24h): {avg_heart_rate} BPM")
+        if avg_spo2 is not None:
+            context_lines.append(f"Average SpO2 (24h): {avg_spo2}%")
+        if alert_count_24h is not None:
+            context_lines.append(f"Alerts in last 24h: {alert_count_24h}")
+
+        prompt = (
+            "You are a cardiac rehabilitation AI assistant writing a concise clinical insight summary for a clinician dashboard.\n"
+            "Rules:\n"
+            "- Use only the provided metrics; do not invent values.\n"
+            "- 3 to 5 sentences, plain language, clinically useful.\n"
+            "- Mention current status, likely drivers, and immediate monitoring focus.\n"
+            "- Do not provide diagnosis or medication changes.\n\n"
+            "Patient context:\n"
+            + "\n".join(context_lines)
+        )
+
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                temperature=0.3,
+                max_output_tokens=220,
+            ),
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini returned an empty response")
+        return text
+    except Exception as exc:
+        logger.error(f"Gemini risk summary generation failed: {exc}")
+        raise RuntimeError("Gemini summary generation failed")
 
 
 def generate_natural_language_alert(

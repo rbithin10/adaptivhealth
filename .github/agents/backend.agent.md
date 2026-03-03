@@ -27,6 +27,17 @@ The repo structure includes:
 - Pydantic schemas in `app/schemas/`.
 - Services (ML, auth, encryption, recommendations, alerts) in `app/services/`.
 
+## Technical Constraints
+
+- **ORM**: SQLAlchemy 2.0 with declarative models in `app/models/`
+- **Validation**: Pydantic v2 schemas in `app/schemas/`
+- **Auth**: JWT via python-jose; `get_current_user` FastAPI dependency injection
+- **AI/LLM**: Gemini 2.0 Flash free tier (15 RPM) — chat service (`app/services/chat_service.py`) + document extraction (`app/services/document_extraction.py`)
+- **ML**: scikit-learn RandomForest in `app/services/ml_prediction.py`; edge predictions arrive via `POST /vitals/batch-sync` with `processed_by_edge_ai=True`
+- **Alert thresholds**: HR > 180 → CRITICAL, SpO2 < 90 → CRITICAL, Systolic BP > 160 → WARNING (in `app/api/vital_signs.py`)
+- **Device fields**: `source_device` (e.g., "Polar H10"), `device_id` (BLE MAC), `confidence_score`, `processed_by_edge_ai` — all in VitalSignRecord model
+- **Do not break mobile or dashboard API contracts**; changes must be backward-compatible
+
 ## Responsibilities
 
 - Implement and maintain FastAPI endpoints described in:

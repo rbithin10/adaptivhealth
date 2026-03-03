@@ -10,7 +10,7 @@ Matches backend API at /api/v1 with correct endpoint prefixes and schemas.
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import {
-  LoginResponse,
+  TokenResponse,
   User,
   UserProfileResponse,
   UserListResponse,
@@ -18,9 +18,7 @@ import {
   VitalSignsHistoryResponse,
   RiskAssessmentResponse,
   RiskAssessmentComputeResponse,
-  RiskAssessmentListResponse,
   RecommendationResponse,
-  RecommendationListResponse,
   AlertResponse,
   AlertListResponse,
   AlertStatsResponse,
@@ -41,17 +39,35 @@ import {
   ExplainPredictionResponse,
   MessageResponse,
   InboxSummaryResponse,
+  VitalSignsSummaryResponse,
+  ConsentStatusResponse,
+  PendingConsentRequestsResponse,
+  ReviewConsentResponse,
+  AdminResetPasswordResponse,
+  DeactivateUserResponse,
+  AssignClinicianResponse,
+  MedicalCondition,
+  Medication,
+  MedicalProfile,
+  MedicalConditionCreate,
+  MedicationCreate,
+  DocumentUploadResponse,
+  MedicalExtractionStatusResponse,
 } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com';
+// AWS ALB production endpoint. Override with REACT_APP_API_URL for local dev.
+// Local: REACT_APP_API_URL=http://localhost:8080 in .env.development
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com';
 
-const normalizeUser = (data: any): User => ({
+const normalizeUser = (
+  data: Partial<User> & { id?: number; name?: string; role?: string }
+): User => ({
   ...data,
   user_id: data.user_id ?? data.id,
   full_name: data.full_name ?? data.name,
   user_role: data.user_role ?? data.role,
   assigned_clinician_id: data.assigned_clinician_id,
-});
+} as User);
 
 class ApiService {
   private client: AxiosInstance;
@@ -80,7 +96,7 @@ class ApiService {
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
-        const originalRequest = error.config as any;
+        const originalRequest = (error.config ?? {}) as AxiosError['config'] & { _retry?: boolean };
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
           const refreshToken = localStorage.getItem('refresh_token');
@@ -126,12 +142,12 @@ class ApiService {
   // Authentication
   // =========================================================================
 
-  async login(email: string, password: string): Promise<LoginResponse> {
+  async login(email: string, password: string): Promise<TokenResponse> {
     const formData = new URLSearchParams();
     formData.append('username', email);
     formData.append('password', password);
 
-    const response = await this.client.post<LoginResponse>('/login', formData, {
+    const response = await this.client.post<TokenResponse>('/login', formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
@@ -201,10 +217,17 @@ class ApiService {
 
   async getAllUsers(
     page: number = 1,
-    perPage: number = 50
+    perPage: number = 50,
+    role?: 'patient' | 'clinician' | 'admin',
+    search?: string
   ): Promise<UserListResponse> {
     const response = await this.client.get<UserListResponse>('/users', {
-      params: { page, per_page: perPage },
+      params: {
+        page,
+        per_page: perPage,
+        ...(role ? { role } : {}),
+        ...(search ? { search } : {}),
+      },
     });
     return {
       ...response.data,
@@ -259,15 +282,15 @@ class ApiService {
     return response.data;
   }
 
-  async getVitalSignsSummary(days: number = 7): Promise<any> {
-    const response = await this.client.get('/vitals/summary', {
+  async getVitalSignsSummary(days: number = 7): Promise<VitalSignsSummaryResponse> {
+    const response = await this.client.get<VitalSignsSummaryResponse>('/vitals/summary', {
       params: { days },
     });
     return response.data;
   }
 
-  async getVitalSignsSummaryForUser(userId: number, days: number = 7): Promise<any> {
-    const response = await this.client.get(`/vitals/user/${userId}/summary`, {
+  async getVitalSignsSummaryForUser(userId: number, days: number = 7): Promise<VitalSignsSummaryResponse> {
+    const response = await this.client.get<VitalSignsSummaryResponse>(`/vitals/user/${userId}/summary`, {
       params: { days },
     });
     return response.data;
@@ -303,23 +326,6 @@ class ApiService {
       `/patients/${userId}/risk-assessments/latest`
     );
     return response.data;
-  }
-
-  async getRiskAssessmentsForUser(
-    userId: number,
-    page: number = 1,
-    perPage: number = 10
-  ): Promise<RiskAssessmentListResponse> {
-    const response = await this.client.get<RiskAssessmentResponse>(
-      `/patients/${userId}/risk-assessments/latest`
-    );
-    const assessment = response.data;
-    return {
-      assessments: assessment ? [assessment] : [],
-      total: assessment ? 1 : 0,
-      page,
-      per_page: perPage,
-    };
   }
 
   async computeRiskAssessment(): Promise<RiskAssessmentComputeResponse> {
@@ -373,43 +379,6 @@ class ApiService {
     return response.data;
   }
 
-  async getRecommendations(
-    page: number = 1,
-    perPage: number = 50
-  ): Promise<RecommendationListResponse> {
-    const response = await this.client.get<RecommendationResponse>(
-      '/recommendations/latest'
-    );
-    const recommendation = response.data;
-    return {
-      recommendations: recommendation ? [recommendation] : [],
-      total: recommendation ? 1 : 0,
-      page,
-      per_page: perPage,
-    };
-  }
-
-  async getRecommendationById(recommendationId: number): Promise<RecommendationResponse> {
-    const response = await this.client.get<RecommendationResponse>(
-      '/recommendations/latest'
-    );
-    return response.data;
-  }
-
-  async updateRecommendation(
-    recommendationId: number,
-    data: {
-      status?: string;
-      is_completed?: boolean;
-      user_feedback?: string;
-    }
-  ): Promise<RecommendationResponse> {
-    const response = await this.client.get<RecommendationResponse>(
-      '/recommendations/latest'
-    );
-    return response.data;
-  }
-
   // =========================================================================
   // Alerts
   // =========================================================================
@@ -451,6 +420,7 @@ class ApiService {
     alertId: number,
     data: {
       resolution_notes?: string;
+      acknowledged?: boolean;
     }
   ): Promise<AlertResponse> {
     const response = await this.client.patch<AlertResponse>(
@@ -524,26 +494,6 @@ class ApiService {
     return response.data;
   }
 
-  async updateActivity(
-    sessionId: number,
-    data: {
-      end_time?: string;
-      avg_heart_rate?: number;
-      peak_heart_rate?: number;
-      min_heart_rate?: number;
-      duration_minutes?: number;
-      feeling_after?: string;
-      user_notes?: string;
-      status?: string;
-    }
-  ): Promise<ActivitySessionResponse> {
-    const response = await this.client.post<ActivitySessionResponse>(
-      `/activities/end/${sessionId}`,
-      data
-    );
-    return response.data;
-  }
-
   // =========================================================================
   // Advanced ML — Anomaly Detection & Trend Forecast
   // =========================================================================
@@ -580,7 +530,7 @@ class ApiService {
     riskLevel: string = 'low',
     variant?: string
   ): Promise<RankedRecommendationResponse> {
-    const params: any = { user_id: userId, risk_level: riskLevel };
+    const params: Record<string, string | number> = { user_id: userId, risk_level: riskLevel };
     if (variant) params.variant = variant;
     const response = await this.client.get<RankedRecommendationResponse>(
       '/recommendation-ranking',
@@ -712,13 +662,13 @@ class ApiService {
   // Consent / Data Sharing
   // =========================================================================
 
-  async getConsentStatus(): Promise<any> {
-    const response = await this.client.get('/consent/status');
+  async getConsentStatus(): Promise<ConsentStatusResponse> {
+    const response = await this.client.get<ConsentStatusResponse>('/consent/status');
     return response.data;
   }
 
-  async getPendingConsentRequests(): Promise<any> {
-    const response = await this.client.get('/consent/pending');
+  async getPendingConsentRequests(): Promise<PendingConsentRequestsResponse> {
+    const response = await this.client.get<PendingConsentRequestsResponse>('/consent/pending');
     return response.data;
   }
 
@@ -726,8 +676,8 @@ class ApiService {
     patientId: number,
     decision: 'approve' | 'reject',
     reason?: string
-  ): Promise<any> {
-    const response = await this.client.post(`/consent/${patientId}/review`, {
+  ): Promise<ReviewConsentResponse> {
+    const response = await this.client.post<ReviewConsentResponse>(`/consent/${patientId}/review`, {
       decision,
       reason,
     });
@@ -738,8 +688,8 @@ class ApiService {
   // Admin - User Management
   // =========================================================================
 
-  async adminResetUserPassword(userId: number, newPassword: string): Promise<any> {
-    const response = await this.client.post(`/users/${userId}/reset-password`, {
+  async adminResetUserPassword(userId: number, newPassword: string): Promise<AdminResetPasswordResponse> {
+    const response = await this.client.post<AdminResetPasswordResponse>(`/users/${userId}/reset-password`, {
       new_password: newPassword,
     });
     return response.data;
@@ -753,13 +703,13 @@ class ApiService {
     age?: number;
     gender?: string;
     phone?: string;
-  }): Promise<any> {
-    const response = await this.client.post('/users/', userData);
-    return response.data;
+  }): Promise<User> {
+    const response = await this.client.post<User>('/users/', userData);
+    return normalizeUser(response.data);
   }
 
-  async deactivateUser(userId: number): Promise<any> {
-    const response = await this.client.delete(`/users/${userId}`);
+  async deactivateUser(userId: number): Promise<DeactivateUserResponse> {
+    const response = await this.client.delete<DeactivateUserResponse>(`/users/${userId}`);
     return response.data;
   }
 
@@ -771,16 +721,16 @@ class ApiService {
       gender?: string;
       phone?: string;
     }
-  ): Promise<any> {
-    const response = await this.client.put(`/users/${userId}`, userData);
-    return response.data;
+  ): Promise<User> {
+    const response = await this.client.put<User>(`/users/${userId}`, userData);
+    return normalizeUser(response.data);
   }
 
   async assignClinicianToPatient(
     patientId: number,
     clinicianId: number
-  ): Promise<any> {
-    const response = await this.client.put(
+  ): Promise<AssignClinicianResponse> {
+    const response = await this.client.put<AssignClinicianResponse>(
       `/users/${patientId}/assign-clinician?clinician_id=${clinicianId}`
     );
     return response.data;
@@ -813,6 +763,83 @@ class ApiService {
   async markMessageAsRead(messageId: number): Promise<MessageResponse> {
     const response = await this.client.post(`/messages/${messageId}/read`);
     return response.data;
+  }
+
+  // ========================================================================
+  // Medical Profile API
+  // ========================================================================
+
+  async getPatientMedicalHistory(userId: number): Promise<MedicalCondition[]> {
+    const response = await this.client.get(`/patients/${userId}/medical-history`);
+    return response.data;
+  }
+
+  async addPatientCondition(userId: number, data: MedicalConditionCreate): Promise<MedicalCondition> {
+    const response = await this.client.post(`/patients/${userId}/medical-history`, data);
+    return response.data;
+  }
+
+  async updatePatientCondition(userId: number, historyId: number, data: Partial<MedicalConditionCreate>): Promise<MedicalCondition> {
+    const response = await this.client.put(`/patients/${userId}/medical-history/${historyId}`, data);
+    return response.data;
+  }
+
+  async deletePatientCondition(userId: number, historyId: number): Promise<void> {
+    await this.client.delete(`/patients/${userId}/medical-history/${historyId}`);
+  }
+
+  async getPatientMedications(userId: number): Promise<Medication[]> {
+    const response = await this.client.get(`/patients/${userId}/medications`);
+    return response.data;
+  }
+
+  async addPatientMedication(userId: number, data: MedicationCreate): Promise<Medication> {
+    const response = await this.client.post(`/patients/${userId}/medications`, data);
+    return response.data;
+  }
+
+  async updatePatientMedication(userId: number, medicationId: number, data: Partial<MedicationCreate>): Promise<Medication> {
+    const response = await this.client.put(`/patients/${userId}/medications/${medicationId}`, data);
+    return response.data;
+  }
+
+  async deletePatientMedication(userId: number, medicationId: number): Promise<void> {
+    await this.client.delete(`/patients/${userId}/medications/${medicationId}`);
+  }
+
+  async getPatientMedicalProfile(userId: number): Promise<MedicalProfile> {
+    const response = await this.client.get(`/patients/${userId}/medical-profile`);
+    return response.data;
+  }
+
+  async uploadPatientDocument(userId: number, file: File): Promise<DocumentUploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.client.post(`/patients/${userId}/upload-document`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async confirmDocumentExtraction(userId: number, data: {
+    document_id: number;
+    conditions: MedicalConditionCreate[];
+    medications: MedicationCreate[];
+  }): Promise<MedicalProfile> {
+    const response = await this.client.post(`/patients/${userId}/confirm-extraction`, data);
+    return response.data;
+  }
+
+  async getMedicalExtractionStatus(): Promise<MedicalExtractionStatusResponse> {
+    const response = await this.client.get('/medical-extraction/status');
+    return response.data;
+  }
+
+  async getDocumentBlobByUrl(url: string): Promise<Blob> {
+    const response = await this.client.get(url, {
+      responseType: 'blob',
+    });
+    return response.data as Blob;
   }
 }
 

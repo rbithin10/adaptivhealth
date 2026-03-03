@@ -800,3 +800,80 @@ class TestVitalSignsBranchCoverage:
         
         # Should return 200 (background tasks don't block response)
         assert response.status_code == 200
+
+
+class TestBatchSync:
+    """Test POST /api/v1/vitals/batch-sync edge AI sync endpoint."""
+
+    def test_batch_sync_valid(self, db_session):
+        """Test valid batch sync with vitals creates records."""
+        user = make_user(db_session, "sync_valid@example.com", "SyncUser", "patient")
+        token = get_token(client, "sync_valid@example.com")
+
+        payload = {
+            "source": "edge_ai",
+            "batch": [
+                {
+                    "timestamp": "2025-01-01T12:00:00Z",
+                    "vitals": {"heart_rate": 72, "spo2": 97},
+                    "prediction": {"risk": "low"},
+                },
+                {
+                    "timestamp": "2025-01-01T12:05:00Z",
+                    "vitals": {"heart_rate": 80, "spo2": 96},
+                },
+            ],
+        }
+        response = client.post(
+            "/api/v1/vitals/batch-sync",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["records_created"] >= 1
+
+    def test_batch_sync_empty_batch_rejected(self, db_session):
+        """Test that an empty batch returns 400."""
+        user = make_user(db_session, "sync_empty@example.com", "SyncEmpty", "patient")
+        token = get_token(client, "sync_empty@example.com")
+
+        payload = {"source": "edge_ai", "batch": []}
+        response = client.post(
+            "/api/v1/vitals/batch-sync",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
+
+    def test_batch_sync_skips_invalid_heart_rate(self, db_session):
+        """Test that items with out-of-range heart rate are skipped."""
+        user = make_user(db_session, "sync_skip@example.com", "SyncSkip", "patient")
+        token = get_token(client, "sync_skip@example.com")
+
+        payload = {
+            "source": "edge_ai",
+            "batch": [
+                {"vitals": {"heart_rate": 10}},   # below 30 → skip
+                {"vitals": {"heart_rate": 300}},   # above 250 → skip
+                {"vitals": {"heart_rate": 75, "spo2": 98}},  # valid
+            ],
+        }
+        response = client.post(
+            "/api/v1/vitals/batch-sync",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["records_created"] == 1
+        assert data["skipped"] == 2
+
+    def test_batch_sync_unauthorized(self):
+        """Test that unauthenticated batch-sync is rejected."""
+        payload = {
+            "source": "edge_ai",
+            "batch": [{"vitals": {"heart_rate": 72}}],
+        }
+        response = client.post("/api/v1/vitals/batch-sync", json=payload)
+        assert response.status_code == 401

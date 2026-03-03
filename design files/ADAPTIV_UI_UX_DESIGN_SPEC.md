@@ -584,7 +584,7 @@ DESIGN PRINCIPLES:
 │ ┌──────────────────────────────────┐  │
 │ │ ⚫ Dr. Amanda White (Nutritionist)│  │
 │ │ Offline                          │  │
-│ │ Last: "Avoid high sodium..."     │  │
+│ │ Last: "Focus on balanced meals..."│  │
 │ │ 3 days ago                       │  │
 │ │              [Message] [Call]    │  │
 │ └──────────────────────────────────┘  │

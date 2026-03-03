@@ -54,13 +54,3 @@ export const typography = {
     color: '#6B7280',
   },
 } as const;
-
-// CSS for importing Plus Jakarta Sans
-export const fontImport = `
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-`;
-
-// Global font family declaration
-export const fontFamily = {
-  dashboard: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-};

@@ -6,7 +6,9 @@ Phase B ensures that the mobile app (Flutter), web dashboard (React/TypeScript),
 
 ## Backend API Structure
 
-**Base URL:** `http://api.adaptivhealth.com/api/v1`
+**Base URL (development):** `http://localhost:8080/api/v1`
+
+**Base URL (production/AWS ALB):** `https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com/api/v1`
 
 All endpoints are prefixed with `/api/v1` for API versioning.
 
@@ -478,7 +480,7 @@ All endpoints follow consistent error response format:
 // main_with_ai.dart
 final apiClient = ApiClient(
   tokenStorage: tokenStorage,
-  baseUrl: 'http://YOUR_BACKEND_IP:8000/api/v1',
+  baseUrl: 'http://YOUR_BACKEND_IP:8080/api/v1',
 );
 final aiApi = AiApi(apiClient.dio);
 ```

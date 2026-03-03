@@ -37,15 +37,19 @@ Implements RBAC for patient, clinician, and admin access.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import desc, func, case
 from typing import List, Optional
+from pathlib import Path
 import logging
 
 from app.database import get_db
 from app.models.user import User, UserRole
+from app.models.medical_history import PatientMedicalHistory, PatientMedication, UploadedDocument
 from app.schemas.user import (
     UserResponse, UserUpdate, MedicalHistoryUpdate,
     UserProfileResponse, UserListResponse, UserCreateAdmin
 )
+from app.schemas.medical_history import MedicalProfileSummary
 from app.services.encryption import encryption_service
 from app.api.auth import get_current_user, get_current_admin_user, get_current_doctor_user, get_current_admin_or_doctor_user, check_clinician_phi_access
 
@@ -88,6 +92,86 @@ def can_access_user(current_user: User, target_user: User) -> bool:
         return True
     
     return False
+
+
+def _build_medical_profile_summaries(user_ids: list[int], db: Session) -> dict[int, MedicalProfileSummary]:
+    """Return aggregated medical flags for the requested users."""
+    if not user_ids:
+        return {}
+
+    summary_data = {
+        uid: {
+            "user_id": uid,
+            "has_prior_mi": False,
+            "has_heart_failure": False,
+            "is_on_beta_blocker": False,
+            "is_on_anticoagulant": False,
+            "has_uploaded_document": False,
+            "has_accessible_document": False,
+            "active_condition_count": 0,
+            "active_medication_count": 0,
+        }
+        for uid in user_ids
+    }
+
+    condition_rows = (
+        db.query(
+            PatientMedicalHistory.user_id,
+            func.sum(case((PatientMedicalHistory.status == "active", 1), else_=0)).label("active_condition_count"),
+            func.max(case(((PatientMedicalHistory.condition_type == "prior_mi") & (PatientMedicalHistory.status == "active"), 1), else_=0)).label("has_prior_mi"),
+            func.max(case(((PatientMedicalHistory.condition_type == "heart_failure") & (PatientMedicalHistory.status == "active"), 1), else_=0)).label("has_heart_failure"),
+        )
+        .filter(PatientMedicalHistory.user_id.in_(user_ids))
+        .group_by(PatientMedicalHistory.user_id)
+        .all()
+    )
+
+    for row in condition_rows:
+        data = summary_data.get(row.user_id)
+        if not data:
+            continue
+        data["active_condition_count"] = row.active_condition_count or 0
+        data["has_prior_mi"] = bool(row.has_prior_mi)
+        data["has_heart_failure"] = bool(row.has_heart_failure)
+
+    medication_rows = (
+        db.query(
+            PatientMedication.user_id,
+            func.sum(case((PatientMedication.status == "active", 1), else_=0)).label("active_medication_count"),
+            func.max(case(((PatientMedication.is_hr_blunting == True) & (PatientMedication.status == "active"), 1), else_=0)).label("is_on_beta_blocker"),
+            func.max(case(((PatientMedication.is_anticoagulant == True) & (PatientMedication.status == "active"), 1), else_=0)).label("is_on_anticoagulant"),
+        )
+        .filter(PatientMedication.user_id.in_(user_ids))
+        .group_by(PatientMedication.user_id)
+        .all()
+    )
+
+    for row in medication_rows:
+        data = summary_data.get(row.user_id)
+        if not data:
+            continue
+        data["active_medication_count"] = row.active_medication_count or 0
+        data["is_on_beta_blocker"] = bool(row.is_on_beta_blocker)
+        data["is_on_anticoagulant"] = bool(row.is_on_anticoagulant)
+
+    document_rows = (
+        db.query(UploadedDocument.user_id, UploadedDocument.file_path)
+        .filter(UploadedDocument.user_id.in_(user_ids))
+        .all()
+    )
+
+    for row in document_rows:
+        data = summary_data.get(row.user_id)
+        if not data:
+            continue
+        data["has_uploaded_document"] = True
+        if row.file_path and Path(row.file_path).is_file():
+            data["has_accessible_document"] = True
+
+    return {
+        uid: MedicalProfileSummary(**values)
+        for uid, values in summary_data.items()
+    }
 
 
 # =============================================================================
@@ -153,6 +237,10 @@ async def update_my_profile(
         'name', 'age', 'gender', 'phone',
         'weight_kg', 'height_cm',
         'emergency_contact_name', 'emergency_contact_phone',
+        'rehab_phase',
+        'activity_level', 'exercise_limitations', 'primary_goal',
+        'stress_level', 'sleep_quality',
+        'smoking_status', 'alcohol_frequency', 'sedentary_hours', 'phq2_score',
     }
     
     for field, value in update_data.items():
@@ -304,6 +392,11 @@ async def list_users(
     
     # Apply pagination
     users = query.offset((page - 1) * per_page).limit(per_page).all()
+    summaries = _build_medical_profile_summaries([u.user_id for u in users], db)
+    for user in users:
+        summary = summaries.get(user.user_id)
+        if summary:
+            user.medical_profile_summary = summary
     
     return UserListResponse(
         users=users,

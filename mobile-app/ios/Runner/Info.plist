@@ -43,6 +43,14 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Adaptiv Health uses your location to tag emergency cardiac alerts with GPS coordinates, so your care team knows where you are even in areas without cell service.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Adaptiv Health connects to your heart rate monitor via Bluetooth to track cardiac metrics during exercise and recovery.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Adaptiv Health reads heart rate, steps, blood oxygen, and blood pressure data from Apple Health to personalize your cardiovascular monitoring insights.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

@@ -611,7 +611,7 @@ class E2EDashboardQueryTests:
     """Verify clinician-role endpoints that power the doctor dashboard."""
 
     def test_clinician_can_view_patient_vitals(self, clinician, session):
-        """TC-DASH-001: Clinician reads patient's latest vitals via /vitals/user/{id}/latest."""
+        """TC-DB-001: Clinician reads patient's latest vitals via /vitals/user/{id}/latest."""
         if not session.patient_id:
             pytest.skip("Patient ID not available")
         r = clinician.get(f"/vitals/user/{session.patient_id}/latest")
@@ -620,7 +620,7 @@ class E2EDashboardQueryTests:
         assert "heart_rate" in data
 
     def test_clinician_can_view_patient_vitals_history(self, clinician, session):
-        """TC-DASH-002: Clinician reads patient's vitals history."""
+        """TC-DB-002: Clinician reads patient's vitals history."""
         if not session.patient_id:
             pytest.skip("Patient ID not available")
         r = clinician.get(
@@ -632,7 +632,7 @@ class E2EDashboardQueryTests:
         assert data["total"] >= 1
 
     def test_clinician_can_view_patient_vitals_summary(self, clinician, session):
-        """TC-DASH-003: Clinician reads patient's aggregated stats."""
+        """TC-DB-003: Clinician reads patient's aggregated stats."""
         if not session.patient_id:
             pytest.skip("Patient ID not available")
         r = clinician.get(
@@ -644,7 +644,7 @@ class E2EDashboardQueryTests:
         assert "avg_heart_rate" in data
 
     def test_alert_stats_endpoint_returns_breakdown(self, clinician):
-        """TC-DASH-004: GET /alerts/stats returns severity breakdown for dashboard."""
+        """TC-DB-004: GET /alerts/stats returns severity breakdown for dashboard."""
         r = clinician.get("/alerts/stats", params={"days": 7})
         assert r.status_code == 200
         data = r.json()
@@ -652,7 +652,7 @@ class E2EDashboardQueryTests:
         assert "unacknowledged_count" in data
 
     def test_history_pagination_returns_correct_page(self, patient):
-        """TC-DASH-005: Second page of vitals history returns a different set of records."""
+        """TC-DB-005: Second page of vitals history returns a different set of records."""
         # Ensure there are enough records (submit 110 more if needed)
         bulk = [_vital(hr=70 + (i % 50)) for i in range(110)]
         for chunk in [bulk[:50], bulk[50:100], bulk[100:]]:
@@ -669,7 +669,7 @@ class E2EDashboardQueryTests:
         assert ids_p1.isdisjoint(ids_p2), "Page 1 and page 2 must have no overlapping records"
 
     def test_patient_cannot_access_clinician_only_endpoint(self, patient, session):
-        """TC-DASH-006: Patient is rejected when trying to access other users' data."""
+        """TC-DB-006: Patient is rejected when trying to access other users' data."""
         # Patient should not be able to call clinician-only endpoints for other users
         fake_id = 999999
         r = patient.get(f"/vitals/user/{fake_id}/latest")

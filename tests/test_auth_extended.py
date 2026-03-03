@@ -16,9 +16,12 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 import pytest
+from unittest.mock import patch
 
 from app.main import app as fastapi_app
+from app.api import auth as auth_api
 from app.api.auth import check_clinician_phi_access
+from app.rate_limiter import limiter
 from app.models.user import User, UserRole
 from tests.helpers import make_user, get_token
 
@@ -177,6 +180,16 @@ class TestRefreshTokenEndpoint:
 class TestRequestPasswordReset:
     """Test POST /api/v1/reset-password endpoint from app/api/auth.py."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_rate_limiter_storage(self):
+        """Reset limiter storage so tests do not share request quotas."""
+        storage = getattr(limiter, "_storage", None)
+        if storage and hasattr(storage, "reset"):
+            storage.reset()
+        yield
+        if storage and hasattr(storage, "reset"):
+            storage.reset()
+
     def test_valid_email_returns_200(self, db_session):
         """Test valid email returns 200 (even if no-op)."""
         user = make_user(db_session, "charlie@example.com", "Charlie", "patient")
@@ -209,6 +222,71 @@ class TestRequestPasswordReset:
         
         # Pydantic validation should catch invalid email
         assert response.status_code == 422
+
+    def test_smtp_configured_send_succeeds(self, db_session):
+        """Test SMTP-configured flow sends reset email via email service."""
+        make_user(db_session, "smtp_success@example.com", "SMTP Success", "patient")
+
+        with patch("app.api.auth.email_service.is_smtp_configured", return_value=True), \
+             patch("app.api.auth.email_service.send_password_reset_email") as mock_send:
+            response = client.post(
+                "/api/v1/reset-password",
+                json={"email": "smtp_success@example.com"}
+            )
+
+        assert response.status_code == 200
+        assert "token" not in response.json()
+        mock_send.assert_called_once()
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["to_email"] == "smtp_success@example.com"
+        assert "token=" in kwargs["reset_link"]
+
+    def test_smtp_missing_uses_dev_fallback_when_enabled(self, db_session, caplog):
+        """Test missing SMTP logs token only with explicit dev fallback flag."""
+        make_user(db_session, "smtp_missing@example.com", "SMTP Missing", "patient")
+
+        with patch("app.api.auth.email_service.is_smtp_configured", return_value=False), \
+             patch.object(auth_api.settings, "password_reset_dev_token_logging", True):
+            response = client.post(
+                "/api/v1/reset-password",
+                json={"email": "smtp_missing@example.com"}
+            )
+
+        assert response.status_code == 200
+        assert "token" not in response.json()
+        assert "Reset token (DEV ONLY):" in caplog.text
+
+    def test_smtp_send_failure_still_returns_safe_response(self, db_session):
+        """Test SMTP send failure does not leak details and returns safe response."""
+        make_user(db_session, "smtp_fail@example.com", "SMTP Fail", "patient")
+
+        with patch("app.api.auth.email_service.is_smtp_configured", return_value=True), \
+             patch("app.api.auth.email_service.send_password_reset_email", side_effect=RuntimeError("smtp down")):
+            response = client.post(
+                "/api/v1/reset-password",
+                json={"email": "smtp_fail@example.com"}
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"message": "If the email exists, a reset link has been sent"}
+        assert "token" not in response.json()
+
+    def test_password_reset_rate_limited_on_fourth_request(self, db_session):
+        """Test reset endpoint is limited to 3 requests per 15 minutes per client IP."""
+        make_user(db_session, "rate_limit@example.com", "Rate Limit", "patient")
+
+        for _ in range(3):
+            response = client.post(
+                "/api/v1/reset-password",
+                json={"email": "rate_limit@example.com"}
+            )
+            assert response.status_code == 200
+
+        fourth = client.post(
+            "/api/v1/reset-password",
+            json={"email": "rate_limit@example.com"}
+        )
+        assert fourth.status_code == 429
 
 
 # =============================================================================

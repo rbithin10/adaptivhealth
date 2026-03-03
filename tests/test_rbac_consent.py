@@ -370,16 +370,17 @@ class TestConsentWorkflowBranches:
     def test_review_consent_request_not_found_returns_404(self, client):
         """Test reviewing non-existent consent request."""
         from tests.helpers import make_user, get_token
-        
+
         db = TestingSessionLocal()
         clinician = make_user(db, "review_notfound@test.com", "Review", "clinician")
         db.commit()
         db.close()
-        
+
         token = get_token(client, "review_notfound@test.com")
-        
+
         resp = client.post(
-            "/api/v1/consent/requests/9999/approve",
+            "/api/v1/consent/9999/review",
+            json={"decision": "approve"},
             headers={"Authorization": f"Bearer {token}"}
         )
         assert resp.status_code in [404, 400]
@@ -388,42 +389,41 @@ class TestConsentWorkflowBranches:
         """Test approving consent request sets patient state to SHARING_OFF."""
         from tests.helpers import make_user, get_token
         from app.models.user import User
-        
+
         db = TestingSessionLocal()
         patient = make_user(db, "approve_off@test.com", "Approve", "patient")
         patient.share_state = "SHARING_DISABLE_REQUESTED"
         clinician = make_user(db, "clinician_approve@test.com", "Clinician", "clinician")
         db.commit()
+        patient_id = patient.user_id
         db.close()
-        
-        # Simulate pending request (backend logic creates it)
+
         token = get_token(client, "clinician_approve@test.com")
-        
-        # Backend should create and approve request; verify state transitions
-        # This test verifies the approve endpoint logic exists
+
         resp = client.post(
-            "/api/v1/consent/requests/1/approve",
+            f"/api/v1/consent/{patient_id}/review",
+            json={"decision": "approve"},
             headers={"Authorization": f"Bearer {token}"}
         )
-        # Should be 200 or 404 depending on backend implementation
         assert resp.status_code in [200, 404, 400]
 
     def test_reject_consent_reverts_sharing_on(self, client):
         """Test rejecting consent request reverts state to SHARING_ON."""
         from tests.helpers import make_user, get_token
-        
+
         db = TestingSessionLocal()
         patient = make_user(db, "reject_on@test.com", "Reject", "patient")
         patient.share_state = "SHARING_DISABLE_REQUESTED"
         clinician = make_user(db, "clinician_reject@test.com", "Clinician Reject", "clinician")
         db.commit()
+        patient_id = patient.user_id
         db.close()
-        
+
         token = get_token(client, "clinician_reject@test.com")
-        
+
         resp = client.post(
-            "/api/v1/consent/requests/1/reject",
+            f"/api/v1/consent/{patient_id}/review",
+            json={"decision": "reject"},
             headers={"Authorization": f"Bearer {token}"}
         )
-        # Should be 200 or 404 depending on backend implementation
         assert resp.status_code in [200, 404, 400]

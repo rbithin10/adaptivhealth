@@ -10,7 +10,7 @@ import 'package:intl/intl.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
-import 'activity_detail_screen.dart';
+import '../widgets/ai_coach_overlay.dart';
 
 class HistoryScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -104,81 +104,110 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  String? _getActivityImage(String? activityType) {
+    switch (activityType?.toLowerCase()) {
+      case 'walking':
+        return 'assets/exercises/walking.png';
+      case 'running':
+      case 'light_jogging':
+      case 'workout':
+      case 'cardio':
+        return 'assets/exercises/light_jogging.png';
+      case 'cycling':
+        return 'assets/exercises/cycling.png';
+      case 'swimming':
+        return 'assets/exercises/swimming.png';
+      case 'yoga':
+        return 'assets/exercises/yoga.png';
+      case 'stretching':
+      case 'recovery':
+      case 'breathing':
+        return 'assets/exercises/stretching.png';
+      case 'strength':
+      case 'strength_training':
+        return 'assets/exercises/resistance_bands.png';
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AdaptivColors.background50,
-      appBar: AppBar(
-        title: Text('Activity History', style: AdaptivTypography.screenTitle),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: const AssetImage('assets/images/history_bg.png'),
-            fit: BoxFit.cover,
-            colorFilter: ColorFilter.mode(
-              Colors.white.withOpacity(0.85),
-              BlendMode.lighten,
+    return AiCoachOverlay(
+      apiClient: widget.apiClient,
+      child: Scaffold(
+        backgroundColor: AdaptivColors.background50,
+        appBar: AppBar(
+          title: Text('Activity History', style: AdaptivTypography.screenTitle),
+          backgroundColor: Colors.white,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+        ),
+        body: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: const AssetImage('assets/images/history_bg.png'),
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                Colors.white.withOpacity(0.85),
+                BlendMode.lighten,
+              ),
             ),
           ),
-        ),
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Failed to load activities',
-                          style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _error!,
-                          style: AdaptivTypography.caption,
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: _loadActivities,
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : _activities.isEmpty
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
                   ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.history, size: 80, color: AdaptivColors.neutral300),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No Activity Yet',
-                              style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Start a workout or recovery session\nto see your history here',
-                              style: AdaptivTypography.caption,
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Failed to load activities',
+                            style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _error!,
+                            style: AdaptivTypography.caption,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: _loadActivities,
+                            child: const Text('Retry'),
+                          ),
+                        ],
                       ),
-                    )
-                  : RefreshIndicator(
+                    ),
+                  )
+                : _activities.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.history, size: 80, color: AdaptivColors.neutral300),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No Activity Yet',
+                                style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Start a workout or recovery session\nto see your history here',
+                                style: AdaptivTypography.caption,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : RefreshIndicator(
                       onRefresh: _loadActivities,
                       child: ListView.builder(
                         padding: const EdgeInsets.all(16),
@@ -186,6 +215,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         itemBuilder: (context, index) {
                           final activity = _activities[index];
                           final activityType = activity['activity_type'] as String?;
+                          final activityImage = _getActivityImage(activityType);
                           final startTime = activity['start_time'] as String?;
                           final duration = activity['duration_minutes'] as int?;
                           final avgHr = activity['avg_heart_rate'] as int?;
@@ -199,12 +229,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                             child: InkWell(
                               onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => ActivityDetailScreen(
-                                      activity: activity,
-                                    ),
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Detailed activity view is not available in this build.'),
+                                    duration: Duration(seconds: 2),
                                   ),
                                 );
                               },
@@ -221,11 +249,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                         color: _getActivityColor(activityType).withOpacity(0.1),
                                         borderRadius: BorderRadius.circular(12),
                                       ),
-                                      child: Icon(
-                                        _getActivityIcon(activityType),
-                                        color: _getActivityColor(activityType),
-                                        size: 28,
-                                      ),
+                                      child: activityImage != null
+                                          ? ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: Image.asset(
+                                                activityImage,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) => Icon(
+                                                  _getActivityIcon(activityType),
+                                                  color: _getActivityColor(activityType),
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            )
+                                          : Icon(
+                                              _getActivityIcon(activityType),
+                                              color: _getActivityColor(activityType),
+                                              size: 28,
+                                            ),
                                     ),
                                     const SizedBox(width: 16),
                                     // Details
@@ -285,6 +326,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         },
                       ),
                     ),
+        ),
       ),
     );
   }

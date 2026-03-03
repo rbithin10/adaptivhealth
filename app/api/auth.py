@@ -39,7 +39,7 @@ This file handles sign up, login, and token refresh.
 # =============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
@@ -54,7 +54,9 @@ from app.schemas.user import (
     RefreshTokenRequest, PasswordResetRequest, PasswordResetConfirm
 )
 from app.services.auth_service import AuthService
+from app.services.email_service import email_service
 from app.config import settings
+from app.rate_limiter import limiter
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -342,7 +344,9 @@ def get_current_admin_or_doctor_user(current_user: User = Depends(get_current_us
 # Roles: PUBLIC (anyone can register as PATIENT)
 # =============================================
 @router.post("/register", response_model=UserResponse)
+@limiter.limit("3/minute")
 async def register(
+    request: Request,
     user_data: UserCreate,
     db: Session = Depends(get_db)
 ):
@@ -519,7 +523,9 @@ async def register_user_admin(
 # Roles: ALL (patient, clinician, admin)
 # =============================================
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -625,9 +631,11 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 # Roles: PUBLIC (no auth needed)
 # =============================================
 @router.post("/reset-password")
+@limiter.limit("3/15minutes")
 async def request_password_reset(
+    request: Request,
     reset_data: PasswordResetRequest,
-    background_tasks: BackgroundTasks,
+    _background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -635,7 +643,8 @@ async def request_password_reset(
     
     - **email**: User email address
     
-    Generates a reset token and logs it (in production, would send via email).
+    Generates a reset token and sends it via SMTP when configured.
+    Falls back to explicit dev-mode token logging only when enabled.
     """
     user = db.query(User).filter(User.email == reset_data.email).first()
     
@@ -645,17 +654,49 @@ async def request_password_reset(
             data={"user_id": user.user_id, "type": "password_reset"},
             expires_delta=timedelta(hours=1)
         )
-        
-        # Log token for development only (DO NOT do this in production)
-        # In production, send via email instead
-        from app.config import settings
+
         logger.info(f"Password reset requested for: {reset_data.email}")
-        if settings.environment == "development" or settings.debug:
-            logger.info(f"Reset token (DEV ONLY - would be sent via email): {reset_token}")
-        
-        # In production, this would send an email with the reset link
-        # Example: https://app.adaptivhealth.com/reset-password?token={reset_token}
-        # background_tasks.add_task(send_reset_email, user.email, reset_token)
+
+        reset_link = email_service.build_password_reset_link(reset_token)
+
+        if email_service.is_smtp_configured():
+            try:
+                recipient_email = str(user.email)
+                email_service.send_password_reset_email(
+                    to_email=recipient_email,
+                    reset_link=reset_link,
+                )
+                logger.info(
+                    "Password reset email sent successfully",
+                    extra={
+                        "event": "password_reset_email_sent",
+                        "user_id": user.user_id,
+                        "recipient": recipient_email,
+                    },
+                )
+            except Exception as exc:
+                logger.error(
+                    "Password reset email delivery failed",
+                    extra={
+                        "event": "password_reset_email_failed",
+                        "user_id": user.user_id,
+                        "recipient": str(user.email),
+                        "error": str(exc),
+                    },
+                )
+                if settings.password_reset_dev_token_logging and settings.environment != "production":
+                    logger.info(f"Dev mode - reset token: {reset_token}")
+        else:
+            logger.warning(
+                "SMTP is not configured for password reset email delivery",
+                extra={
+                    "event": "password_reset_smtp_not_configured",
+                    "user_id": user.user_id,
+                    "recipient": str(user.email),
+                },
+            )
+            if settings.password_reset_dev_token_logging and settings.environment != "production":
+                logger.info(f"Dev mode - reset token: {reset_token}")
     
     # Always return success to prevent email enumeration
     return {

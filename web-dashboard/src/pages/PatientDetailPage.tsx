@@ -10,7 +10,7 @@ Shows detailed information about one patient:
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, Radar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Send, AlertOctagon, Info, Bell, Cpu, HardDrive, RefreshCw, Search, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, Radar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Send, AlertOctagon, Info, Bell, Cpu, HardDrive, RefreshCw, Search, ArrowUpRight, ArrowDownRight, Eye } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -21,6 +21,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { Snackbar, Alert as MuiAlert } from '@mui/material';
 import { api } from '../services/api';
 import {
   AlertResponse,
@@ -36,18 +37,33 @@ import {
   BaselineOptimizationResponse,
   RankedRecommendationResponse,
   NaturalLanguageRiskSummaryResponse,
-  NaturalLanguageAlertResponse,
   RetrainingStatusResponse,
   RetrainingReadinessResponse,
   ExplainPredictionResponse,
+  NaturalLanguageAlertResponse,
+  MedicalProfile,
+  MedicalExtractionStatusResponse,
+  MedicalConditionCreate,
+  MedicationCreate,
+  DocumentUploadResponse,
 } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import StatusBadge, { riskToStatus } from '../components/common/StatusBadge';
+import VitalsPanel from '../components/patient/VitalsPanel';
+import MedicalProfilePanel from '../components/patient/MedicalProfilePanel';
+import AlertsPanel from '../components/patient/AlertsPanel';
+import RiskAssessmentPanel from '../components/patient/RiskAssessmentPanel';
+import SessionHistoryPanel from '../components/patient/SessionHistoryPanel';
+import PredictionExplainabilityPanel from '../components/patient/PredictionExplainabilityPanel';
+import AdvancedMLPanel from '../components/patient/AdvancedMLPanel';
+import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
 const PatientDetailPage: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
+
+  // Core state
   const [patient, setPatient] = useState<User | null>(null);
   const [latestVitals, setLatestVitals] = useState<VitalSignResponse | null>(null);
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentResponse | null>(null);
@@ -55,27 +71,30 @@ const PatientDetailPage: React.FC = () => {
   const [alerts, setAlerts] = useState<AlertResponse[]>([]);
   const [activities, setActivities] = useState<ActivitySessionResponse[]>([]);
   const [vitalsHistory, setVitalsHistory] = useState<VitalSignsHistoryResponse | null>(null);
+
+  // Advanced ML state
   const [anomalyData, setAnomalyData] = useState<AnomalyDetectionResponse | null>(null);
-  const [anomalyPage, setAnomalyPage] = useState<number>(1);
-  const anomaliesPerPage = 6;
-  const [trendData, setTrendData] = useState<TrendForecastResponse | null>(null);
-  const [baselineData, setBaselineData] = useState<BaselineOptimizationResponse | null>(null);
-  const [baselineApplying, setBaselineApplying] = useState(false);
-  const [baselineApplyResult, setBaselineApplyResult] = useState<'success' | 'error' | null>(null);
-  const [anomalyHours, setAnomalyHours] = useState<number>(24);
+  const [anomalyHours, setAnomalyHours] = useState(24);
   const [anomalyExpanded, setAnomalyExpanded] = useState(true);
+  const [anomalyPage, setAnomalyPage] = useState(1);
+  const anomaliesPerPage = 5;
+  const [trendData, setTrendData] = useState<TrendForecastResponse | null>(null);
   const [trendExpanded, setTrendExpanded] = useState(true);
+  const [baselineData, setBaselineData] = useState<BaselineOptimizationResponse | null>(null);
   const [baselineExpanded, setBaselineExpanded] = useState(true);
+  const [baselineApplyResult, setBaselineApplyResult] = useState<'success' | 'error' | null>(null);
+  const [baselineApplying, setBaselineApplying] = useState(false);
   const [recData, setRecData] = useState<RankedRecommendationResponse | null>(null);
   const [recExpanded, setRecExpanded] = useState(true);
+  const [recOutcomeResult, setRecOutcomeResult] = useState<'completed' | 'partial' | 'skipped' | null>(null);
   const [recOutcomeLoading, setRecOutcomeLoading] = useState(false);
-  const [recOutcomeResult, setRecOutcomeResult] = useState<'completed' | 'skipped' | 'partial' | null>(null);
   const [riskSummaryData, setRiskSummaryData] = useState<NaturalLanguageRiskSummaryResponse | null>(null);
+  const [nlSummaryLoading, setNlSummaryLoading] = useState(false);
   const [nlExpanded, setNlExpanded] = useState(true);
+  const [nlAlertLoading, setNlAlertLoading] = useState(false);
   const [nlAlertType, setNlAlertType] = useState('high_heart_rate');
   const [nlSeverity, setNlSeverity] = useState('warning');
   const [nlAlertResult, setNlAlertResult] = useState<NaturalLanguageAlertResponse | null>(null);
-  const [nlAlertLoading, setNlAlertLoading] = useState(false);
   const [retrainStatus, setRetrainStatus] = useState<RetrainingStatusResponse | null>(null);
   const [retrainReadiness, setRetrainReadiness] = useState<RetrainingReadinessResponse | null>(null);
   const [modelExpanded, setModelExpanded] = useState(true);
@@ -88,10 +107,54 @@ const PatientDetailPage: React.FC = () => {
   const [computingRisk, setComputingRisk] = useState(false);
   const [computeRiskMessage, setComputeRiskMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Medical Profile state
+  const [medicalProfile, setMedicalProfile] = useState<MedicalProfile | null>(null);
+  const [medProfileExpanded, setMedProfileExpanded] = useState(true);
+  const [showAddCondition, setShowAddCondition] = useState(false);
+  const [showAddMedication, setShowAddMedication] = useState(false);
+  const [newCondition, setNewCondition] = useState<MedicalConditionCreate>({ condition_type: 'prior_mi', condition_detail: '', status: 'active' });
+  const [newMedication, setNewMedication] = useState<MedicationCreate>({ drug_class: 'beta_blocker', drug_name: '', dose: '', frequency: 'daily' });
+  const [medProfileSaving, setMedProfileSaving] = useState(false);
+  const [editingConditionId, setEditingConditionId] = useState<number | null>(null);
+  const [editedCondition, setEditedCondition] = useState<Partial<MedicalConditionCreate>>({});
+  const [editingMedicationId, setEditingMedicationId] = useState<number | null>(null);
+  const [editedMedication, setEditedMedication] = useState<Partial<MedicationCreate>>({});
+
+  // Document upload state
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [medicalExtractionStatus, setMedicalExtractionStatus] = useState<MedicalExtractionStatusResponse | null>(null);
+  const [extractionResult, setExtractionResult] = useState<DocumentUploadResponse | null>(null);
+  const [showExtractionReview, setShowExtractionReview] = useState(false);
+  const [editedExtraction, setEditedExtraction] = useState<{ conditions: MedicalConditionCreate[]; medications: MedicationCreate[] }>({ conditions: [], medications: [] });
+  const [confirmingExtraction, setConfirmingExtraction] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('error');
+
+  const showSnackbar = (message: string, severity: 'success' | 'error') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
+
   useEffect(() => {
     loadPatientData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, timeRange]);
+
+  useEffect(() => {
+    loadMedicalExtractionStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadMedicalExtractionStatus = async () => {
+    try {
+      const status = await api.getMedicalExtractionStatus();
+      setMedicalExtractionStatus(status);
+    } catch {
+      setMedicalExtractionStatus(null);
+    }
+  };
 
   const rangeToDays = (range: typeof timeRange) => {
     switch (range) {
@@ -138,9 +201,10 @@ const PatientDetailPage: React.FC = () => {
         api.getNaturalLanguageRiskSummary(userId),
         api.getRetrainingStatus(),
         api.getRetrainingReadiness(),
+        api.getPatientMedicalProfile(userId),
       ]);
 
-      const [userResult, vitalsResult, riskResult, recResult, alertsResult, activitiesResult, historyResult, anomalyResult, trendResult, baselineResult, recRankResult, riskSummaryResult, retrainStatusResult, retrainReadinessResult] = results;
+      const [userResult, vitalsResult, riskResult, recResult, alertsResult, activitiesResult, historyResult, anomalyResult, trendResult, baselineResult, recRankResult, riskSummaryResult, retrainStatusResult, retrainReadinessResult, medProfileResult] = results;
       const errors: string[] = [];
 
       if (userResult.status === 'fulfilled') {
@@ -231,7 +295,6 @@ const PatientDetailPage: React.FC = () => {
         setRiskSummaryData(riskSummaryResult.value);
       } else {
         setRiskSummaryData(null);
-        // Don't push error — 404 is expected if no risk assessments exist
       }
 
       // Advanced ML: Model Retraining Status
@@ -246,6 +309,14 @@ const PatientDetailPage: React.FC = () => {
         setRetrainReadiness(retrainReadinessResult.value);
       } else {
         setRetrainReadiness(null);
+      }
+
+      // Medical Profile
+      if (medProfileResult.status === 'fulfilled') {
+        setMedicalProfile(medProfileResult.value);
+      } else {
+        setMedicalProfile(null);
+        // Don't push error - medical profile is optional (no data yet)
       }
 
       if (errors.length > 0) {
@@ -309,6 +380,102 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  const handleAcknowledgeAlert = async (alertId: number) => {
+    try {
+      await api.acknowledgeAlert(alertId);
+      setAlerts((prev) => prev.map((alert) => (
+        alert.alert_id === alertId ? { ...alert, acknowledged: true } : alert
+      )));
+      window.dispatchEvent(new Event('alerts:updated'));
+      showSnackbar('Alert acknowledged successfully.', 'success');
+    } catch (error) {
+      showSnackbar('Failed to acknowledge alert.', 'error');
+    }
+  };
+
+  const handleResolveAlert = async (alertId: number) => {
+    try {
+      const resolved = await api.resolveAlert(alertId, {
+        resolution_notes: 'Resolved by clinician from dashboard',
+        acknowledged: true,
+      });
+      setAlerts((prev) => prev.map((alert) => (
+        alert.alert_id === alertId ? { ...alert, ...resolved } : alert
+      )));
+      window.dispatchEvent(new Event('alerts:updated'));
+      showSnackbar('Alert resolved successfully.', 'success');
+    } catch (error) {
+      showSnackbar('Failed to resolve alert.', 'error');
+    }
+  };
+
+  const handleGenerateAiSummary = async (): Promise<void> => {
+    if (!patientId) return;
+    const userId = Number(patientId);
+    setNlSummaryLoading(true);
+
+    try {
+      const summary = await api.getNaturalLanguageRiskSummary(userId);
+      setRiskSummaryData(summary);
+      showSnackbar('AI risk summary loaded.', 'success');
+      return;
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        try {
+          await api.computeRiskAssessmentForUser(userId);
+          const summary = await api.getNaturalLanguageRiskSummary(userId);
+          setRiskSummaryData(summary);
+          showSnackbar('AI risk summary generated successfully.', 'success');
+          return;
+        } catch (innerError: any) {
+          if (innerError?.response?.status === 503) {
+            showSnackbar('Gemini is unavailable or not configured on backend. Set GEMINI_API_KEY and restart backend.', 'error');
+            return;
+          }
+          showSnackbar('Unable to generate AI summary after risk computation. Check backend logs.', 'error');
+          return;
+        }
+      }
+      if (error?.response?.status === 503) {
+        showSnackbar('Gemini is unavailable or not configured on backend. Set GEMINI_API_KEY and restart backend.', 'error');
+        return;
+      }
+      showSnackbar(`Failed to load AI summary: ${error?.response?.data?.detail || error.message || 'Unknown error'}`, 'error');
+    } finally {
+      setNlSummaryLoading(false);
+    }
+  };
+
+  const handleExplainPrediction = async (): Promise<void> => {
+    if (!patient || !latestVitals) return;
+    setExplainLoading(true);
+    setExplainData(null);
+    try {
+      const result = await api.explainPrediction({
+        age: patient.age ?? 55,
+        baseline_hr: patient.baseline_hr ?? 72,
+        max_safe_hr: patient.max_safe_hr ?? 165,
+        avg_heart_rate: latestVitals.heart_rate ?? 85,
+        peak_heart_rate: Math.round((latestVitals.heart_rate ?? 85) * 1.2),
+        min_heart_rate: Math.round((latestVitals.heart_rate ?? 85) * 0.8),
+        avg_spo2: latestVitals.spo2 ?? 97,
+        duration_minutes: 20,
+        recovery_time_minutes: 5,
+        activity_type: 'walking',
+      });
+      setExplainData(result);
+    } catch (error: any) {
+      console.error('Explain prediction failed:', error);
+      if (error?.response?.status === 503) {
+        showSnackbar('ML model not loaded on backend. Please check backend logs and restart with model files present in ml_models/ folder.', 'error');
+      } else {
+        showSnackbar(`Failed to explain prediction: ${error?.response?.data?.detail || error.message || 'Unknown error'}`, 'error');
+      }
+    } finally {
+      setExplainLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ padding: '32px', textAlign: 'center' }}>
@@ -347,17 +514,11 @@ const PatientDetailPage: React.FC = () => {
 
   const riskStatus = riskToStatus(riskAssessment?.risk_level || 'low');
   const riskFactors = getRiskFactors();
-  const vitalsAny = latestVitals as VitalSignResponse & {
-    blood_pressure_systolic?: number;
-    blood_pressure_diastolic?: number;
-  } | null;
-  const systolic = vitalsAny?.blood_pressure?.systolic ?? vitalsAny?.blood_pressure_systolic ?? 0;
-  const diastolic = vitalsAny?.blood_pressure?.diastolic ?? vitalsAny?.blood_pressure_diastolic ?? 0;
-  const heartRate = latestVitals?.heart_rate ?? null;
-  const spo2Value = latestVitals?.spo2 ?? null;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.neutral['50'] }}>
+      <ClinicianTopBar />
+
       {/* Header */}
       <header
         style={{
@@ -453,337 +614,956 @@ const PatientDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Current Vitals Grid */}
-        <h2 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Current Vitals</h2>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            marginBottom: '32px',
-          }}
+        <VitalsPanel
+          latestVitals={latestVitals}
+          vitalsHistory={vitalsHistory}
+          timeRange={timeRange}
+          setTimeRange={setTimeRange}
+          riskAssessment={riskAssessment}
+          computingRisk={computingRisk}
+          onComputeRisk={handleComputeRisk}
+          getVitalStatus={getVitalStatus}
+        />
+
+        {/* ================================================================= */}
+        {/* Medical Profile Panel                                           */}
+        {/* ================================================================= */}
+        <MedicalProfilePanel
+          patientId={Number(patientId)}
+          medicalProfile={medicalProfile}
+          expanded={medProfileExpanded}
+          onToggle={() => setMedProfileExpanded(!medProfileExpanded)}
         >
-          {/* Heart Rate */}
-          <div
-            style={{
-              backgroundColor: colors.neutral.white,
-              border: `1px solid ${colors.neutral['300']}`,
-              borderRadius: '12px',
-              padding: '20px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Heart size={20} color={colors.critical.badge} />
-              <span style={typography.overline}>Heart Rate</span>
-            </div>
-            <div style={{ ...typography.bigNumber, marginBottom: '4px' }}>
-              {heartRate ?? '--'}
-            </div>
-            <div style={typography.bigNumberUnit}>{heartRate != null ? 'BPM' : ''}</div>
-            <div
-              style={{
-                ...typography.caption,
-                marginTop: '8px',
-                color: heartRate == null
-                  ? colors.neutral['500']
-                  : getVitalStatus(heartRate, 'hr') === 'critical'
-                  ? colors.critical.text
-                  : getVitalStatus(heartRate, 'hr') === 'warning'
-                  ? colors.warning.text
-                  : colors.stable.text,
-              }}
-            >
-              {heartRate == null ? 'No data' : '↑ High'}
-            </div>
-          </div>
-
-          {/* SpO2 */}
-          <div
-            style={{
-              backgroundColor: colors.neutral.white,
-              border: `1px solid ${colors.neutral['300']}`,
-              borderRadius: '12px',
-              padding: '20px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Wind size={20} color={colors.critical.badge} />
-              <span style={typography.overline}>SpO2</span>
-            </div>
-            <div style={{ ...typography.bigNumber, marginBottom: '4px' }}>
-              {spo2Value != null ? `${spo2Value.toFixed(0)}%` : '--'}
-            </div>
-            <div
-              style={{
-                ...typography.caption,
-                marginTop: '8px',
-                color: spo2Value == null
-                  ? colors.neutral['500']
-                  : spo2Value < 90
-                  ? colors.critical.text
-                  : colors.warning.text,
-              }}
-            >
-              {spo2Value == null ? 'No data' : '↓ Low'}
-            </div>
-          </div>
-
-          {/* Blood Pressure */}
-          <div
-            style={{
-              backgroundColor: colors.neutral.white,
-              border: `1px solid ${colors.neutral['300']}`,
-              borderRadius: '12px',
-              padding: '20px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Activity size={20} color={colors.critical.badge} />
-              <span style={typography.overline}>Blood Pressure</span>
-            </div>
-            <div style={{ ...typography.bigNumber, marginBottom: '4px' }}>
-              {systolic || '--'}/{diastolic || '--'}
-            </div>
-            <div
-              style={{
-                ...typography.caption,
-                marginTop: '8px',
-                color: systolic === 0
-                  ? colors.neutral['500']
-                  : getVitalStatus(systolic, 'bp') === 'critical'
-                  ? colors.critical.text
-                  : getVitalStatus(systolic, 'bp') === 'warning'
-                  ? colors.warning.text
-                  : colors.stable.text,
-              }}
-            >
-              {systolic === 0 ? 'No data' : '↑ High'}
-            </div>
-          </div>
-
-          {/* Risk Score */}
-          <div
-            style={{
-              backgroundColor: colors.neutral.white,
-              border: `1px solid ${colors.neutral['300']}`,
-              borderRadius: '12px',
-              padding: '20px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <AlertTriangle size={20} color={colors.critical.badge} />
-              <span style={typography.overline}>Risk Level</span>
-            </div>
-            {riskAssessment ? (
-              <>
-                <div style={{ ...typography.bigNumber, marginBottom: '4px', color: colors.critical.badge }}>
-                  {riskAssessment.risk_level?.toUpperCase()}
+              {/* AI Flags Banner */}
+              {medicalProfile && (medicalProfile.has_prior_mi || medicalProfile.has_heart_failure || medicalProfile.is_on_beta_blocker || medicalProfile.is_on_anticoagulant) && (
+                <div style={{
+                  backgroundColor: colors.warning.background,
+                  border: `1px solid ${colors.warning.border}`,
+                  borderRadius: '8px',
+                  padding: '12px 16px',
+                  marginBottom: '20px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  alignItems: 'center',
+                }}>
+                  <AlertTriangle size={16} color={colors.warning.text} />
+                  <span style={{ ...typography.caption, fontWeight: 700, color: colors.warning.text }}>AI Flags:</span>
+                  {medicalProfile.has_prior_mi && (
+                    <span style={{ backgroundColor: colors.critical.badge, color: '#fff', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px' }}>
+                      Prior MI (+0.10 risk)
+                    </span>
+                  )}
+                  {medicalProfile.has_heart_failure && (
+                    <span style={{ backgroundColor: colors.critical.badge, color: '#fff', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px' }}>
+                      Heart Failure {medicalProfile.heart_failure_class ? `NYHA ${medicalProfile.heart_failure_class}` : ''}
+                    </span>
+                  )}
+                  {medicalProfile.is_on_beta_blocker && (
+                    <span style={{ backgroundColor: colors.primary.default, color: '#fff', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px' }}>
+                      Beta-Blocker (HR adjusted)
+                    </span>
+                  )}
+                  {medicalProfile.is_on_anticoagulant && (
+                    <span style={{ backgroundColor: colors.warning.badge, color: '#fff', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px' }}>
+                      Anticoagulant (fall risk)
+                    </span>
+                  )}
+                  {medicalProfile.is_on_antiplatelet && (
+                    <span style={{ backgroundColor: colors.stable.badge, color: '#fff', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px' }}>
+                      On Antiplatelet
+                    </span>
+                  )}
                 </div>
-                <div style={{ ...typography.body, color: colors.neutral['700'] }}>
-                  {riskAssessment.risk_score.toFixed(2)}
-                </div>
-              </>
-            ) : (
-              <button
-                onClick={handleComputeRisk}
-                disabled={computingRisk}
-                style={{
-                  marginTop: '4px',
-                  padding: '8px 12px',
-                  backgroundColor: colors.primary.default,
-                  color: colors.neutral.white,
+              )}
+
+              {/* Document Upload Section */}
+              <div style={{ marginBottom: '20px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {medicalExtractionStatus && (
+                  <span
+                    style={{
+                      backgroundColor: medicalExtractionStatus.ready ? colors.stable.background : colors.critical.background,
+                      color: medicalExtractionStatus.ready ? colors.stable.text : colors.critical.text,
+                      border: `1px solid ${medicalExtractionStatus.ready ? colors.stable.badge : colors.critical.border}`,
+                      borderRadius: '999px',
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {medicalExtractionStatus.ready ? 'AI READY' : 'AI NOT READY'}
+                  </span>
+                )}
+                <label style={{
+                  backgroundColor: '#6B21A8',
+                  color: '#fff',
                   border: 'none',
                   borderRadius: '6px',
-                  cursor: computingRisk ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  opacity: computingRisk ? 0.7 : 1,
-                  width: '100%',
-                }}
-              >
-                {computingRisk ? 'Computing...' : 'Run AI Assessment'}
-              </button>
-            )}
-          </div>
-        </div>
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: uploadingDoc ? 'not-allowed' : 'pointer',
+                  opacity: uploadingDoc ? 0.6 : 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}>
+                  {uploadingDoc ? <Loader size={14} className="spin" /> : <FileText size={14} />}
+                  {uploadingDoc ? 'Extracting...' : 'Upload Document (AI Extract)'}
+                  <input
+                    type="file"
+                    accept=".pdf,.txt"
+                    style={{ display: 'none' }}
+                    disabled={uploadingDoc}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !patientId) return;
+                      e.target.value = '';
+                      if (file.size > 5 * 1024 * 1024) {
+                        showSnackbar('File too large. Maximum 5MB.', 'error');
+                        return;
+                      }
+                      setUploadingDoc(true);
+                      try {
+                        const result = await api.uploadPatientDocument(Number(patientId), file);
+                        setExtractionResult(result);
+                        setEditedExtraction({
+                          conditions: result.extracted_conditions || [],
+                          medications: result.extracted_medications || [],
+                        });
+                        setShowExtractionReview(true);
+                        // Refresh profile so the status badge updates
+                        if (patientId) {
+                          const updated = await api.getPatientMedicalProfile(Number(patientId));
+                          setMedicalProfile(updated);
+                        }
+                      } catch (err: any) {
+                        showSnackbar(err?.response?.data?.detail || 'Upload failed', 'error');
+                      } finally {
+                        setUploadingDoc(false);
+                      }
+                    }}
+                  />
+                </label>
+                {/* Document status badge */}
+                {(() => {
+                  const latestDoc = medicalProfile?.uploaded_documents?.find(
+                    (d) => d.file_available !== false
+                  ) ?? medicalProfile?.uploaded_documents?.[0];
+                  const hasDoc = !!latestDoc && latestDoc.file_available !== false;
+                  return (
+                    <>
+                      <span
+                        style={{
+                          backgroundColor: hasDoc ? colors.stable.background : colors.neutral['100'],
+                          color: hasDoc ? colors.stable.text : colors.neutral['500'],
+                          border: `1px solid ${hasDoc ? colors.stable.badge : colors.neutral['300']}`,
+                          borderRadius: '999px',
+                          padding: '4px 10px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {hasDoc ? '✓ Document Uploaded' : 'Empty'}
+                      </span>
+                      {hasDoc && latestDoc && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              // view_url is /api/v1/… but Axios baseURL already includes /api/v1,
+                              // so strip the prefix to avoid doubling it in the request path.
+                              const relPath = latestDoc.view_url.replace(/^\/api\/v1/, '');
+                              const blob = await api.getDocumentBlobByUrl(relPath);
+                              const objectUrl = URL.createObjectURL(blob);
+                              window.open(objectUrl, '_blank', 'noopener,noreferrer');
+                              setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+                            } catch {
+                              showSnackbar('Could not open document. File may be unavailable.', 'error');
+                            }
+                          }}
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: colors.primary.default,
+                            border: `1px solid ${colors.primary.default}`,
+                            borderRadius: '6px',
+                            padding: '6px 14px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Eye size={13} /> View File
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+                <span style={{ ...typography.caption, color: colors.neutral['500'] }}>
+                  PDF or TXT, max 5MB — AI extracts conditions & medications for review
+                  {medicalExtractionStatus && !medicalExtractionStatus.ready
+                    ? ' (Configure GEMINI_API_KEY and restart backend)'
+                    : ''}
+                </span>
+              </div>
 
-        {/* Time Range Tabs */}
-        <div style={{ marginBottom: '32px', display: 'flex', gap: '8px' }}>
-          {['1week', '2weeks', '1month', '3months'].map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range as any)}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: timeRange === range ? colors.primary.default : colors.neutral['100'],
-                color: timeRange === range ? colors.neutral.white : colors.neutral['700'],
-                cursor: 'pointer',
-                fontWeight: 500,
-                transition: 'all 0.2s',
-              }}
-            >
-              {range === '1week' && '1 Week'}
-              {range === '2weeks' && '2 Weeks'}
-              {range === '1month' && '1 Month'}
-              {range === '3months' && '3 Months'}
-            </button>
-          ))}
-        </div>
+              {medicalProfile?.has_document_storage_warning && (
+                <div
+                  style={{
+                    marginBottom: '14px',
+                    backgroundColor: colors.warning.background,
+                    border: `1px solid ${colors.warning.badge}`,
+                    color: colors.warning.text,
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {medicalProfile.missing_document_count || 0} uploaded document(s) are missing from storage. Re-upload to restore viewing.
+                </div>
+              )}
 
-        {/* Heart Rate History Chart */}
-        <div
-          style={{
-            backgroundColor: colors.neutral.white,
-            border: `1px solid ${colors.neutral['300']}`,
-            borderRadius: '12px',
-            padding: '24px',
-            marginBottom: '32px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-          }}
-        >
-          <h3 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Heart Rate History</h3>
-          {vitalsHistory?.vitals?.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={vitalsHistory.vitals.map((v) => ({
-                time: new Date(v.timestamp).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true,
-                }),
-                hr: v.heart_rate,
-                spo2: v.spo2,
-                systolic: v.blood_pressure?.systolic || null,
-                timestamp: v.timestamp,
-              }))}>
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
-                <XAxis
-                  dataKey="time"
-                  stroke={colors.neutral['500']}
-                  style={{ fontSize: '12px' }}
-                />
-                <YAxis
-                  stroke={colors.neutral['500']}
-                  style={{ fontSize: '12px' }}
-                  domain={[40, 180]}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: colors.neutral.white,
+              {/* Extraction Review Panel */}
+              {showExtractionReview && extractionResult && (
+                <div style={{
+                  backgroundColor: '#F5F3FF',
+                  border: '1px solid #C4B5FD',
+                  borderRadius: '8px',
+                  padding: '16px 20px',
+                  marginBottom: '20px',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ ...typography.body, fontWeight: 700, color: '#6B21A8' }}>
+                      AI Extraction Review — {extractionResult.filename}
+                    </span>
+                    <button onClick={() => setShowExtractionReview(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: colors.neutral['500'], fontSize: '18px' }}>✕</button>
+                  </div>
+                  <p style={{ ...typography.caption, color: colors.neutral['600'], marginBottom: '12px' }}>
+                    {extractionResult.extraction_message}
+                  </p>
+
+                  {/* Extracted Conditions */}
+                  {editedExtraction.conditions.length > 0 && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <span style={{ ...typography.caption, fontWeight: 700 }}>Extracted Conditions ({editedExtraction.conditions.length})</span>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '6px', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${colors.neutral['300']}` }}>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Type</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Detail</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Status</th>
+                            <th style={{ padding: '6px 8px', width: '40px' }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editedExtraction.conditions.map((c, i) => (
+                            <tr key={i} style={{ borderBottom: `1px solid ${colors.neutral['200']}` }}>
+                              <td style={{ padding: '6px 8px' }}>
+                                <select value={c.condition_type} onChange={e => {
+                                  const updated = [...editedExtraction.conditions];
+                                  updated[i] = { ...updated[i], condition_type: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, conditions: updated });
+                                }} style={{ fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }}>
+                                  {['prior_mi','cabg','pci_stent','heart_failure','valve_disease','atrial_fibrillation','other_arrhythmia','hypertension','diabetes_type1','diabetes_type2','dyslipidemia','ckd','copd','pad','stroke_tia','smoking','family_cvd','obesity','other'].map(t => <option key={t} value={t}>{t.replace(/_/g,' ')}</option>)}
+                                </select>
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <input value={c.condition_detail || ''} onChange={e => {
+                                  const updated = [...editedExtraction.conditions];
+                                  updated[i] = { ...updated[i], condition_detail: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, conditions: updated });
+                                }} style={{ width: '100%', fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }} />
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <select value={c.status || 'active'} onChange={e => {
+                                  const updated = [...editedExtraction.conditions];
+                                  updated[i] = { ...updated[i], status: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, conditions: updated });
+                                }} style={{ fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }}>
+                                  <option value="active">Active</option>
+                                  <option value="managed">Managed</option>
+                                  <option value="resolved">Resolved</option>
+                                </select>
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <button onClick={() => {
+                                  const updated = editedExtraction.conditions.filter((_, idx) => idx !== i);
+                                  setEditedExtraction({ ...editedExtraction, conditions: updated });
+                                }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: colors.critical.badge, fontSize: '16px' }}>✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Extracted Medications */}
+                  {editedExtraction.medications.length > 0 && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <span style={{ ...typography.caption, fontWeight: 700 }}>Extracted Medications ({editedExtraction.medications.length})</span>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '6px', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${colors.neutral['300']}` }}>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Class</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Name</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Dose</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>Freq</th>
+                            <th style={{ padding: '6px 8px', width: '40px' }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editedExtraction.medications.map((m, i) => (
+                            <tr key={i} style={{ borderBottom: `1px solid ${colors.neutral['200']}` }}>
+                              <td style={{ padding: '6px 8px' }}>
+                                <select value={m.drug_class} onChange={e => {
+                                  const updated = [...editedExtraction.medications];
+                                  updated[i] = { ...updated[i], drug_class: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, medications: updated });
+                                }} style={{ fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }}>
+                                  {['beta_blocker','ace_inhibitor','arb','antiplatelet','anticoagulant','statin','diuretic','ccb','nitrate','antiarrhythmic','insulin','metformin','sglt2_inhibitor','other'].map(t => <option key={t} value={t}>{t.replace(/_/g,' ')}</option>)}
+                                </select>
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <input value={m.drug_name} onChange={e => {
+                                  const updated = [...editedExtraction.medications];
+                                  updated[i] = { ...updated[i], drug_name: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, medications: updated });
+                                }} style={{ width: '100%', fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }} />
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <input value={m.dose || ''} onChange={e => {
+                                  const updated = [...editedExtraction.medications];
+                                  updated[i] = { ...updated[i], dose: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, medications: updated });
+                                }} style={{ width: '80px', fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }} />
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <select value={m.frequency} onChange={e => {
+                                  const updated = [...editedExtraction.medications];
+                                  updated[i] = { ...updated[i], frequency: e.target.value };
+                                  setEditedExtraction({ ...editedExtraction, medications: updated });
+                                }} style={{ fontSize: '12px', padding: '4px', borderRadius: '4px', border: `1px solid ${colors.neutral['300']}` }}>
+                                  <option value="daily">Daily</option>
+                                  <option value="twice_daily">Twice Daily</option>
+                                  <option value="three_times_daily">3x Daily</option>
+                                  <option value="as_needed">As Needed</option>
+                                  <option value="weekly">Weekly</option>
+                                </select>
+                              </td>
+                              <td style={{ padding: '6px 8px' }}>
+                                <button onClick={() => {
+                                  const updated = editedExtraction.medications.filter((_, idx) => idx !== i);
+                                  setEditedExtraction({ ...editedExtraction, medications: updated });
+                                }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: colors.critical.badge, fontSize: '16px' }}>✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {editedExtraction.conditions.length === 0 && editedExtraction.medications.length === 0 && (
+                    <p style={{ ...typography.caption, color: colors.neutral['500'], marginBottom: '12px' }}>
+                      No conditions or medications were extracted. You can enter them manually using the forms below.
+                    </p>
+                  )}
+
+                  {/* Confirm / Discard buttons */}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                    <button
+                      disabled={confirmingExtraction}
+                      onClick={async () => {
+                        if (!patientId || !extractionResult) return;
+                        setConfirmingExtraction(true);
+                        try {
+                          const profile = await api.confirmDocumentExtraction(Number(patientId), {
+                            document_id: extractionResult.document_id,
+                            conditions: editedExtraction.conditions,
+                            medications: editedExtraction.medications,
+                          });
+                          setMedicalProfile(profile);
+                          setShowExtractionReview(false);
+                          setExtractionResult(null);
+                          showSnackbar('Document review saved successfully.', 'success');
+                        } catch (err: any) {
+                          showSnackbar(err?.response?.data?.detail || 'Failed to save', 'error');
+                        } finally {
+                          setConfirmingExtraction(false);
+                        }
+                      }}
+                      style={{
+                        backgroundColor: '#16A34A',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 18px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: confirmingExtraction ? 'not-allowed' : 'pointer',
+                        opacity: confirmingExtraction ? 0.6 : 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      {confirmingExtraction ? <Loader size={14} /> : <Check size={14} />}
+                      {confirmingExtraction ? 'Saving...' : 'Confirm & Save'}
+                    </button>
+                    <button
+                      onClick={() => { setShowExtractionReview(false); setExtractionResult(null); }}
+                      style={{
+                        backgroundColor: colors.neutral['200'],
+                        color: colors.neutral['700'],
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 18px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Cardiac History Section */}
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <span style={{ ...typography.body, fontWeight: 700 }}>Cardiac History & Risk Factors</span>
+                  <button
+                    onClick={() => setShowAddCondition(!showAddCondition)}
+                    style={{
+                      backgroundColor: colors.primary.default,
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {showAddCondition ? 'Cancel' : '+ Add Condition'}
+                  </button>
+                </div>
+
+                {/* Add Condition Form */}
+                {showAddCondition && (
+                  <div style={{
+                    backgroundColor: colors.neutral['50'],
                     border: `1px solid ${colors.neutral['300']}`,
-                    borderRadius: '6px',
-                  }}
-                  formatter={(value) => {
-                    if (value === null || value === undefined) return 'N/A';
-                    const n = typeof value === 'number' ? value : Number(value);
-                    return Number.isFinite(n) ? n.toFixed(1) : 'N/A';
-                  }}
-                />
-                <Legend wrapperStyle={{ paddingTop: '16px' }} />
-                <Line
-                  type="monotone"
-                  dataKey="hr"
-                  stroke={colors.critical.badge}
-                  name="Heart Rate (BPM)"
-                  dot={false}
-                  strokeWidth={2}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="spo2"
-                  stroke={colors.warning.badge}
-                  name="SpO2 (%)"
-                  dot={false}
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div
-              style={{
-                height: '300px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: colors.neutral['50'],
-                borderRadius: '8px',
-                color: colors.neutral['500'],
-              }}
-            >
-              No vitals history available for chart
-            </div>
-          )}
-        </div>
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '12px',
+                    display: 'flex',
+                    gap: '10px',
+                    flexWrap: 'wrap',
+                    alignItems: 'flex-end',
+                  }}>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Condition</label>
+                      <select
+                        value={newCondition.condition_type}
+                        onChange={(e) => setNewCondition({ ...newCondition, condition_type: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                      >
+                        {['prior_mi','cabg','pci_stent','heart_failure','valve_disease','atrial_fibrillation','other_arrhythmia','hypertension','diabetes_type1','diabetes_type2','dyslipidemia','ckd','copd','pad','stroke_tia','smoking','family_cvd','obesity','other'].map(t => (
+                          <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Detail</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. NYHA Class II"
+                        value={newCondition.condition_detail || ''}
+                        onChange={(e) => setNewCondition({ ...newCondition, condition_detail: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px', width: '180px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Status</label>
+                      <select
+                        value={newCondition.status || 'active'}
+                        onChange={(e) => setNewCondition({ ...newCondition, status: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                      >
+                        <option value="active">Active</option>
+                        <option value="managed">Managed</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                    </div>
+                    <button
+                      disabled={medProfileSaving}
+                      onClick={async () => {
+                        if (!patientId) return;
+                        setMedProfileSaving(true);
+                        try {
+                          await api.addPatientCondition(Number(patientId), newCondition);
+                          setShowAddCondition(false);
+                          setNewCondition({ condition_type: 'prior_mi', condition_detail: '', status: 'active' });
+                          // Reload profile
+                          const profile = await api.getPatientMedicalProfile(Number(patientId));
+                          setMedicalProfile(profile);
+                        } catch (e) { console.error('Failed to add condition:', e); }
+                        setMedProfileSaving(false);
+                      }}
+                      style={{
+                        backgroundColor: colors.stable.badge,
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '6px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        opacity: medProfileSaving ? 0.6 : 1,
+                      }}
+                    >
+                      {medProfileSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Conditions Table */}
+                {medicalProfile && medicalProfile.conditions.length > 0 ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: `2px solid ${colors.neutral['300']}` }}>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Condition</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Detail</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Status</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {medicalProfile.conditions.map((c) => (
+                          <React.Fragment key={c.history_id}>
+                            <tr style={{ borderBottom: `1px solid ${colors.neutral['200']}` }}>
+                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                                {c.condition_type.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())}
+                              </td>
+                              <td style={{ padding: '8px 12px', color: colors.neutral['600'] }}>{c.condition_detail || '—'}</td>
+                              <td style={{ padding: '8px 12px' }}>
+                                <span style={{
+                                  backgroundColor: c.status === 'active' ? colors.critical.background : c.status === 'managed' ? colors.warning.background : colors.stable.background,
+                                  color: c.status === 'active' ? colors.critical.text : c.status === 'managed' ? colors.warning.text : colors.stable.text,
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: '10px',
+                                }}>
+                                  {c.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>
+                                <button
+                                  onClick={() => {
+                                    setEditingConditionId(c.history_id);
+                                    setEditedCondition({ condition_type: c.condition_type, condition_detail: c.condition_detail || '', status: c.status });
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: colors.primary.dark, cursor: 'pointer', fontSize: '12px', fontWeight: 600, marginRight: '8px' }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!patientId || !window.confirm('Delete this condition?')) return;
+                                    try {
+                                      await api.deletePatientCondition(Number(patientId), c.history_id);
+                                      const profile = await api.getPatientMedicalProfile(Number(patientId));
+                                      setMedicalProfile(profile);
+                                    } catch (e) { console.error('Failed to delete condition:', e); }
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: colors.critical.badge, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                            {editingConditionId === c.history_id && (
+                              <tr>
+                                <td colSpan={4} style={{ padding: '8px 12px', backgroundColor: colors.neutral['50'], borderBottom: `1px solid ${colors.neutral['300']}` }}>
+                                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Condition</label>
+                                      <select
+                                        value={editedCondition.condition_type || ''}
+                                        onChange={(e) => setEditedCondition({ ...editedCondition, condition_type: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                                      >
+                                        {['prior_mi','cabg','pci_stent','heart_failure','valve_disease','atrial_fibrillation','other_arrhythmia','hypertension','diabetes_type1','diabetes_type2','dyslipidemia','ckd','copd','pad','stroke_tia','smoking','family_cvd','obesity','other'].map(t => (
+                                          <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Detail</label>
+                                      <input
+                                        type="text"
+                                        value={editedCondition.condition_detail || ''}
+                                        onChange={(e) => setEditedCondition({ ...editedCondition, condition_detail: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px', width: '180px' }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Status</label>
+                                      <select
+                                        value={editedCondition.status || 'active'}
+                                        onChange={(e) => setEditedCondition({ ...editedCondition, status: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                                      >
+                                        <option value="active">Active</option>
+                                        <option value="managed">Managed</option>
+                                        <option value="resolved">Resolved</option>
+                                      </select>
+                                    </div>
+                                    <button
+                                      disabled={medProfileSaving}
+                                      onClick={async () => {
+                                        if (!patientId || !editingConditionId) return;
+                                        setMedProfileSaving(true);
+                                        try {
+                                          await api.updatePatientCondition(Number(patientId), editingConditionId, editedCondition);
+                                          setEditingConditionId(null);
+                                          const profile = await api.getPatientMedicalProfile(Number(patientId));
+                                          setMedicalProfile(profile);
+                                        } catch (e) { console.error('Failed to update condition:', e); }
+                                        setMedProfileSaving(false);
+                                      }}
+                                      style={{ backgroundColor: colors.stable.badge, color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: medProfileSaving ? 0.6 : 1 }}
+                                    >
+                                      {medProfileSaving ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingConditionId(null)}
+                                      style={{ background: 'none', border: `1px solid ${colors.neutral['300']}`, borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: colors.neutral['600'] }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ ...typography.body, color: colors.neutral['500'], fontStyle: 'italic' }}>
+                    No conditions recorded. Click "+ Add Condition" to add cardiac history.
+                  </div>
+                )}
+              </div>
+
+              {/* Medications Section */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <span style={{ ...typography.body, fontWeight: 700 }}>Medications</span>
+                  <button
+                    onClick={() => setShowAddMedication(!showAddMedication)}
+                    style={{
+                      backgroundColor: colors.primary.default,
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {showAddMedication ? 'Cancel' : '+ Add Medication'}
+                  </button>
+                </div>
+
+                {/* Add Medication Form */}
+                {showAddMedication && (
+                  <div style={{
+                    backgroundColor: colors.neutral['50'],
+                    border: `1px solid ${colors.neutral['300']}`,
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '12px',
+                    display: 'flex',
+                    gap: '10px',
+                    flexWrap: 'wrap',
+                    alignItems: 'flex-end',
+                  }}>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Drug Class</label>
+                      <select
+                        value={newMedication.drug_class}
+                        onChange={(e) => setNewMedication({ ...newMedication, drug_class: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                      >
+                        {['beta_blocker','ace_inhibitor','arb','antiplatelet','anticoagulant','statin','diuretic','ccb','nitrate','antiarrhythmic','insulin','metformin','sglt2_inhibitor','other'].map(t => (
+                          <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Drug Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Metoprolol"
+                        value={newMedication.drug_name}
+                        onChange={(e) => setNewMedication({ ...newMedication, drug_name: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px', width: '150px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Dose</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 50mg"
+                        value={newMedication.dose || ''}
+                        onChange={(e) => setNewMedication({ ...newMedication, dose: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px', width: '80px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Frequency</label>
+                      <select
+                        value={newMedication.frequency || 'daily'}
+                        onChange={(e) => setNewMedication({ ...newMedication, frequency: e.target.value })}
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                      >
+                        <option value="daily">Daily</option>
+                        <option value="twice_daily">Twice Daily</option>
+                        <option value="three_times_daily">3x Daily</option>
+                        <option value="as_needed">As Needed</option>
+                        <option value="weekly">Weekly</option>
+                      </select>
+                    </div>
+                    <button
+                      disabled={medProfileSaving || !newMedication.drug_name}
+                      onClick={async () => {
+                        if (!patientId) return;
+                        setMedProfileSaving(true);
+                        try {
+                          await api.addPatientMedication(Number(patientId), newMedication);
+                          setShowAddMedication(false);
+                          setNewMedication({ drug_class: 'beta_blocker', drug_name: '', dose: '', frequency: 'daily' });
+                          const profile = await api.getPatientMedicalProfile(Number(patientId));
+                          setMedicalProfile(profile);
+                        } catch (e) { console.error('Failed to add medication:', e); }
+                        setMedProfileSaving(false);
+                      }}
+                      style={{
+                        backgroundColor: !newMedication.drug_name ? colors.neutral['400'] : colors.stable.badge,
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '6px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: !newMedication.drug_name ? 'not-allowed' : 'pointer',
+                        opacity: medProfileSaving ? 0.6 : 1,
+                      }}
+                    >
+                      {medProfileSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Medications Table */}
+                {medicalProfile && medicalProfile.medications.length > 0 ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: `2px solid ${colors.neutral['300']}` }}>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Drug</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Class</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Dose</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Freq</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Flags</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Status</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: colors.neutral['700'] }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {medicalProfile.medications.map((m) => (
+                          <React.Fragment key={m.medication_id}>
+                            <tr style={{ borderBottom: `1px solid ${colors.neutral['200']}` }}>
+                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{m.drug_name}</td>
+                              <td style={{ padding: '8px 12px', color: colors.neutral['600'] }}>
+                                {m.drug_class.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())}
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>{m.dose || '—'}</td>
+                              <td style={{ padding: '8px 12px' }}>
+                                {(m.frequency || 'daily').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())}
+                              </td>
+                              <td style={{ padding: '8px 12px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                {m.is_hr_blunting && (
+                                  <span style={{ backgroundColor: colors.primary.light, color: colors.primary.dark, fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '8px' }}>
+                                    HR Blunting
+                                  </span>
+                                )}
+                                {m.is_anticoagulant && (
+                                  <span style={{ backgroundColor: colors.warning.background, color: colors.warning.text, fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '8px' }}>
+                                    Anticoagulant
+                                  </span>
+                                )}
+                                {!m.is_hr_blunting && !m.is_anticoagulant && '—'}
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>
+                                <span style={{
+                                  backgroundColor: m.status === 'active' ? colors.stable.background : m.status === 'on_hold' ? colors.warning.background : colors.neutral['100'],
+                                  color: m.status === 'active' ? colors.stable.text : m.status === 'on_hold' ? colors.warning.text : colors.neutral['600'],
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: '10px',
+                                }}>
+                                  {m.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>
+                                <button
+                                  onClick={() => {
+                                    setEditingMedicationId(m.medication_id);
+                                    setEditedMedication({ drug_class: m.drug_class, drug_name: m.drug_name, dose: m.dose || '', frequency: m.frequency || 'daily', status: m.status });
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: colors.primary.dark, cursor: 'pointer', fontSize: '12px', fontWeight: 600, marginRight: '8px' }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!patientId || !window.confirm('Delete this medication?')) return;
+                                    try {
+                                      await api.deletePatientMedication(Number(patientId), m.medication_id);
+                                      const profile = await api.getPatientMedicalProfile(Number(patientId));
+                                      setMedicalProfile(profile);
+                                    } catch (e) { console.error('Failed to delete medication:', e); }
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: colors.critical.badge, cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                            {editingMedicationId === m.medication_id && (
+                              <tr>
+                                <td colSpan={7} style={{ padding: '8px 12px', backgroundColor: colors.neutral['50'], borderBottom: `1px solid ${colors.neutral['300']}` }}>
+                                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Drug Class</label>
+                                      <select
+                                        value={editedMedication.drug_class || ''}
+                                        onChange={(e) => setEditedMedication({ ...editedMedication, drug_class: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                                      >
+                                        {['beta_blocker','ace_inhibitor','arb','antiplatelet','anticoagulant','statin','diuretic','ccb','nitrate','antiarrhythmic','insulin','metformin','sglt2_inhibitor','other'].map(t => (
+                                          <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Drug Name</label>
+                                      <input
+                                        type="text"
+                                        value={editedMedication.drug_name || ''}
+                                        onChange={(e) => setEditedMedication({ ...editedMedication, drug_name: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px', width: '150px' }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Dose</label>
+                                      <input
+                                        type="text"
+                                        value={editedMedication.dose || ''}
+                                        onChange={(e) => setEditedMedication({ ...editedMedication, dose: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px', width: '80px' }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Frequency</label>
+                                      <select
+                                        value={editedMedication.frequency || 'daily'}
+                                        onChange={(e) => setEditedMedication({ ...editedMedication, frequency: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                                      >
+                                        <option value="daily">Daily</option>
+                                        <option value="twice_daily">Twice Daily</option>
+                                        <option value="three_times_daily">3x Daily</option>
+                                        <option value="as_needed">As Needed</option>
+                                        <option value="weekly">Weekly</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label style={{ ...typography.caption, display: 'block', marginBottom: '4px' }}>Status</label>
+                                      <select
+                                        value={editedMedication.status || 'active'}
+                                        onChange={(e) => setEditedMedication({ ...editedMedication, status: e.target.value })}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+                                      >
+                                        <option value="active">Active</option>
+                                        <option value="on_hold">On Hold</option>
+                                        <option value="discontinued">Discontinued</option>
+                                      </select>
+                                    </div>
+                                    <button
+                                      disabled={medProfileSaving || !editedMedication.drug_name}
+                                      onClick={async () => {
+                                        if (!patientId || !editingMedicationId) return;
+                                        setMedProfileSaving(true);
+                                        try {
+                                          await api.updatePatientMedication(Number(patientId), editingMedicationId, editedMedication);
+                                          setEditingMedicationId(null);
+                                          const profile = await api.getPatientMedicalProfile(Number(patientId));
+                                          setMedicalProfile(profile);
+                                        } catch (e) { console.error('Failed to update medication:', e); }
+                                        setMedProfileSaving(false);
+                                      }}
+                                      style={{ backgroundColor: !editedMedication.drug_name ? colors.neutral['400'] : colors.stable.badge, color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 16px', fontSize: '13px', fontWeight: 600, cursor: !editedMedication.drug_name ? 'not-allowed' : 'pointer', opacity: medProfileSaving ? 0.6 : 1 }}
+                                    >
+                                      {medProfileSaving ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingMedicationId(null)}
+                                      style={{ background: 'none', border: `1px solid ${colors.neutral['300']}`, borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: colors.neutral['600'] }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ ...typography.body, color: colors.neutral['500'], fontStyle: 'italic' }}>
+                    No medications recorded. Click "+ Add Medication" to add.
+                  </div>
+                )}
+              </div>
+        </MedicalProfilePanel>
 
         {/* ================================================================= */}
         {/* Advanced ML: Anomaly Detection Panel                            */}
         {/* ================================================================= */}
-        <div
-          style={{
-            backgroundColor: colors.neutral.white,
-            border: `1px solid ${colors.neutral['300']}`,
-            borderRadius: '12px',
-            marginBottom: '24px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            overflow: 'hidden',
-          }}
+        <AdvancedMLPanel
+          anomalyData={anomalyData}
+          expanded={anomalyExpanded}
+          onToggle={() => setAnomalyExpanded((prev) => !prev)}
         >
-          {/* Collapsible header */}
-          <button
-            onClick={() => setAnomalyExpanded(!anomalyExpanded)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '20px 24px',
-              backgroundColor: anomalyData && anomalyData.anomaly_count > 0
-                ? colors.warning.background
-                : colors.neutral.white,
-              border: 'none',
-              cursor: 'pointer',
-              borderBottom: anomalyExpanded ? `1px solid ${colors.neutral['300']}` : 'none',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Radar size={22} color={anomalyData && anomalyData.anomaly_count > 0 ? colors.warning.text : colors.primary.default} />
-              <span style={{ ...typography.sectionTitle, margin: 0 }}>Anomaly Detection</span>
-              {anomalyData && anomalyData.anomaly_count > 0 && (
-                <span
-                  style={{
-                    backgroundColor: colors.warning.badge,
-                    color: colors.neutral.white,
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                  }}
-                >
-                  {anomalyData.anomaly_count} found
-                </span>
-              )}
-              {anomalyData && anomalyData.status === 'normal' && (
-                <span
-                  style={{
-                    backgroundColor: colors.stable.badge,
-                    color: colors.neutral.white,
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                  }}
-                >
-                  All normal
-                </span>
-              )}
-            </div>
-            {anomalyExpanded ? <ChevronUp size={20} color={colors.neutral['500']} /> : <ChevronDown size={20} color={colors.neutral['500']} />}
-          </button>
 
           {/* Expanded content */}
           {anomalyExpanded && (
@@ -1057,7 +1837,7 @@ const PatientDetailPage: React.FC = () => {
               )}
             </div>
           )}
-        </div>
+        </AdvancedMLPanel>
 
         {/* ================================================================= */}
         {/* Advanced ML: Trend Forecast Panel                                */}
@@ -2037,6 +2817,27 @@ const PatientDetailPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                   <FileText size={18} color={colors.neutral['600']} />
                   <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Patient Risk Summary</span>
+                  <button
+                    onClick={handleGenerateAiSummary}
+                    disabled={nlSummaryLoading}
+                    style={{
+                      marginLeft: 'auto',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 12px',
+                      backgroundColor: nlSummaryLoading ? colors.neutral['300'] : colors.primary.default,
+                      color: colors.neutral.white,
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: nlSummaryLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    {nlSummaryLoading ? 'Generating...' : 'Generate AI Summary'}
+                  </button>
                 </div>
 
                 {riskSummaryData ? (
@@ -2107,7 +2908,7 @@ const PatientDetailPage: React.FC = () => {
                       color: colors.neutral['500'],
                     }}
                   >
-                    No risk assessment available for this patient yet.
+                    No summary available yet. Click "Generate AI Summary" to compute and load insights.
                   </div>
                 )}
               </div>
@@ -2275,7 +3076,7 @@ const PatientDetailPage: React.FC = () => {
                           Recommended Actions:
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {nlAlertResult.action_steps.map((step, i) => (
+                          {nlAlertResult.action_steps.map((step: string, i: number) => (
                             <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                               <span style={{
                                 display: 'inline-flex',
@@ -2532,268 +3333,14 @@ const PatientDetailPage: React.FC = () => {
           )}
         </div>
 
-        {/* ================================================================= */}
-        {/* Advanced ML: Prediction Explainability Panel (Endpoint 11)       */}
-        {/* ================================================================= */}
-        <div
-          style={{
-            backgroundColor: colors.neutral.white,
-            border: `1px solid ${colors.neutral['300']}`,
-            borderRadius: '12px',
-            marginBottom: '32px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Collapsible header */}
-          <button
-            onClick={() => setExplainExpanded(!explainExpanded)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '20px 24px',
-              backgroundColor: colors.neutral.white,
-              border: 'none',
-              cursor: 'pointer',
-              borderBottom: explainExpanded ? `1px solid ${colors.neutral['300']}` : 'none',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Search size={22} color={colors.primary.default} />
-              <span style={{ ...typography.sectionTitle, margin: 0 }}>Prediction Explainability</span>
-              {explainData && (
-                <span
-                  style={{
-                    backgroundColor:
-                      explainData.risk_level === 'high' || explainData.risk_level === 'critical'
-                        ? colors.critical.background
-                        : explainData.risk_level === 'moderate'
-                        ? colors.warning.background
-                        : colors.stable.background,
-                    color:
-                      explainData.risk_level === 'high' || explainData.risk_level === 'critical'
-                        ? colors.critical.text
-                        : explainData.risk_level === 'moderate'
-                        ? colors.warning.text
-                        : colors.stable.text,
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                    textTransform: 'capitalize' as const,
-                  }}
-                >
-                  {explainData.risk_level} — {(explainData.risk_score * 100).toFixed(0)}%
-                </span>
-              )}
-            </div>
-            {explainExpanded ? <ChevronUp size={20} color={colors.neutral['500']} /> : <ChevronDown size={20} color={colors.neutral['500']} />}
-          </button>
-
-          {/* Expanded content */}
-          {explainExpanded && (
-            <div style={{ padding: '24px' }}>
-              {/* Run button — uses patient's current data */}
-              <div style={{ marginBottom: '20px' }}>
-                <button
-                  onClick={async () => {
-                    if (!patient || !latestVitals) return;
-                    setExplainLoading(true);
-                    setExplainData(null);
-                    try {
-                      const res = await api.explainPrediction({
-                        age: patient.age ?? 55,
-                        baseline_hr: patient.baseline_hr ?? 72,
-                        max_safe_hr: patient.max_safe_hr ?? 165,
-                        avg_heart_rate: latestVitals.heart_rate ?? 85,
-                        peak_heart_rate: Math.round((latestVitals.heart_rate ?? 85) * 1.2),
-                        min_heart_rate: Math.round((latestVitals.heart_rate ?? 85) * 0.8),
-                        avg_spo2: latestVitals.spo2 ?? 97,
-                        duration_minutes: 20,
-                        recovery_time_minutes: 5,
-                        activity_type: 'walking',
-                      });
-                      setExplainData(res);
-                    } catch (e: any) {
-                      console.error('Explain prediction failed:', e);
-                      // Check if it's a 503 error (model not loaded)
-                      if (e?.response?.status === 503) {
-                        alert('ML model not loaded on backend. Please check backend logs and restart with model files present in ml_models/ folder.');
-                      } else {
-                        alert(`Failed to explain prediction: ${e?.response?.data?.detail || e.message || 'Unknown error'}`);
-                      }
-                    } finally {
-                      setExplainLoading(false);
-                    }
-                  }}
-                  disabled={explainLoading || !patient || !latestVitals}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '10px 24px',
-                    backgroundColor: explainLoading ? colors.neutral['300'] : colors.primary.default,
-                    color: colors.neutral.white,
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: explainLoading || !patient ? 'not-allowed' : 'pointer',
-                    fontWeight: 600,
-                    fontSize: '14px',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {explainLoading ? (
-                    <><Loader size={16} /> Analyzing...</>
-                  ) : (
-                    <><Search size={16} /> Explain Risk Using Latest Vitals</>
-                  )}
-                </button>
-                <div style={{ ...typography.caption, color: colors.neutral['400'], marginTop: '6px' }}>
-                  Uses patient’s current vitals and profile to run a prediction with feature importance analysis.
-                </div>
-              </div>
-
-              {/* Explanation results */}
-              {explainData && (
-                <>
-                  {/* Plain explanation */}
-                  <div
-                    style={{
-                      padding: '18px 22px',
-                      backgroundColor:
-                        explainData.risk_level === 'high' || explainData.risk_level === 'critical'
-                          ? colors.critical.background
-                          : explainData.risk_level === 'moderate'
-                          ? colors.warning.background
-                          : colors.stable.background,
-                      border: `1px solid ${
-                        explainData.risk_level === 'high' || explainData.risk_level === 'critical'
-                          ? colors.critical.border
-                          : explainData.risk_level === 'moderate'
-                          ? colors.warning.border
-                          : colors.stable.border
-                      }`,
-                      borderRadius: '10px',
-                      marginBottom: '20px',
-                    }}
-                  >
-                    <p style={{ ...typography.body, lineHeight: '1.7', color: colors.neutral['800'], margin: 0, fontSize: '15px' }}>
-                      {explainData.plain_explanation}
-                    </p>
-                  </div>
-
-                  {/* Top contributing features */}
-                  <div style={{ marginBottom: '8px' }}>
-                    <div style={{ ...typography.caption, fontWeight: 700, color: colors.neutral['500'], marginBottom: '12px' }}>
-                      Top Contributing Features
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {explainData.feature_importance.top_features.map((feat, idx) => {
-                        const isIncreasing = feat.direction === 'increasing';
-                        const isDecreasing = feat.direction === 'decreasing';
-                        const barWidth = Math.min(100, Math.abs(feat.contribution) * 500);
-                        return (
-                          <div
-                            key={idx}
-                            style={{
-                              padding: '14px 18px',
-                              backgroundColor: colors.neutral['50'],
-                              borderRadius: '8px',
-                              border: `1px solid ${colors.neutral['200']}`,
-                            }}
-                          >
-                            {/* Feature header row */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  width: '24px',
-                                  height: '24px',
-                                  borderRadius: '50%',
-                                  backgroundColor:
-                                    isIncreasing ? colors.critical.background
-                                    : isDecreasing ? colors.stable.background
-                                    : colors.neutral['100'],
-                                  border: `1px solid ${
-                                    isIncreasing ? colors.critical.border
-                                    : isDecreasing ? colors.stable.border
-                                    : colors.neutral['200']
-                                  }`,
-                                }}>
-                                  {isIncreasing && <ArrowUpRight size={14} color={colors.critical.text} />}
-                                  {isDecreasing && <ArrowDownRight size={14} color={colors.stable.text} />}
-                                  {!isIncreasing && !isDecreasing && <Minus size={14} color={colors.neutral['400']} />}
-                                </span>
-                                <span style={{ fontWeight: 700, fontSize: '14px', color: colors.neutral['800'] }}>
-                                  {feat.feature.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                                </span>
-                              </div>
-                              <span style={{
-                                fontWeight: 700,
-                                fontSize: '14px',
-                                color: isIncreasing ? colors.critical.text : isDecreasing ? colors.stable.text : colors.neutral['500'],
-                              }}>
-                                {feat.value}
-                              </span>
-                            </div>
-
-                            {/* Contribution bar */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                              <div style={{ flex: 1, height: '6px', backgroundColor: colors.neutral['100'], borderRadius: '3px', overflow: 'hidden' }}>
-                                <div
-                                  style={{
-                                    height: '100%',
-                                    width: `${barWidth}%`,
-                                    backgroundColor: isIncreasing ? colors.critical.badge : isDecreasing ? colors.stable.badge : colors.neutral['300'],
-                                    borderRadius: '3px',
-                                    transition: 'width 0.4s ease',
-                                  }}
-                                />
-                              </div>
-                              <span style={{ ...typography.caption, color: colors.neutral['500'], minWidth: '50px', textAlign: 'right' }}>
-                                {(feat.contribution * 100).toFixed(1)}%
-                              </span>
-                            </div>
-
-                            {/* Explanation */}
-                            <div style={{ ...typography.caption, color: colors.neutral['500'] }}>
-                              {feat.explanation}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Method badge */}
-                  <div style={{ ...typography.caption, color: colors.neutral['400'], marginTop: '12px' }}>
-                    Method: {explainData.feature_importance.method.replace(/_/g, ' ')} • {explainData.feature_importance.feature_count} features analyzed
-                  </div>
-                </>
-              )}
-
-              {/* Empty state when no analysis run yet */}
-              {!explainData && !explainLoading && (
-                <div
-                  style={{
-                    padding: '24px',
-                    textAlign: 'center',
-                    backgroundColor: colors.neutral['50'],
-                    borderRadius: '8px',
-                    color: colors.neutral['500'],
-                  }}
-                >
-                  Click the button above to run a prediction explanation using this patient’s latest vitals.
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
+        <PredictionExplainabilityPanel
+          explainData={explainData}
+          explainExpanded={explainExpanded}
+          explainLoading={explainLoading}
+          canRunExplain={Boolean(patient && latestVitals)}
+          onToggleExpanded={() => setExplainExpanded(!explainExpanded)}
+          onRunExplain={handleExplainPrediction}
+        />
         {/* Two Column History Panels */}
         <div
           style={{
@@ -2804,179 +3351,37 @@ const PatientDetailPage: React.FC = () => {
           }}
         >
           {/* Alert History */}
-          <div
-            style={{
-              backgroundColor: colors.neutral.white,
-              border: `1px solid ${colors.neutral['300']}`,
-              borderRadius: '12px',
-              padding: '24px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <h3 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Alert History</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {alerts.length === 0 ? (
-                <div style={{ padding: '12px', backgroundColor: colors.neutral['50'], borderRadius: '8px' }}>
-                  <div style={{ ...typography.body, fontWeight: 600 }}>No alerts available</div>
-                </div>
-              ) : (
-                alerts.map((alert) => {
-                  const isCritical = alert.severity === 'critical' || alert.severity === 'emergency';
-                  const bg = isCritical ? colors.critical.background : colors.warning.background;
-                  const text = isCritical ? colors.critical.text : colors.warning.text;
-                  return (
-                    <div
-                      key={alert.alert_id}
-                      style={{ padding: '12px', backgroundColor: bg, borderRadius: '8px' }}
-                    >
-                      <div style={{ ...typography.body, color: text, fontWeight: 600 }}>
-                        ● {alert.severity.toUpperCase()}: {alert.title || alert.alert_type.replaceAll('_', ' ')}
-                      </div>
-                      <div style={{ ...typography.caption, color: text, marginTop: '4px' }}>
-                        {formatTimeAgo(alert.created_at)}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <AlertsPanel
+            patientId={Number(patientId)}
+            alerts={alerts}
+            formatTimeAgo={formatTimeAgo}
+            onAcknowledgeAlert={handleAcknowledgeAlert}
+            onResolveAlert={handleResolveAlert}
+          />
 
-          {/* Session History */}
-          <div
-            style={{
-              backgroundColor: colors.neutral.white,
-              border: `1px solid ${colors.neutral['300']}`,
-              borderRadius: '12px',
-              padding: '24px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <h3 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Session History</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {activities.length === 0 ? (
-                <div style={{ padding: '12px', backgroundColor: colors.neutral['50'], borderRadius: '8px' }}>
-                  <div style={{ ...typography.body, fontWeight: 600 }}>No sessions yet</div>
-                </div>
-              ) : (
-                activities.map((session) => (
-                  <div
-                    key={session.session_id}
-                    style={{ padding: '12px', backgroundColor: colors.neutral['50'], borderRadius: '8px' }}
-                  >
-                    <div style={{ ...typography.body, fontWeight: 600 }}>
-                      {new Date(session.start_time).toLocaleDateString()}: {session.duration_minutes ?? '--'}-min{' '}
-                      {session.activity_type.replaceAll('_', ' ')}
-                    </div>
-                    <div style={{ ...typography.caption, color: colors.neutral['500'], marginTop: '4px' }}>
-                      Avg HR: {session.avg_heart_rate ?? '--'} BPM • Recovery: {session.recovery_time_minutes ?? '--'} min
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <SessionHistoryPanel activities={activities} />
         </div>
 
-        {/* AI Risk Assessment */}
-        <div
-          style={{
-            backgroundColor: colors.critical.background,
-            border: `1px solid ${colors.critical.border}`,
-            borderRadius: '12px',
-            padding: '24px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <AlertTriangle size={20} color={colors.critical.text} />
-              <h3 style={{ ...typography.sectionTitle, color: colors.critical.text, margin: 0 }}>
-                AI Risk Assessment
-              </h3>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-              <button
-                onClick={handleComputeRisk}
-                disabled={computingRisk}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 16px',
-                  backgroundColor: colors.primary.default,
-                  color: colors.neutral.white,
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: computingRisk ? 'not-allowed' : 'pointer',
-                  fontWeight: 500,
-                  fontSize: '13px',
-                  opacity: computingRisk ? 0.7 : 1,
-                }}
-              >
-                <RefreshCw size={14} />
-                {computingRisk ? 'Computing...' : riskAssessment ? 'Recompute' : 'Run AI Assessment'}
-              </button>
-              <p style={{ fontSize: '11px', color: colors.neutral['500'], margin: 0 }}>
-                Requires vitals submitted within the last 30 minutes.
-              </p>
-            </div>
-          </div>
-
-          {computeRiskMessage && (
-            <div
-              style={{
-                padding: '10px 14px',
-                borderRadius: '8px',
-                marginBottom: '12px',
-                border: `1px solid ${computeRiskMessage.type === 'success' ? colors.stable.border : colors.warning.border}`,
-                backgroundColor: computeRiskMessage.type === 'success' ? colors.stable.background : colors.warning.background,
-                color: computeRiskMessage.type === 'success' ? colors.stable.text : colors.warning.text,
-                fontSize: '13px',
-                fontWeight: 500,
-              }}
-            >
-              {computeRiskMessage.text}
-            </div>
-          )}
-
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ ...typography.body, color: colors.critical.text, marginBottom: '8px' }}>
-              <strong>
-                Current Risk: {riskAssessment?.risk_level?.toUpperCase() || 'N/A'} ({(riskAssessment?.risk_score ?? 0).toFixed(2)})
-              </strong>
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ ...typography.body, color: colors.critical.text, fontWeight: 600, marginBottom: '8px' }}>
-              Contributing Factors:
-            </div>
-            <ul style={{ margin: 0, paddingLeft: '20px' }}>
-              {riskFactors.length === 0 ? (
-                <li style={{ ...typography.body, color: colors.critical.text, marginBottom: '4px' }}>
-                  No contributing factors available.
-                </li>
-              ) : (
-                riskFactors.map((factor, idx) => (
-                  <li key={idx} style={{ ...typography.body, color: colors.critical.text, marginBottom: '4px' }}>
-                    {factor}
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-
-          <div style={{ paddingTop: '16px', borderTop: `1px solid ${colors.critical.border}` }}>
-            <div style={{ ...typography.body, color: colors.critical.text, fontWeight: 600 }}>
-              Recommendation:
-            </div>
-            <div style={{ ...typography.body, color: colors.critical.text, marginTop: '8px' }}>
-              {recommendation?.description || recommendation?.warnings || 'No recommendation available.'}
-            </div>
-          </div>
-        </div>
+        <RiskAssessmentPanel
+          riskAssessment={riskAssessment}
+          recommendation={recommendation}
+          riskFactors={riskFactors}
+          computingRisk={computingRisk}
+          computeRiskMessage={computeRiskMessage}
+          onComputeRisk={handleComputeRisk}
+        />
       </main>
+
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={4000}
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <MuiAlert onClose={() => setSnackbarOpen(false)} severity={snackbarSeverity} variant="filled">
+          {snackbarMessage}
+        </MuiAlert>
+      </Snackbar>
     </div>
   );
 };

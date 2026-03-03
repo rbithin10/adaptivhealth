@@ -26,26 +26,17 @@ logger = logging.getLogger(__name__)
 # pool_size: Number of persistent connections in the pool
 # max_overflow: Additional connections allowed during high load
 # pool_recycle: Recycle connections after this many seconds (prevents timeouts)
-# Build engine args based on database type
-if "sqlite" in settings.database_url:
-    # SQLite doesn't support connection pooling
-    engine = create_engine(
-        settings.database_url,
-        echo=settings.debug,
-        connect_args={"check_same_thread": False}
-    )
-else:
-    # PostgreSQL with connection pooling for AWS RDS
-    engine = create_engine(
-        settings.database_url,
-        poolclass=QueuePool,
-        pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
-        pool_recycle=3600,
-        echo=settings.debug,
-        connect_args={"options": "-c timezone=utc"}
-    )
+# PostgreSQL with connection pooling for AWS RDS
+engine = create_engine(
+    settings.database_url,
+    poolclass=QueuePool,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=3600,
+    echo=settings.debug,
+    connect_args={"options": "-c timezone=utc"}
+)
 
 # =============================================================================
 # Session Factory
@@ -120,11 +111,14 @@ def init_db() -> None:
     # This is necessary for Base.metadata to have all table definitions
     from app.models import (
         user,
+        auth_credential,
         vital_signs,
         activity,
         risk_assessment,
         alert,
-        recommendation
+        recommendation,
+        nutrition,
+        message
     )
     
     logger.info("Creating database tables...")

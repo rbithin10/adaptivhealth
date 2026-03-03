@@ -15,6 +15,7 @@
 ///   to threshold-only alerts.
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import '../models/edge_prediction.dart';
 
@@ -76,8 +77,9 @@ class EdgeMLService {
       }
     } catch (e, stack) {
       _isReady = false;
-      // ignore: avoid_print
-      print('[EdgeML] initialize() failed: $e\n$stack');
+      if (kDebugMode) {
+        debugPrint('[EdgeML] initialize() failed: $e\n$stack');
+      }
     }
   }
 

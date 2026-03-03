@@ -27,15 +27,19 @@ Manages health alerts and warnings for cardiac patients.
 # =============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc, and_, func
 from typing import Optional
 from datetime import datetime, timedelta, timezone
+import asyncio
+import json
 import logging
 
 from app.database import get_db
 from app.models.user import User
+from app.models.user import UserRole
 from app.models.alert import Alert
 from app.schemas.alert import (
     AlertCreate,
@@ -47,11 +51,79 @@ from app.api.auth import (
     get_current_user,
     get_current_doctor_user,
     get_current_admin_or_doctor_user,
-    check_clinician_phi_access
+    check_clinician_phi_access,
+    auth_service,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _get_doctor_user_from_token_query(token: str, db: Session) -> User:
+    """Validate query-token and ensure caller is clinician/admin for SSE stream."""
+    payload = auth_service.decode_token(token)
+
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+    user = db.query(User).filter(User.user_id == int(user_id)).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated",
+        )
+
+    if user.role not in [UserRole.CLINICIAN, UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Clinician access required",
+        )
+
+    return user
+
+
+def _compute_alert_snapshot(db: Session, days: int) -> dict:
+    """Compute alert stats payload used by both REST and SSE responses."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    severity_counts = db.query(
+        Alert.severity,
+        func.count(Alert.alert_id).label("count")
+    ).filter(
+        Alert.created_at >= since
+    ).group_by(Alert.severity).all()
+
+    unacknowledged = db.query(func.count(Alert.alert_id)).filter(
+        and_(
+            Alert.created_at >= since,
+            Alert.acknowledged == False
+        )
+    ).scalar()
+
+    return {
+        "period_days": days,
+        "severity_breakdown": {
+            severity: count for severity, count in severity_counts
+        },
+        "unacknowledged_count": int(unacknowledged or 0),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # =============================================================================
@@ -364,30 +436,59 @@ async def get_alert_statistics(
     
     Admin/Clinician access only. Used for dashboard metrics.
     """
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    
-    # Count alerts by severity
-    from sqlalchemy import func
-    severity_counts = db.query(
-        Alert.severity,
-        func.count(Alert.alert_id).label('count')
-    ).filter(
-        Alert.created_at >= since
-    ).group_by(Alert.severity).all()
-    
-    # Count unacknowledged alerts
-    unacknowledged = db.query(func.count(Alert.alert_id)).filter(
-        and_(
-            Alert.created_at >= since,
-            Alert.acknowledged == False
-        )
-    ).scalar()
-    
-    return {
-        "period_days": days,
-        "severity_breakdown": {
-            severity: count for severity, count in severity_counts
+    return _compute_alert_snapshot(db, days)
+
+
+@router.get("/alerts/stream")
+async def stream_alert_statistics(
+    request: Request,
+    token: str = Query(..., min_length=1),
+    days: int = Query(7, ge=1, le=90),
+    poll_seconds: float = Query(1.0, ge=0.5, le=10.0),
+    db: Session = Depends(get_db),
+):
+    """Server-Sent Events stream for near-instant dashboard alert updates."""
+    user = _get_doctor_user_from_token_query(token, db)
+    logger.info(f"Alerts SSE connected for clinician/admin user {user.user_id}")
+
+    async def event_generator():
+        last_signature = ""
+        heartbeat_counter = 0
+
+        while True:
+            if await request.is_disconnected():
+                logger.info(f"Alerts SSE disconnected for user {user.user_id}")
+                break
+
+            snapshot = _compute_alert_snapshot(db, days)
+
+            signature_obj = {
+                "severity_breakdown": snapshot.get("severity_breakdown", {}),
+                "unacknowledged_count": snapshot.get("unacknowledged_count", 0),
+            }
+            signature = json.dumps(signature_obj, sort_keys=True)
+
+            if signature != last_signature:
+                last_signature = signature
+                payload = {
+                    "event": "alerts_update",
+                    "data": snapshot,
+                }
+                yield f"event: alerts_update\ndata: {json.dumps(payload)}\n\n"
+
+            heartbeat_counter += 1
+            if heartbeat_counter >= int(max(1, round(15.0 / poll_seconds))):
+                heartbeat_counter = 0
+                yield f"event: heartbeat\ndata: {json.dumps({'ts': datetime.now(timezone.utc).isoformat()})}\n\n"
+
+            await asyncio.sleep(poll_seconds)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
-        "unacknowledged_count": unacknowledged,
-        "generated_at": datetime.now(timezone.utc).isoformat()
-    }
+    )

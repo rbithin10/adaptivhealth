@@ -190,3 +190,23 @@ class ProgressSummaryResponse(BaseModel):
     previous_period: Period
     trend: Trend
     nl_summary: str = Field(..., description="Natural language progress summary")
+
+
+# =============================================================================
+# CHAT MODELS (Gemini-enhanced chatbot)
+# =============================================================================
+
+class ChatRequest(BaseModel):
+    """Request for the hybrid chat endpoint."""
+    message: str = Field(..., min_length=1, max_length=500, description="User's chat message")
+    screen_context: Optional[str] = Field(None, description="Current screen the user is viewing")
+    conversation_history: list[dict] = Field(
+        default=[],
+        description="Recent conversation messages [{role, text}, ...] for context"
+    )
+
+
+class ChatResponse(BaseModel):
+    """Response from the hybrid chat endpoint."""
+    response: str = Field(..., description="AI coach response text")
+    source: str = Field(..., description="Response source: template, gemini, or fallback")

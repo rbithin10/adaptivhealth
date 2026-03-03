@@ -6,16 +6,21 @@ medical background, and emergency contact in a step-by-step wizard.
 
 Steps:
   1. Welcome — 3 swipeable intro cards (what the app does)
-  2. Health Profile — weight, height
-  3. Medical Background — conditions, medications, allergies
-  4. Emergency Contact — name, phone
-  5. All Set — summary, navigate to Home
+  2. Health Profile — age, weight, height
+  3. Fitness & Rehab — activity level, exercise limitations, rehab phase
+  4. Goals & Wellbeing — primary goal, stress level, sleep quality
+  5. Lifestyle Screening — smoking, alcohol, sedentary time, PHQ-2
+  6. Medical Background — conditions, medications, allergies
+  7. Emergency Contact — name, phone
+  8. All Set — summary, navigate to Home
 
 Data is sent to:
-  - PUT /api/v1/users/me              (health profile + emergency contact)
+  - PUT /api/v1/users/me              (health profile + emergency contact + lifestyle)
   - PUT /api/v1/users/me/medical-history  (conditions, medications, allergies)
 */
 
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,17 +44,21 @@ Future<bool> hasCompletedOnboarding(String userEmail) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _getOnboardingKey(userEmail);
     final completed = prefs.getBool(key) ?? false;
-    print('DEBUG hasCompletedOnboarding: User $userEmail, status = $completed');
+    if (kDebugMode) {
+      debugPrint('DEBUG hasCompletedOnboarding: User $userEmail, status = $completed');
+    }
     return completed;
   } catch (e) {
-    print('ERROR hasCompletedOnboarding: $e');
+    if (kDebugMode) debugPrint('ERROR hasCompletedOnboarding: $e');
     return false;  // Default to showing onboarding if error
   }
 }
 
 /// Mark onboarding as finished for the current user.
 Future<void> markOnboardingComplete(String userEmail) async {
-  print('DEBUG markOnboardingComplete: Marking onboarding as complete for $userEmail');
+  if (kDebugMode) {
+    debugPrint('DEBUG markOnboardingComplete: Marking onboarding as complete for $userEmail');
+  }
   final prefs = await SharedPreferences.getInstance();
   final key = _getOnboardingKey(userEmail);
   await prefs.setBool(key, true);
@@ -57,7 +66,9 @@ Future<void> markOnboardingComplete(String userEmail) async {
 
 /// Clear onboarding flag for a specific user or all users.
 Future<void> clearOnboardingFlag([String? userEmail]) async {
-  print('DEBUG clearOnboardingFlag: Clearing onboarding flag for ${userEmail ?? "all users"}');
+  if (kDebugMode) {
+    debugPrint('DEBUG clearOnboardingFlag: Clearing onboarding flag for ${userEmail ?? "all users"}');
+  }
   final prefs = await SharedPreferences.getInstance();
   
   if (userEmail != null) {
@@ -96,13 +107,31 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  static const int _totalPages = 5;
+  static const int _totalPages = 8;
 
   // Health profile (step 2)
+  final _ageController = TextEditingController();
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
 
-  // Medical background (step 3)
+  // Fitness & Rehab (step 3)
+  String? _activityLevel;
+  final List<String> _selectedLimitations = [];
+  String _rehabPhase = 'not_in_rehab';
+
+  // Goals & Wellbeing (step 4)
+  String? _primaryGoal;
+  int _stressLevel = 5;
+  String? _sleepQuality;
+
+  // Lifestyle Screening (step 5)
+  String _smokingStatus = 'never';
+  String _alcoholFrequency = 'never';
+  double _sedentaryHours = 4.0;
+  int _phq2Score1 = 0;
+  int _phq2Score2 = 0;
+
+  // Medical background (step 6)
   final List<String> _selectedConditions = [];
   final _medicationsController = TextEditingController();
   final _allergiesController = TextEditingController();
@@ -128,6 +157,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+    _ageController.dispose();
     _weightController.dispose();
     _heightController.dispose();
     _medicationsController.dispose();
@@ -167,14 +197,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _isSaving = true);
 
     try {
-      // 1. Update health profile (weight, height)
+      // 1. Update health profile (age, weight, height)
       final double? weight = double.tryParse(_weightController.text.trim());
       final double? height = double.tryParse(_heightController.text.trim());
+      final int? age = int.tryParse(_ageController.text.trim());
 
-      if (weight != null || height != null) {
+      if (weight != null || height != null || age != null) {
         await widget.apiClient.updateProfile(
           weightKg: weight,
           heightCm: height,
+          age: age,
         );
       }
 
@@ -189,7 +221,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       }
 
-      // 3. Update medical history (conditions, medications, allergies)
+      // 3. Update lifestyle & fitness data
+      await widget.apiClient.updateProfile(
+        activityLevel: _activityLevel,
+        exerciseLimitations: _selectedLimitations.isNotEmpty
+            ? jsonEncode(_selectedLimitations)
+            : null,
+        primaryGoal: _primaryGoal,
+        rehabPhase: _rehabPhase,
+        stressLevel: _stressLevel,
+        sleepQuality: _sleepQuality,
+        smokingStatus: _smokingStatus,
+        alcoholFrequency: _alcoholFrequency,
+        sedentaryHours: _sedentaryHours,
+        phq2Score: _phq2Score1 + _phq2Score2,
+      );
+
+      // 4. Update medical history (conditions, medications, allergies)
       if (_selectedConditions.isNotEmpty ||
           _medicationsController.text.trim().isNotEmpty ||
           _allergiesController.text.trim().isNotEmpty) {
@@ -214,7 +262,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       }
 
-      // 4. Mark complete locally so we don't show again
+      // 5. Mark complete locally so we don't show again
       // Get user email to save completion status
       try {
         final userProfile = await widget.apiClient.getCurrentUser();
@@ -223,7 +271,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           await markOnboardingComplete(userEmail);
         }
       } catch (e) {
-        print('ERROR: Could not save onboarding completion: $e');
+        if (kDebugMode) {
+          debugPrint('ERROR: Could not save onboarding completion: $e');
+        }
       }
 
       // Done — navigate to Home
@@ -245,7 +295,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     await markOnboardingComplete(userEmail);
                   }
                 } catch (e) {
-                  print('ERROR: Could not save onboarding skip: $e');
+                  if (kDebugMode) {
+                    debugPrint('ERROR: Could not save onboarding skip: $e');
+                  }
                 }
                 widget.onComplete();
               },
@@ -285,6 +337,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 children: [
                   _buildWelcomePage(brightness),
                   _buildHealthProfilePage(brightness),
+                  _buildFitnessRehabPage(brightness),
+                  _buildGoalsWellbeingPage(brightness),
+                  _buildLifestyleScreeningPage(brightness),
                   _buildMedicalBackgroundPage(brightness),
                   _buildEmergencyContactPage(brightness),
                   _buildAllSetPage(brightness),
@@ -511,6 +566,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 32),
 
+          // Age
+          _fieldLabel('Age', brightness),
+          const SizedBox(height: 8),
+          _styledTextField(
+            controller: _ageController,
+            hint: 'e.g. 55',
+            icon: Icons.cake_outlined,
+            keyboardType: TextInputType.number,
+            brightness: brightness,
+          ),
+          const SizedBox(height: 24),
+
           // Weight
           _fieldLabel('Weight (kg)', brightness),
           const SizedBox(height: 8),
@@ -567,7 +634,698 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Step 3: Medical Background
+  // Step 3: Fitness & Rehab
+  // ---------------------------------------------------------------------------
+
+  Widget _buildFitnessRehabPage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+
+    const activityOptions = <String, _ActivityOption>{
+      'none': _ActivityOption(Icons.weekend, 'None', "I'm mostly sedentary"),
+      'light': _ActivityOption(
+          Icons.directions_walk, 'Light', 'Short walks, light chores'),
+      'moderate': _ActivityOption(Icons.directions_run, 'Moderate',
+          'Regular walking, some exercise'),
+      'active': _ActivityOption(Icons.fitness_center, 'Active',
+          'Frequent exercise, physically active'),
+    };
+
+    const limitations = [
+      'Joint pain',
+      'Shortness of breath',
+      'Balance issues',
+      'Chest pain with exertion',
+      'None',
+    ];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Icon(Icons.directions_run,
+                size: 56, color: AdaptivColors.getPrimaryColor(brightness)),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Fitness & Rehab',
+              style: GoogleFonts.dmSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'Help us understand your current activity level',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Activity Level
+          _fieldLabel('Activity Level', brightness),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.35,
+            children: activityOptions.entries.map((entry) {
+              final selected = _activityLevel == entry.key;
+              final opt = entry.value;
+              return GestureDetector(
+                onTap: () => setState(() => _activityLevel = entry.key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? AdaptivColors.primaryUltralight
+                        : surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? AdaptivColors.primary
+                          : borderColor,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(opt.icon,
+                          size: 28,
+                          color: selected
+                              ? AdaptivColors.primary
+                              : secondaryText),
+                      const SizedBox(height: 6),
+                      Text(
+                        opt.label,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 14,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected ? AdaptivColors.primary : textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        opt.subtitle,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 11,
+                          color: secondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // Exercise Limitations
+          _fieldLabel('Exercise Limitations', brightness),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: limitations.map((lim) {
+              final key = lim.toLowerCase().replaceAll(' ', '_');
+              final isNone = lim == 'None';
+              final selected = isNone
+                  ? _selectedLimitations.isEmpty
+                  : _selectedLimitations.contains(key);
+              return FilterChip(
+                label: Text(lim),
+                selected: selected,
+                selectedColor: AdaptivColors.primaryLight,
+                checkmarkColor: AdaptivColors.primary,
+                labelStyle: GoogleFonts.dmSans(
+                  fontSize: 13,
+                  color: selected ? AdaptivColors.primary : textColor,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: selected
+                        ? AdaptivColors.primary
+                        : AdaptivColors.getBorderColor(brightness),
+                  ),
+                ),
+                onSelected: (val) {
+                  setState(() {
+                    if (isNone) {
+                      _selectedLimitations.clear();
+                    } else if (val) {
+                      _selectedLimitations.add(key);
+                    } else {
+                      _selectedLimitations.remove(key);
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // Cardiac Rehab Phase
+          _fieldLabel('Cardiac Rehab Phase', brightness),
+          const SizedBox(height: 8),
+          ...[
+            ('phase_2', 'Phase II — supervised outpatient'),
+            ('phase_3', 'Phase III — independent maintenance'),
+            ('not_in_rehab', 'Not in cardiac rehab'),
+          ].map((entry) {
+            return RadioListTile<String>(
+              value: entry.$1,
+              groupValue: _rehabPhase,
+              title: Text(
+                entry.$2,
+                style: GoogleFonts.dmSans(fontSize: 14, color: textColor),
+              ),
+              activeColor: AdaptivColors.primary,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              onChanged: (val) {
+                if (val != null) setState(() => _rehabPhase = val);
+              },
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 4: Goals & Wellbeing
+  // ---------------------------------------------------------------------------
+
+  Widget _buildGoalsWellbeingPage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+
+    const goalOptions = <String, _ActivityOption>{
+      'reduce_bp': _ActivityOption(
+          Icons.favorite, 'Reduce blood pressure', ''),
+      'lose_weight': _ActivityOption(
+          Icons.monitor_weight, 'Lose weight', ''),
+      'post_surgery_recovery': _ActivityOption(
+          Icons.local_hospital, 'Post-surgery recovery', ''),
+      'general_heart_health': _ActivityOption(
+          Icons.favorite_border, 'General heart health', ''),
+    };
+
+    const sleepOptions = ['Good', 'Fair', 'Poor'];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Icon(Icons.emoji_events_outlined,
+                size: 56, color: AdaptivColors.getPrimaryColor(brightness)),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Goals & Wellbeing',
+              style: GoogleFonts.dmSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'What matters most to you?',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Primary Goal
+          _fieldLabel('Primary Goal', brightness),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.6,
+            children: goalOptions.entries.map((entry) {
+              final selected = _primaryGoal == entry.key;
+              final opt = entry.value;
+              return GestureDetector(
+                onTap: () => setState(() => _primaryGoal = entry.key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? AdaptivColors.primaryUltralight
+                        : surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? AdaptivColors.primary
+                          : borderColor,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(opt.icon,
+                          size: 28,
+                          color: selected
+                              ? AdaptivColors.primary
+                              : secondaryText),
+                      const SizedBox(height: 6),
+                      Text(
+                        opt.label,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected ? AdaptivColors.primary : textColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 28),
+
+          // Stress Level
+          _fieldLabel('Stress Level', brightness),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '$_stressLevel',
+              style: GoogleFonts.dmSans(
+                fontSize: 36,
+                fontWeight: FontWeight.w700,
+                color: AdaptivColors.getPrimaryColor(brightness),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Text('Relaxed',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 12, color: secondaryText)),
+              Expanded(
+                child: Slider(
+                  value: _stressLevel.toDouble(),
+                  min: 1,
+                  max: 10,
+                  divisions: 9,
+                  activeColor: AdaptivColors.primary,
+                  inactiveColor: AdaptivColors.getBorderColor(brightness),
+                  onChanged: (val) =>
+                      setState(() => _stressLevel = val.round()),
+                ),
+              ),
+              Text('Very stressed',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 12, color: secondaryText)),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Sleep Quality
+          _fieldLabel('Sleep Quality', brightness),
+          const SizedBox(height: 12),
+          Row(
+            children: sleepOptions.map((opt) {
+              final key = opt.toLowerCase();
+              final selected = _sleepQuality == key;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                      right: opt != sleepOptions.last ? 8 : 0),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _sleepQuality = key),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AdaptivColors.primaryUltralight
+                            : surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selected
+                              ? AdaptivColors.primary
+                              : borderColor,
+                          width: selected ? 2 : 1,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          opt,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 14,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: selected
+                                ? AdaptivColors.primary
+                                : textColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 5: Lifestyle Screening
+  // ---------------------------------------------------------------------------
+
+  Widget _buildLifestyleScreeningPage(Brightness brightness) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+
+    const smokingOptions = <String, _ActivityOption>{
+      'never': _ActivityOption(Icons.block, 'Never', ''),
+      'former': _ActivityOption(Icons.history, 'Former', ''),
+      'current': _ActivityOption(Icons.smoking_rooms, 'Current', ''),
+    };
+
+    const alcoholOptions = <String, _ActivityOption>{
+      'never': _ActivityOption(Icons.no_drinks, 'Never', ''),
+      'occasional': _ActivityOption(Icons.local_bar, 'Occasional', ''),
+      'moderate': _ActivityOption(Icons.wine_bar, 'Moderate', ''),
+      'heavy': _ActivityOption(Icons.warning_amber_outlined, 'Heavy', ''),
+    };
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Icon(Icons.health_and_safety_outlined,
+                size: 56, color: AdaptivColors.getPrimaryColor(brightness)),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Lifestyle Screening',
+              style: GoogleFonts.dmSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              'This helps personalize your care recommendations.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(fontSize: 14, color: secondaryText),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          _fieldLabel('Smoking Status', brightness),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 3,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.1,
+            children: smokingOptions.entries.map((entry) {
+              final selected = _smokingStatus == entry.key;
+              final opt = entry.value;
+              return GestureDetector(
+                onTap: () => setState(() => _smokingStatus = entry.key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: selected ? AdaptivColors.primaryUltralight : surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected ? AdaptivColors.primary : borderColor,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(opt.icon,
+                          size: 26,
+                          color: selected ? AdaptivColors.primary : secondaryText),
+                      const SizedBox(height: 6),
+                      Text(
+                        opt.label,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected ? AdaptivColors.primary : textColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          _fieldLabel('Alcohol Frequency', brightness),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.45,
+            children: alcoholOptions.entries.map((entry) {
+              final selected = _alcoholFrequency == entry.key;
+              final opt = entry.value;
+              return GestureDetector(
+                onTap: () => setState(() => _alcoholFrequency = entry.key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: selected ? AdaptivColors.primaryUltralight : surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected ? AdaptivColors.primary : borderColor,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(opt.icon,
+                          size: 20,
+                          color: selected ? AdaptivColors.primary : secondaryText),
+                      const SizedBox(width: 8),
+                      Text(
+                        opt.label,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected ? AdaptivColors.primary : textColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          _fieldLabel('Sedentary Hours (per day)', brightness),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              _sedentaryHours.toStringAsFixed(1),
+              style: GoogleFonts.dmSans(
+                fontSize: 36,
+                fontWeight: FontWeight.w700,
+                color: AdaptivColors.getPrimaryColor(brightness),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Text('0h', style: GoogleFonts.dmSans(fontSize: 12, color: secondaryText)),
+              Expanded(
+                child: Slider(
+                  value: _sedentaryHours,
+                  min: 0,
+                  max: 16,
+                  divisions: 32,
+                  activeColor: AdaptivColors.primary,
+                  inactiveColor: AdaptivColors.getBorderColor(brightness),
+                  onChanged: (val) => setState(() => _sedentaryHours = val),
+                ),
+              ),
+              Text('16h', style: GoogleFonts.dmSans(fontSize: 12, color: secondaryText)),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          _fieldLabel('PHQ-2 Mood Check', brightness),
+          const SizedBox(height: 10),
+          _buildPhq2Question(
+            brightness: brightness,
+            question:
+                'Over the last 2 weeks, how often have you had little interest or pleasure in doing things?',
+            value: _phq2Score1,
+            onChanged: (value) => setState(() => _phq2Score1 = value),
+          ),
+          const SizedBox(height: 16),
+          _buildPhq2Question(
+            brightness: brightness,
+            question:
+                'Over the last 2 weeks, how often have you been feeling down, depressed, or hopeless?',
+            value: _phq2Score2,
+            onChanged: (value) => setState(() => _phq2Score2 = value),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhq2Question({
+    required Brightness brightness,
+    required String question,
+    required int value,
+    required ValueChanged<int> onChanged,
+  }) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+    final borderColor = AdaptivColors.getBorderColor(brightness);
+
+    const options = <(String, int)>[
+      ('Not at all', 0),
+      ('Several days', 1),
+      ('More than half the days', 2),
+      ('Nearly every day', 3),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          question,
+          style: GoogleFonts.dmSans(
+            fontSize: 13,
+            color: textColor,
+            fontWeight: FontWeight.w500,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: options.asMap().entries.map((entry) {
+            final index = entry.key;
+            final (label, score) = entry.value;
+            final selected = value == score;
+
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => onChanged(score),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: selected ? AdaptivColors.primaryUltralight : surfaceColor,
+                    border: Border(
+                      top: BorderSide(color: selected ? AdaptivColors.primary : borderColor, width: selected ? 2 : 1),
+                      bottom: BorderSide(color: selected ? AdaptivColors.primary : borderColor, width: selected ? 2 : 1),
+                      left: BorderSide(color: selected ? AdaptivColors.primary : borderColor, width: selected ? 2 : 1),
+                      right: BorderSide(
+                        color: selected ? AdaptivColors.primary : borderColor,
+                        width: selected ? 2 : (index == options.length - 1 ? 1 : 0),
+                      ),
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(index == 0 ? 10 : 0),
+                      bottomLeft: Radius.circular(index == 0 ? 10 : 0),
+                      topRight: Radius.circular(index == options.length - 1 ? 10 : 0),
+                      bottomRight: Radius.circular(index == options.length - 1 ? 10 : 0),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 10,
+                          height: 1.2,
+                          color: selected ? AdaptivColors.primary : textColor,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$score',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 12,
+                          color: selected ? AdaptivColors.primary : textColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 6: Medical Background
   // ---------------------------------------------------------------------------
 
   Widget _buildMedicalBackgroundPage(Brightness brightness) {
@@ -701,7 +1459,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Step 4: Emergency Contact
+  // Step 6: Emergency Contact
   // ---------------------------------------------------------------------------
 
   Widget _buildEmergencyContactPage(Brightness brightness) {
@@ -792,7 +1550,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Step 5: All Set
+  // Step 7: All Set
   // ---------------------------------------------------------------------------
 
   Widget _buildAllSetPage(Brightness brightness) {
@@ -804,6 +1562,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // Build summary items from what the user entered
     final summary = <_SummaryItem>[];
 
+    if (_ageController.text.trim().isNotEmpty) {
+      summary.add(_SummaryItem(Icons.cake_outlined,
+          'Age', '${_ageController.text.trim()} years'));
+    }
     if (_weightController.text.trim().isNotEmpty) {
       summary.add(_SummaryItem(Icons.monitor_weight_outlined,
           'Weight', '${_weightController.text.trim()} kg'));
@@ -811,6 +1573,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (_heightController.text.trim().isNotEmpty) {
       summary.add(_SummaryItem(Icons.height_outlined,
           'Height', '${_heightController.text.trim()} cm'));
+    }
+    if (_activityLevel != null) {
+      final label = _activityLevel![0].toUpperCase() +
+          _activityLevel!.substring(1);
+      summary.add(_SummaryItem(
+          Icons.directions_run, 'Activity Level', label));
+    }
+    if (_rehabPhase != 'not_in_rehab') {
+      final label = _rehabPhase == 'phase_2' ? 'Phase II' : 'Phase III';
+      summary.add(_SummaryItem(
+          Icons.medical_services_outlined, 'Rehab Phase', label));
+    }
+    if (_primaryGoal != null) {
+      final goalLabels = {
+        'reduce_bp': 'Reduce BP',
+        'lose_weight': 'Lose weight',
+        'post_surgery_recovery': 'Post-surgery recovery',
+        'general_heart_health': 'General heart health',
+      };
+      summary.add(_SummaryItem(Icons.emoji_events_outlined,
+          'Primary Goal', goalLabels[_primaryGoal] ?? _primaryGoal!));
     }
     if (_selectedConditions.isNotEmpty) {
       summary.add(_SummaryItem(Icons.medical_information_outlined,
@@ -1089,4 +1872,12 @@ class _SummaryItem {
   final String label;
   final String value;
   const _SummaryItem(this.icon, this.label, this.value);
+}
+
+/// Reusable data class for activity-level and goal selection cards.
+class _ActivityOption {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  const _ActivityOption(this.icon, this.label, this.subtitle);
 }

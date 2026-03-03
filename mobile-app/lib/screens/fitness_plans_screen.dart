@@ -199,64 +199,62 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
   @override
   Widget build(BuildContext context) {
     final brightness = MediaQuery.of(context).platformBrightness;
-    return Scaffold(
-      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
-      appBar: AppBar(
-        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
-        elevation: 0,
-        title: Text(
-          'Fitness Plans',
-          style: AdaptivTypography.screenTitle,
-        ),
-        actions: [
-          // Recovery button - navigate to recovery screen
-          TextButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => RecoveryScreen(apiClient: widget.apiClient),
-                ),
-              );
-            },
-            icon: const Icon(Icons.spa, size: 18),
-            label: const Text('Recovery'),
-            style: TextButton.styleFrom(
-              foregroundColor: AdaptivColors.primary,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.tune, color: AdaptivColors.text600),
-            onPressed: () {
-              // Show filter options
-            },
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(88),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: WeekView(
-                  selectedDate: _selectedDate,
-                  onDateSelected: (date) {
-                    setState(() {
-                      _selectedDate = date;
-                    });
-                  },
-                ),
-              ),
-              _buildFilterChips(),
-            ],
-          ),
-        ),
-      ),
-      body: _isLoading
+    return Container(
+      color: AdaptivColors.getBackgroundColor(brightness),
+      child: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadPlans,
               child: CustomScrollView(
                 slivers: [
+                  // Inline header (title + Recovery button)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Fitness Plans',
+                            style: AdaptivTypography.screenTitle,
+                          ),
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      RecoveryScreen(apiClient: widget.apiClient),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.spa, size: 18),
+                            label: const Text('Recovery'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AdaptivColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Week view
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: WeekView(
+                        selectedDate: _selectedDate,
+                        onDateSelected: (date) {
+                          setState(() {
+                            _selectedDate = date;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                  // Filter chips
+                  SliverToBoxAdapter(
+                    child: _buildFilterChips(),
+                  ),
                   // AI Recommendation Header
                   SliverToBoxAdapter(
                     child: _buildAIHeader(),
@@ -510,9 +508,35 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => WorkoutScreen(apiClient: widget.apiClient),
+        builder: (context) => WorkoutScreen(
+          apiClient: widget.apiClient,
+          initialExercise: _activityTypeToExerciseKey(plan.activityType),
+        ),
       ),
     );
+  }
+
+  String _activityTypeToExerciseKey(ActivityType activityType) {
+    switch (activityType) {
+      case ActivityType.walking:
+        return 'walking';
+      case ActivityType.running:
+      case ActivityType.hiit:
+        return 'light_jogging';
+      case ActivityType.cycling:
+        return 'cycling';
+      case ActivityType.swimming:
+        return 'swimming';
+      case ActivityType.yoga:
+        return 'yoga';
+      case ActivityType.strength:
+        return 'resistance_bands';
+      case ActivityType.stretching:
+        return 'stretching';
+      case ActivityType.meditation:
+      case ActivityType.other:
+        return 'walking';
+    }
   }
 
   void _dismissPlan(FitnessPlan plan) {

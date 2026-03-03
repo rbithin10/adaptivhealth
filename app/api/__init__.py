@@ -13,6 +13,11 @@ from .advanced_ml import router as advanced_ml_router
 from .consent import router as consent_router
 from .nutrition import router as nutrition_router
 from .messages import router as messages_router
+from .nl_endpoints import router as nl_endpoints_router
+from .medical_history import router as medical_history_router
+from .medication_reminder import router as medication_reminder_router
+from .rehab import router as rehab_router
+from .food_analysis import router as food_analysis_router
 
 # Export routers for the main app.
 __all__ = [
@@ -26,4 +31,9 @@ __all__ = [
     "consent_router",
     "nutrition_router",
     "messages_router",
+    "nl_endpoints_router",
+    "medical_history_router",
+    "medication_reminder_router",
+    "rehab_router",
+    "food_analysis_router",
 ]

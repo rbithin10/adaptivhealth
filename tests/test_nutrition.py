@@ -24,6 +24,7 @@ import app.models as app_models
 from app.models.user import User, UserRole
 from app.models.auth_credential import AuthCredential
 from app.models.nutrition import NutritionEntry
+from app.models.risk_assessment import RiskAssessment
 from app.services.auth_service import AuthService
 
 # Test database setup
@@ -319,3 +320,178 @@ class TestNutritionEndpoints:
             headers={"Authorization": f"Bearer {token1}"}
         )
         assert response.status_code == 404  # Returns 404 instead of 403 for security
+
+
+class TestNutritionRecommendationsAndEdgeCases:
+    """Expanded coverage for nutrition recommendation and edge-case paths."""
+
+    def test_get_nutrition_recommendations_success(self, client, auth_token):
+        """Recommendations endpoint returns a full meal plan payload."""
+        response = client.get(
+            "/api/v1/nutrition/recommendations",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "daily_nutrition_goals" in data
+        assert "meals" in data
+        assert len(data["meals"]) >= 4
+        assert "daily_summary" in data
+
+    def test_get_nutrition_recommendations_invalid_date(self, client, auth_token):
+        """Invalid date format returns 400 for recommendations endpoint."""
+        response = client.get(
+            "/api/v1/nutrition/recommendations?date=2026-13-40",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 400
+        assert "Invalid date format" in response.json()["detail"]
+
+    def test_nutrition_recommendations_totals_calculation(self, client, auth_token, db, test_user):
+        """Daily totals match the sum of meal nutritional info and high-risk profile is applied."""
+        risk = RiskAssessment(
+            user_id=test_user.user_id,
+            risk_level="high",
+            risk_score=0.85,
+        )
+        db.add(risk)
+        db.commit()
+
+        response = client.get(
+            "/api/v1/nutrition/recommendations",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        expected_calories = sum(meal["nutritional_info"]["calories"] for meal in payload["meals"])
+        expected_potassium = sum(meal["nutritional_info"]["potassium_mg"] for meal in payload["meals"])
+
+        assert payload["daily_summary"]["total_calories"] == expected_calories
+        assert payload["daily_summary"]["total_potassium_mg"] == expected_potassium
+        assert payload["daily_nutrition_goals"]["potassium_mg"] == 4500
+
+    def test_duplicate_nutrition_entries_are_persisted(self, client, auth_token):
+        """Identical nutrition entries are accepted and returned separately."""
+        payload = {
+            "meal_type": "lunch",
+            "description": "Chicken salad",
+            "calories": 420,
+            "protein_grams": 30,
+            "carbs_grams": 20,
+            "fat_grams": 18,
+        }
+
+        first = client.post(
+            "/api/v1/nutrition",
+            json=payload,
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        second = client.post(
+            "/api/v1/nutrition",
+            json=payload,
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+
+        assert first.status_code == 201
+        assert second.status_code == 201
+
+        list_response = client.get(
+            "/api/v1/nutrition/recent?limit=10",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert list_response.status_code == 200
+        assert list_response.json()["total_count"] == 2
+
+    def test_nutrition_recommendations_unauthorized(self, client):
+        """Recommendations endpoint requires authentication."""
+        response = client.get("/api/v1/nutrition/recommendations")
+        assert response.status_code == 401
+
+    def test_log_meal_consumption_success(self, client, auth_token):
+        """POST /nutrition/logs creates an entry and returns expected receipt payload."""
+        response = client.post(
+            "/api/v1/nutrition/logs",
+            json={
+                "meal_type": "breakfast",
+                "meal_id": "meal_b1",
+                "items": [
+                    {"food_name": "oatmeal", "portion": "0.5 cup", "calories": 150},
+                    {"food_name": "berries", "portion": "1 cup", "calories": 80},
+                ],
+                "total_calories": 230,
+                "notes": "Prepared as suggested",
+                "satisfaction_rating": 8,
+            },
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["log_id"].startswith("log_")
+        assert payload["meal_type"] == "breakfast"
+        assert payload["total_calories"] == 230
+        assert payload["status"] == "logged"
+        assert 0.0 <= payload["adherence_to_recommendation"] <= 1.0
+
+        recent = client.get(
+            "/api/v1/nutrition/recent?limit=5",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        assert recent.status_code == 200
+        assert recent.json()["total_count"] >= 1
+
+    def test_get_nutrition_progress_success(self, client, auth_token):
+        """GET /nutrition/progress returns range summaries and trend metadata."""
+        create_resp_1 = client.post(
+            "/api/v1/nutrition",
+            json={
+                "meal_type": "breakfast",
+                "description": "meal_id: meal_b1 | oats",
+                "calories": 320,
+            },
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        create_resp_2 = client.post(
+            "/api/v1/nutrition",
+            json={
+                "meal_type": "lunch",
+                "description": "grilled chicken and rice",
+                "calories": 520,
+            },
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+
+        assert create_resp_1.status_code == 201
+        assert create_resp_2.status_code == 201
+
+        progress_resp = client.get(
+            "/api/v1/nutrition/progress?start_date=2020-01-01&end_date=2030-01-01",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        assert progress_resp.status_code == 200
+
+        payload = progress_resp.json()
+        assert "period" in payload
+        assert payload["period"]["start_date"] == "2020-01-01"
+        assert payload["period"]["end_date"] == "2030-01-01"
+        assert "daily_summaries" in payload
+        assert "weekly_average" in payload
+        assert "trends" in payload
+        assert "goals_status" in payload
+
+    def test_get_nutrition_progress_invalid_date_returns_400(self, client, auth_token):
+        """Progress endpoint validates YYYY-MM-DD date format."""
+        response = client.get(
+            "/api/v1/nutrition/progress?start_date=2026/01/01&end_date=2026-01-05",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        assert response.status_code == 400
+
+    def test_get_nutrition_progress_end_before_start_returns_400(self, client, auth_token):
+        """Progress endpoint rejects date ranges where end_date < start_date."""
+        response = client.get(
+            "/api/v1/nutrition/progress?start_date=2026-01-10&end_date=2026-01-05",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        assert response.status_code == 400

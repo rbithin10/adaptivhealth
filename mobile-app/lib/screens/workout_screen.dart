@@ -7,6 +7,7 @@ When the user taps "Start Workout", we create a workout session on the server.
 
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -15,13 +16,16 @@ import '../theme/typography.dart';
 import '../services/api_client.dart';
 import '../services/edge_ai_store.dart';
 import '../models/edge_prediction.dart';
+import '../widgets/ai_coach_overlay.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final ApiClient apiClient;
+  final String initialExercise;
 
   const WorkoutScreen({
     super.key,
     required this.apiClient,
+    this.initialExercise = 'walking',
   });
 
   @override
@@ -30,10 +34,28 @@ class WorkoutScreen extends StatefulWidget {
 
 class _WorkoutScreenState extends State<WorkoutScreen> {
   String _selectedWellness = 'good'; // good, okay, tired
+  String _currentExercise = 'walking';
   bool _isStartingWorkout = false;
 
-  // Calculate target zones based on age (assume 35-year-old by default)
-  final int age = 35;
+  static const Map<String, String> _exerciseImages = {
+    'walking': 'assets/exercises/walking.png',
+    'light_jogging': 'assets/exercises/light_jogging.png',
+    'cycling': 'assets/exercises/cycling.png',
+    'swimming': 'assets/exercises/swimming.png',
+    'stretching': 'assets/exercises/stretching.png',
+    'yoga': 'assets/exercises/yoga.png',
+    'resistance_bands': 'assets/exercises/resistance_bands.png',
+    'chair_exercises': 'assets/exercises/chair_exercises.png',
+    'arm_raises': 'assets/exercises/arm_raises.png',
+    'leg_raises': 'assets/exercises/leg_raises.png',
+    'wall_pushups': 'assets/exercises/wall_pushups.png',
+    'seated_marches': 'assets/exercises/seated_marches.png',
+    'balance_exercises': 'assets/exercises/balance_exercises.png',
+    'cooldown_stretches': 'assets/exercises/cooldown_stretches.png',
+  };
+
+  // Calculate target zones based on age from profile.
+  int _userAge = 35; // fallback: profile unavailable.
   late int maxHR;
   late int warmupMin;
   late int warmupMax;
@@ -45,12 +67,40 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   @override
   void initState() {
     super.initState();
+    _currentExercise = _exerciseImages.containsKey(widget.initialExercise)
+        ? widget.initialExercise
+        : 'walking';
     _calculateZones();
+    _loadUserAge();
+  }
+
+  Future<void> _loadUserAge() async {
+    try {
+      final profile = await widget.apiClient.getCurrentUser();
+      final ageFromProfile = profile['age'];
+
+      int resolvedAge = 35; // fallback: profile unavailable.
+      if (ageFromProfile is int) {
+        resolvedAge = ageFromProfile;
+      } else if (ageFromProfile is String) {
+        resolvedAge = int.tryParse(ageFromProfile) ?? 35;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _userAge = resolvedAge;
+        _calculateZones();
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error in _loadUserAge: $e');
+      }
+    }
   }
 
   void _calculateZones() {
     // Basic heart-rate zone math using the user's age.
-    maxHR = 220 - age;
+    maxHR = 220 - _userAge;
     warmupMin = (maxHR * 0.5).toInt();
     warmupMax = (maxHR * 0.65).toInt();
     cardioMin = (maxHR * 0.65).toInt();
@@ -87,6 +137,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               apiClient: widget.apiClient,
               sessionId: sessionId,
               wellnessLevel: _selectedWellness,
+              activityType: _currentExercise,
             ),
           ),
         );
@@ -110,36 +161,38 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: AdaptivColors.white,
-        title: Text(
-          'Workout',
-          style: GoogleFonts.dmSans(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AdaptivColors.text900,
-          ),
-        ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: const AssetImage('assets/images/workout_bg.png'),
-            fit: BoxFit.cover,
-            colorFilter: ColorFilter.mode(
-              Colors.white.withOpacity(0.9),
-              BlendMode.lighten,
+    return AiCoachOverlay(
+      apiClient: widget.apiClient,
+      child: Scaffold(
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: AdaptivColors.white,
+          title: Text(
+            'Workout',
+            style: GoogleFonts.dmSans(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AdaptivColors.text900,
             ),
           ),
         ),
-        child: SingleChildScrollView(
-          child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        body: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: const AssetImage('assets/images/workout_bg.png'),
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                Colors.white.withOpacity(0.9),
+                BlendMode.lighten,
+              ),
+            ),
+          ),
+          child: SingleChildScrollView(
+            child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               // Wellness Check Card
               Card(
                 child: Padding(
@@ -257,6 +310,25 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Selected Exercise:',
+                    style: AdaptivTypography.sectionTitle,
+                  ),
+                  const SizedBox(width: 12),
+                  Image.asset(
+                    _exerciseImages[_currentExercise] ?? 'assets/exercises/walking.png',
+                    height: 64,
+                    width: 64,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const Icon(Icons.directions_walk, size: 64, color: AdaptivColors.primary),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
 
               // Start Workout Button
               SizedBox(
@@ -285,7 +357,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               const SizedBox(height: 32),
             ],
           ),
-        ),
+            ),
+          ),
         ),
       ),
     );
@@ -424,12 +497,14 @@ class ActiveWorkoutScreen extends StatefulWidget {
   final ApiClient apiClient;
   final int sessionId;
   final String wellnessLevel;
+  final String activityType;
 
   const ActiveWorkoutScreen({
     super.key,
     required this.apiClient,
     required this.sessionId,
     required this.wellnessLevel,
+    this.activityType = 'walking',
   });
 
   @override
@@ -437,6 +512,23 @@ class ActiveWorkoutScreen extends StatefulWidget {
 }
 
 class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
+  static const Map<String, String> _exerciseImages = {
+    'walking': 'assets/exercises/walking.png',
+    'light_jogging': 'assets/exercises/light_jogging.png',
+    'cycling': 'assets/exercises/cycling.png',
+    'swimming': 'assets/exercises/swimming.png',
+    'stretching': 'assets/exercises/stretching.png',
+    'yoga': 'assets/exercises/yoga.png',
+    'resistance_bands': 'assets/exercises/resistance_bands.png',
+    'chair_exercises': 'assets/exercises/chair_exercises.png',
+    'arm_raises': 'assets/exercises/arm_raises.png',
+    'leg_raises': 'assets/exercises/leg_raises.png',
+    'wall_pushups': 'assets/exercises/wall_pushups.png',
+    'seated_marches': 'assets/exercises/seated_marches.png',
+    'balance_exercises': 'assets/exercises/balance_exercises.png',
+    'cooldown_stretches': 'assets/exercises/cooldown_stretches.png',
+  };
+
   int _currentHR = 80;
   int _peakHR = 0;
   int _minHR = 999;
@@ -475,7 +567,11 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
       setState(() {
         _maxSafeHR = 220 - age;
       });
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error in _loadUserProfile: $e');
+      }
+    }
   }
 
   // Workout elapsed timer
@@ -517,7 +613,7 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
         maxSafeHr: _maxSafeHR,
         durationMinutes: _elapsedSeconds ~/ 60,
         recoveryTimeMinutes: 0, // still exercising
-        activityType: 'walking',
+        activityType: widget.activityType,
       );
 
       // Read back the results
@@ -531,8 +627,10 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
           }
         });
       }
-    } catch (_) {
-      // EdgeAiStore not available— no-op
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error in _processWithEdgeAi: $e');
+      }
     }
   }
 
@@ -558,7 +656,11 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
       try {
         final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
         edgeStore.syncNow();
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('Error in _endWorkout.syncNow: $e');
+        }
+      }
 
       if (mounted) {
         Navigator.pop(context);
@@ -586,16 +688,22 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     return AdaptivColors.stable;
   }
 
+  String _exerciseImageFor(String activityType) {
+    return _exerciseImages[activityType] ?? 'assets/exercises/walking.png';
+  }
+
   @override
   Widget build(BuildContext context) {
     final fillPercentage = _maxSafeHR > 0 ? (_currentHR / _maxSafeHR).clamp(0.0, 1.0) : 0.5;
     final hrColor = _getHRColor();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
-      body: SafeArea(
-        child: Column(
-          children: [
+    return AiCoachOverlay(
+      apiClient: widget.apiClient,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1A1A2E),
+        body: SafeArea(
+          child: Column(
+            children: [
             // Header: Timer + Risk badge
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -663,6 +771,24 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  _exerciseImageFor(widget.activityType),
+                  height: 44,
+                  width: 44,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const Icon(
+                    Icons.fitness_center,
+                    color: Colors.white70,
+                    size: 36,
+                  ),
+                ),
               ),
             ),
 
@@ -845,7 +971,8 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                 ),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

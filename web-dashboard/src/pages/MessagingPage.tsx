@@ -13,7 +13,8 @@ import { api } from '../services/api';
 import { MessageResponse, InboxSummaryResponse, User } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { Send, ArrowLeft, MessageSquare, Home } from 'lucide-react';
+import { Send, ArrowLeft, MessageSquare } from 'lucide-react';
+import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
 const MessagingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ const MessagingPage: React.FC = () => {
   const [sendingMessage, setSendingMessage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const selectedPatientRef = useRef<InboxSummaryResponse | null>(null);
 
   // Scroll to bottom when messages change
   const scrollToBottom = () => {
@@ -34,16 +36,24 @@ const MessagingPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadCurrentUser();
-    loadInbox();
-    // Set up polling for new messages every 3 seconds
-    pollingIntervalRef.current = setInterval(() => {
-      if (selectedPatient) {
-        loadMessages(selectedPatient.patient_id);
-      } else {
-        loadInbox();
+    const initialize = async () => {
+      const user = await loadCurrentUser();
+      if (!user) {
+        return;
       }
-    }, 3000);
+      await loadInbox();
+
+      pollingIntervalRef.current = setInterval(() => {
+        const selected = selectedPatientRef.current;
+        if (selected) {
+          loadMessages(selected.patient_id);
+        } else {
+          loadInbox();
+        }
+      }, 3000);
+    };
+
+    initialize();
 
     return () => {
       if (pollingIntervalRef.current) {
@@ -53,15 +63,27 @@ const MessagingPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    selectedPatientRef.current = selectedPatient;
+  }, [selectedPatient]);
+
+  useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  const loadCurrentUser = async () => {
+  const loadCurrentUser = async (): Promise<User | null> => {
     try {
       const user = await api.getCurrentUser();
+      const role = (user.user_role || '').toLowerCase();
+      if (role !== 'clinician') {
+        navigate('/dashboard');
+        return null;
+      }
       setCurrentUser(user);
+      return user;
     } catch (e) {
       console.error('Error loading current user:', e);
+      navigate('/login');
+      return null;
     }
   };
 
@@ -146,21 +168,19 @@ const MessagingPage: React.FC = () => {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        minHeight: '100vh',
         backgroundColor: colors.neutral['50'],
         fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      {/* Top Navigation Header */}
-      <div
+      <ClinicianTopBar />
+
+      {/* Back to Dashboard */}
+      <header
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          padding: '16px 24px',
           backgroundColor: colors.neutral.white,
           borderBottom: `1px solid ${colors.neutral['300']}`,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          padding: '12px 32px',
         }}
       >
         <button
@@ -169,28 +189,20 @@ const MessagingPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '8px 16px',
-            backgroundColor: colors.neutral.white,
-            border: `1px solid ${colors.neutral['300']}`,
-            borderRadius: '6px',
+            padding: '8px 12px',
+            backgroundColor: 'transparent',
+            border: 'none',
             cursor: 'pointer',
-            transition: 'all 0.2s',
+            color: colors.primary.default,
+            fontWeight: 500,
+            fontSize: '14px',
             fontFamily: 'inherit',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = colors.neutral['50'];
-            e.currentTarget.style.borderColor = colors.primary.default;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = colors.neutral.white;
-            e.currentTarget.style.borderColor = colors.neutral['300'];
-          }}
         >
-          <Home size={18} />
-          <span style={typography.body}>Back to Dashboard</span>
+          <ArrowLeft size={20} />
+          Back to Dashboard
         </button>
-        <h1 style={{ ...typography.pageTitle, margin: 0, flex: 1 }}>Messages</h1>
-      </div>
+      </header>
 
       {/* Main Content Area */}
       <div

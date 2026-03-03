@@ -6,7 +6,7 @@ Healthcare provider dashboard for monitoring patient cardiovascular health with 
 
 ### Prerequisites
 - Node.js 16+ and npm
-- Backend server running on http://localhost:8080
+- Backend API reachable (default: AWS ALB endpoint, or local backend via environment override)
 
 ### Installation
 
@@ -51,9 +51,15 @@ src/
 
 ## 🔗 Backend Integration
 
-The dashboard connects to your FastAPI backend at `http://localhost:8080`.
+By default, the dashboard client targets the deployed AWS ALB backend.
 
-Make sure the backend is running before starting the dashboard.
+To run against local backend instead, set:
+
+```bash
+REACT_APP_API_URL=http://localhost:8080
+```
+
+in your local environment file (for example `.env.development`), then restart the dashboard.
 
 ## 📚 Tech Stack
 

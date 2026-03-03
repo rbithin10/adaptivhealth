@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
+import '../providers/chat_provider.dart';
 
 class DoctorMessagingScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -121,11 +124,19 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
 
     try {
       final user = await widget.apiClient.getCurrentUser();
-      final userId = user['id'] as int?;
-      final messages = await widget.apiClient.getMessageThread(
-        _clinicianId!,
-        limit: 50,
-      );
+      final userId = user['user_id'] as int? ?? user['id'] as int?;
+      final chatProvider = context.read<ChatProvider>();
+      await chatProvider.loadHistory(clinicianId: _clinicianId!, limit: 50);
+      final messages = chatProvider.messages
+          .map((message) => <String, dynamic>{
+                'message_id': message.messageId,
+                'sender_id': message.senderId,
+                'receiver_id': message.receiverId,
+                'content': message.content,
+                'sent_at': message.sentAt?.toIso8601String(),
+                'is_read': message.isRead,
+              })
+          .toList();
 
       if (!mounted) return;
       setState(() {
@@ -153,10 +164,18 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
 
     try {
-      final messages = await widget.apiClient.getMessageThread(
-        _clinicianId!,
-        limit: 50,
-      );
+      final chatProvider = context.read<ChatProvider>();
+      await chatProvider.loadHistory(clinicianId: _clinicianId!, limit: 50);
+      final messages = chatProvider.messages
+          .map((message) => <String, dynamic>{
+                'message_id': message.messageId,
+                'sender_id': message.senderId,
+                'receiver_id': message.receiverId,
+                'content': message.content,
+                'sent_at': message.sentAt?.toIso8601String(),
+                'is_read': message.isRead,
+              })
+          .toList();
 
       if (!mounted) return;
       
@@ -170,7 +189,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
       }
     } catch (e) {
       // Silently ignore errors during auto-refresh
-      print('Auto-refresh failed: $e');
+      if (kDebugMode) debugPrint('Auto-refresh failed: $e');
     }
   }
 
@@ -194,7 +213,9 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
           message['is_read'] = true;
           message['read_at'] = DateTime.now().toIso8601String();
         } catch (e) {
-          print('Failed to mark message $messageId as read: $e');
+          if (kDebugMode) {
+            debugPrint('Failed to mark message $messageId as read: $e');
+          }
         }
       }
     }
@@ -209,7 +230,8 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     });
 
     try {
-      await widget.apiClient.sendMessage(
+      final chatProvider = context.read<ChatProvider>();
+      await chatProvider.sendMessage(
         receiverId: _clinicianId!,
         content: text,
       );
@@ -252,19 +274,20 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
   @override
   Widget build(BuildContext context) {
     final brightness = MediaQuery.of(context).platformBrightness;
-    return Scaffold(
-      backgroundColor: AdaptivColors.getBackgroundColor(brightness),
-      appBar: AppBar(
-        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text('Doctor Messaging', style: AdaptivTypography.screenTitle),
-      ),
-      body: Column(
+    return Container(
+      color: AdaptivColors.getBackgroundColor(brightness),
+      child: Column(
         children: [
+          // Inline header (replaces AppBar for tab embedding)
+          Container(
+            color: AdaptivColors.getSurfaceColor(brightness),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Text('Messages', style: AdaptivTypography.screenTitle),
+              ],
+            ),
+          ),
           _buildCareTeamHeader(),
           Expanded(child: _buildThreadBody()),
           _buildMessageComposer(),

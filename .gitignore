@@ -145,3 +145,30 @@ Thumbs.db
 adaptiv_health.db
 .env
 adaptive_health.db
+
+# Build artifacts
+coverage.json
+stdout.log
+stderr.log
+startup.log
+startup-1.log
+
+# Claude Code temp directories
+tmpclaude-*-cwd
+
+# Uploaded documents (PHI)
+uploads/
+
+# Mobile service configs (mobile)
+google-services.json
+GoogleService-Info.plist
+
+# Android signing keys
+*.jks
+*.keystore
+
+# Node modules (root level — web-dashboard has its own)
+node_modules/
+
+# Flutter build artifacts
+.dart_tool/

@@ -93,8 +93,8 @@ All paths are relative to the `/api/v1` prefix unless otherwise noted.
 | POST | `/baseline-optimization/apply` | ✔ | Any | Apply baseline |
 | GET | `/recommendation-ranking` | ✔ | Any | Rank recommendations |
 | POST | `/recommendation-ranking/outcome` | ✔ | Any | Report recommendation outcome |
-| POST | `/alerts/natural-language` | ✔ | Any | Generate NL alert |
-| GET | `/risk-summary/natural-language` | ✔ | Any | NL risk summary |
+| POST | `/alerts/natural-language` | ✔ | Any | Generate patient-friendly NL alert text (template-based) |
+| GET | `/risk-summary/natural-language` | ✔ | Any | NL risk summary (template-first; optional Gemini enhancement via `use_cloud_ai=true`) |
 | GET | `/model/retraining-status` | ✔ | Clinician+ | Model retraining status |
 | GET | `/model/retraining-readiness` | ✔ | Clinician+ | Model retraining readiness |
 | POST | `/predict/explain` | ✔ | Any | Explainability for prediction |
@@ -182,8 +182,8 @@ All paths are relative to the `/api/v1` prefix unless otherwise noted.
 | POST `/baseline-optimization/apply` | — | — |
 | GET `/recommendation-ranking` | — | — |
 | POST `/recommendation-ranking/outcome` | — | — |
-| POST `/alerts/natural-language` | — | — |
-| GET `/risk-summary/natural-language` | — | — |
+| POST `/alerts/natural-language` | — | ✅ PatientDetailPage |
+| GET `/risk-summary/natural-language` | — | ✅ PatientDetailPage |
 | GET `/model/retraining-status` | — | — |
 | GET `/model/retraining-readiness` | — | — |
 | POST `/predict/explain` | — | — |

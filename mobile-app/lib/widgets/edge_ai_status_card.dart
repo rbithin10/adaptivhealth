@@ -18,6 +18,7 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/edge_ai_store.dart';
+import '../services/cloud_sync_service.dart';
 import '../models/edge_prediction.dart';
 import '../theme/colors.dart';
 
@@ -64,7 +65,9 @@ class EdgeAiStatusCard extends StatelessWidget {
         // Sync status
         if (edgeStore.pendingSyncCount > 0 ||
             edgeStore.lastSyncErrorMessage != null ||
-            edgeStore.lastSyncTime != null)
+          edgeStore.lastSyncTime != null ||
+          edgeStore.lastQueueEventMessage != null ||
+          edgeStore.syncState != CloudSyncState.idle)
           _buildSyncStatus(edgeStore, brightness),
       ],
     );
@@ -340,6 +343,9 @@ class EdgeAiStatusCard extends StatelessWidget {
     final lastErrorTime = store.lastSyncErrorAt;
     final lastSyncTime = store.lastSyncTime;
     final hasError = store.lastSyncErrorMessage != null;
+    final status =
+      _statusPresentation(store.syncState, store.pendingSyncCount, brightness);
+    final queueEventTime = store.lastQueueEventAt;
 
     String formatTime(DateTime value) => DateFormat('h:mm a').format(value.toLocal());
 
@@ -351,32 +357,37 @@ class EdgeAiStatusCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                Icons.sync,
+                status.icon,
                 size: 12,
-                color: secondaryColor,
+                color: status.color,
               ),
               const SizedBox(width: 4),
               Text(
-                '${store.pendingSyncCount} readings pending sync',
+                status.label,
                 style: GoogleFonts.dmSans(
                   fontSize: 11,
-                  color: secondaryColor,
+                  color: status.color,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              if (store.isSyncing) ...[
+              if (store.syncState == CloudSyncState.syncing) ...[
                 const SizedBox(width: 8),
                 SizedBox(
                   width: 10,
                   height: 10,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.5,
-                    color: secondaryColor,
+                    color: status.color,
                   ),
                 ),
               ],
             ],
           ),
-          if (hasError) ...[
+          if (hasError &&
+              store.syncState != CloudSyncState.authExpired &&
+              store.syncState != CloudSyncState.rateLimited &&
+              store.syncState != CloudSyncState.serverError &&
+              store.syncState != CloudSyncState.offline) ...[
             const SizedBox(height: 4),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,6 +407,39 @@ class EdgeAiStatusCard extends StatelessWidget {
                 ),
               ],
             ),
+          ] else if (store.syncState == CloudSyncState.authExpired ||
+              store.syncState == CloudSyncState.rateLimited ||
+              store.syncState == CloudSyncState.serverError ||
+              store.syncState == CloudSyncState.offline) ...[
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(status.icon, size: 12, color: status.color),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    store.lastSyncErrorMessage ?? status.label,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 10,
+                      color: status.color,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (lastErrorTime != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'Observed: ${formatTime(lastErrorTime)}',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 10,
+                    color: secondaryColor,
+                  ),
+                ),
+              ),
           ] else if (lastSyncTime != null) ...[
             const SizedBox(height: 4),
             Text(
@@ -406,9 +450,98 @@ class EdgeAiStatusCard extends StatelessWidget {
               ),
             ),
           ],
+          if (store.lastQueueEventMessage != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 12, color: Colors.orange),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '${store.lastQueueEventMessage!}'
+                    '${queueEventTime != null ? ' (${formatTime(queueEventTime)})' : ''}',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 10,
+                      color: Colors.orange,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: store.isSyncing
+                  ? null
+                  : () async {
+                      await store.syncNow();
+                    },
+              icon: const Icon(Icons.sync, size: 14),
+              label: const Text('Force Sync'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  _SyncStatusPresentation _statusPresentation(
+    CloudSyncState state,
+    int pending,
+    Brightness brightness,
+  ) {
+    switch (state) {
+      case CloudSyncState.syncing:
+        return _SyncStatusPresentation(
+          label: 'Syncing $pending queued reading${pending == 1 ? '' : 's'}...',
+          color: Colors.blueGrey,
+          icon: Icons.sync,
+        );
+      case CloudSyncState.offline:
+        return _SyncStatusPresentation(
+          label: 'Offline — $pending reading${pending == 1 ? '' : 's'} queued safely',
+          color: Colors.orange,
+          icon: Icons.cloud_off,
+        );
+      case CloudSyncState.authExpired:
+        return _SyncStatusPresentation(
+          label: 'Authentication required to resume sync',
+          color: Colors.orange,
+          icon: Icons.lock_outline,
+        );
+      case CloudSyncState.rateLimited:
+        return _SyncStatusPresentation(
+          label: 'Rate limited — retrying automatically',
+          color: Colors.orange,
+          icon: Icons.hourglass_bottom,
+        );
+      case CloudSyncState.serverError:
+        return _SyncStatusPresentation(
+          label: 'Server unavailable — retrying automatically',
+          color: Colors.orange,
+          icon: Icons.cloud_off,
+        );
+      case CloudSyncState.online:
+        return _SyncStatusPresentation(
+          label: 'Online — $pending reading${pending == 1 ? '' : 's'} pending next sync',
+          color: AdaptivColors.stable,
+          icon: Icons.cloud_queue,
+        );
+      case CloudSyncState.idle:
+        return _SyncStatusPresentation(
+          label: 'Sync idle — all queued readings submitted',
+          color: AdaptivColors.getSecondaryTextColor(brightness),
+          icon: Icons.cloud_done,
+        );
+    }
   }
 
   // ---- Helpers ----
@@ -423,4 +556,16 @@ class EdgeAiStatusCard extends StatelessWidget {
         return AdaptivColors.stable;
     }
   }
+}
+
+class _SyncStatusPresentation {
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  const _SyncStatusPresentation({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
 }

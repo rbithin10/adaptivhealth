@@ -34,13 +34,12 @@ This file saves heart data from devices and lets the app read it back.
 # =============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 import logging
-from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.user import User, UserRole
@@ -49,32 +48,18 @@ from app.models.alert import Alert, AlertType, SeverityLevel
 from app.models.risk_assessment import RiskAssessment
 from app.schemas.vital_signs import (
     VitalSignCreate, VitalSignResponse, VitalSignBatchCreate,
-    VitalSignsSummary, VitalSignsHistoryResponse, VitalSignsStats
+    VitalSignsSummary, VitalSignsHistoryResponse, VitalSignsStats,
+    EdgeBatchSyncRequest,
 )
 from app.services.encryption import encryption_service
 from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
+from app.rate_limiter import limiter
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter()
-
-
-class EdgeBatchItem(BaseModel):
-    """Single edge sync payload entry."""
-    timestamp: Optional[str] = None
-    prediction: Optional[Dict[str, Any]] = None
-    vitals: Dict[str, Any] = Field(default_factory=dict)
-    alerts: Optional[List[Dict[str, Any]]] = None
-    gps: Optional[Dict[str, Any]] = None
-
-
-class EdgeBatchSyncRequest(BaseModel):
-    """Batch sync payload from mobile edge queue."""
-    source: str = "edge_ai"
-    batch: List[EdgeBatchItem] = Field(default_factory=list)
-    device_timestamp: Optional[str] = None
 
 
 # =============================================================================
@@ -276,7 +261,9 @@ def _parse_edge_timestamp(value: Optional[str]) -> datetime:
 # Roles: PATIENT (own data only)
 # =============================================
 @router.post("/vitals", response_model=VitalSignResponse)
+@limiter.limit("60/minute")
 async def submit_vitals(
+    request: Request,
     vital_data: VitalSignCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
@@ -369,7 +356,9 @@ async def submit_vitals(
 # Roles: PATIENT (own data only)
 # =============================================
 @router.post("/vitals/batch")
+@limiter.limit("10/minute")
 async def submit_vitals_batch(
+    request: Request,
     batch_data: VitalSignBatchCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
@@ -431,7 +420,9 @@ async def submit_vitals_batch(
 
 
 @router.post("/vitals/batch-sync")
+@limiter.limit("10/minute")
 async def submit_vitals_batch_sync(
+    request: Request,
     sync_payload: EdgeBatchSyncRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)

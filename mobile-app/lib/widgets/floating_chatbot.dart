@@ -9,7 +9,11 @@ within the same app session.
 */
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+import 'dart:io';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
@@ -154,7 +158,34 @@ class ChatBottomSheet extends StatefulWidget {
 class _ChatBottomSheetState extends State<ChatBottomSheet> {
   final TextEditingController _controller = TextEditingController();
   late final ChatStore _chatStore;
+  late final SpeechToText _speech;
   bool _initialized = false;
+  bool _isListening = false;
+  bool _speechAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _speech = SpeechToText();
+    _initializeSpeech();
+  }
+
+  Future<void> _initializeSpeech() async {
+    final available = await _speech.initialize(
+      onStatus: (status) {
+        if (status == 'done' || status == 'notListening') {
+          if (!mounted) return;
+          setState(() {
+            _isListening = false;
+          });
+        }
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _speechAvailable = available;
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -201,86 +232,151 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
     });
   }
 
+  Future<void> _toggleVoiceInput() async {
+    if (!_speechAvailable) return;
+
+    if (_isListening) {
+      await _speech.stop();
+      if (!mounted) return;
+      setState(() {
+        _isListening = false;
+      });
+      return;
+    }
+
+    final started = await _speech.listen(
+      onResult: (result) {
+        if (result.finalResult) {
+          _controller.text = result.recognizedWords;
+          _sendMessage();
+        }
+      },
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _isListening = started;
+    });
+  }
+
+  void _showCameraOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(LucideIcons.utensils),
+                title: const Text('Scan Food'),
+                onTap: () => _captureAndAnalyze('food'),
+              ),
+              ListTile(
+                leading: const Icon(LucideIcons.pill),
+                title: const Text('Identify Pill'),
+                onTap: () => _captureAndAnalyze('pill'),
+              ),
+              ListTile(
+                leading: const Icon(LucideIcons.scan),
+                title: const Text('Check Swelling'),
+                onTap: () => _captureAndAnalyze('edema'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _captureAndAnalyze(String type) async {
+    Navigator.pop(context);
+
+    final image = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (image == null) return;
+
+    _chatStore.addMessage(ChatMessage(
+      text: '📷 [Analyzing $type...]',
+      isUser: true,
+      timestamp: DateTime.now(),
+    ));
+    _chatStore.setTyping(true);
+
+    final history = _chatStore.messages
+        .where((m) => m.text.isNotEmpty)
+        .toList()
+        .reversed
+        .take(10)
+        .toList()
+        .reversed
+        .map((m) => <String, String>{
+              'role': m.isUser ? 'user' : 'assistant',
+              'text': m.text,
+            })
+        .toList();
+
+    try {
+      final response = await widget.apiClient.postNLChatWithImage(
+        File(image.path),
+        'Analyze this image',
+        type,
+        history,
+      );
+
+      if (mounted) {
+        _chatStore.addMessage(ChatMessage(
+          text: response,
+          isUser: false,
+          timestamp: DateTime.now(),
+        ));
+      }
+    } catch (_) {
+      if (mounted) {
+        _chatStore.addMessage(ChatMessage(
+          text: 'I could not analyze that image right now. Please try again.',
+          isUser: false,
+          timestamp: DateTime.now(),
+        ));
+      }
+    } finally {
+      if (mounted) {
+        _chatStore.setTyping(false);
+      }
+    }
+  }
+
   Future<String> _getAIResponse(String userMessage) async {
-    final lowerMessage = userMessage.toLowerCase();
-    
-    // For health/risk/heart questions, get personalized summary from backend
-    if (lowerMessage.contains('heart') ||
-        lowerMessage.contains('health') ||
-        lowerMessage.contains('risk') ||
-        lowerMessage.contains('safe') ||
-        lowerMessage.contains('status') ||
-        lowerMessage.contains('how am i') ||
-        lowerMessage.contains('doing')) {
-      try {
-        return await widget.apiClient.getNLRiskSummary();
-      } catch (e) {
-        return "I can access your health data, but I'm having trouble connecting right now. Your latest vitals are available on the home screen.";
-      }
-    }
+    // Build conversation history from chat store (last 10 messages = ~5 exchanges)
+    // Backend handles keyword routing for known topics (fast templates)
+    // and falls back to Gemini LLM for complex/open-ended questions.
+    final recentMessages = _chatStore.messages;
+    final history = recentMessages
+        .where((m) => m.text.isNotEmpty)
+        .toList()
+        .reversed
+        .take(10)
+        .toList()
+        .reversed
+        .map((m) => <String, String>{
+              'role': m.isUser ? 'user' : 'assistant',
+              'text': m.text,
+            })
+        .toList();
 
-    if (lowerMessage.contains('workout') ||
-        lowerMessage.contains('exercise') ||
-        lowerMessage.contains('activity') ||
-        lowerMessage.contains('moving') ||
-        lowerMessage.contains('today\'s plan')) {
-      try {
-        return await widget.apiClient.getNLTodaysWorkout();
-      } catch (e) {
-        return "Check the Fitness tab for your personalized workout plan based on your current health status.";
-      }
-    } else if (lowerMessage.contains('alert') ||
-        lowerMessage.contains('warning') ||
-        lowerMessage.contains('problem') ||
-        lowerMessage.contains('wrong')) {
-      try {
-        return await widget.apiClient.getNLAlertExplanation();
-      } catch (e) {
-        return "You can view all your health alerts by tapping the bell icon on the home screen. I'll help explain any specific alert you're concerned about.";
-      }
-    } else if (lowerMessage.contains('progress') ||
-        lowerMessage.contains('improve') ||
-        lowerMessage.contains('better') ||
-        lowerMessage.contains('trend') ||
-        lowerMessage.contains('how am i doing')) {
-      try {
-        final range = lowerMessage.contains('month') ? '30d' : '7d';
-        return await widget.apiClient.getNLProgressSummary(range: range);
-      } catch (e) {
-        return "You're making positive progress! Keep up your current routine for the best results.";
-      }
-    } else if (lowerMessage.contains('sleep')) {
-      return "Good sleep is essential for heart recovery. Aim for 7-8 hours and try to maintain a consistent schedule. It helps stabilize your heart rate.";
-    } else if (lowerMessage.contains('nutrition') ||
-        lowerMessage.contains('food') ||
-        lowerMessage.contains('eat') ||
-        lowerMessage.contains('diet')) {
-      try {
-        return await widget.apiClient.getNLNutritionPlan();
-      } catch (e) {
-        return "Visit the Nutrition tab for meal recommendations tailored to your cardiovascular health. Focus on low-sodium foods and heart-healthy nutrients.";
-      }
-    } else if (lowerMessage.contains('doctor') ||
-        lowerMessage.contains('clinician') ||
-        lowerMessage.contains('message') ||
-        lowerMessage.contains('contact care')) {
-      return "You can reach your care team through the Messaging tab. They typically respond within a few hours during business hours.";
-    } else if (lowerMessage.contains('help') ||
-        lowerMessage.contains('what can you do') ||
-        lowerMessage.contains('features')) {
-      return "I'm your AI health coach. I can help you understand:\n"
-          "• Your current heart health status\n"
-          "• Today's recommended activity\n"
-          "• Explanations for any health alerts\n"
-          "• Your progress and improvements\n\n"
-          "Just ask about your health, workouts, nutrition, or progress!";
+    try {
+      final screenContext = _chatStore.currentScreen;
+      final messageWithContext = '[Context: $screenContext] $userMessage';
+      return await widget.apiClient.postNLChat(messageWithContext, history);
+    } catch (e) {
+      return "I'm having trouble connecting right now. Please try again in a moment.";
     }
-
-    return "I can help you understand your heart health status, workout plans, nutrition guidance, and alerts. What would you like to know?";
   }
 
   @override
   void dispose() {
+    if (_isListening) {
+      _speech.stop();
+    }
     _controller.dispose();
     super.dispose();
   }
@@ -451,13 +547,30 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                 child: SafeArea(
                   child: Row(
                     children: [
+                      IconButton(
+                        icon: const Icon(LucideIcons.camera),
+                        onPressed: isTyping ? null : _showCameraOptions,
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          _isListening ? LucideIcons.micOff : LucideIcons.mic,
+                          color: _isListening ? Colors.red : null,
+                        ),
+                        onPressed: isTyping
+                            ? null
+                            : (_speechAvailable ? _toggleVoiceInput : null),
+                      ),
                       Expanded(
                         child: TextField(
                           controller: _controller,
+                          maxLength: 500,
+                          maxLines: null,
+                          enabled: !isTyping,
                           decoration: InputDecoration(
                             hintText: 'Ask your health coach...',
                             filled: true,
                             fillColor: Colors.grey[100],
+                            counterText: '',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
                               borderSide: BorderSide.none,
@@ -467,15 +580,17 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                               vertical: 12,
                             ),
                           ),
-                          onSubmitted: (_) => _sendMessage(),
+                          onSubmitted: isTyping ? null : (_) => _sendMessage(),
                         ),
                       ),
                       const SizedBox(width: 8),
                       CircleAvatar(
-                        backgroundColor: AdaptivColors.primary,
+                        backgroundColor: isTyping
+                            ? Colors.grey
+                            : AdaptivColors.primary,
                         child: IconButton(
                           icon: const Icon(Icons.send, color: Colors.white),
-                          onPressed: _sendMessage,
+                          onPressed: isTyping ? null : _sendMessage,
                         ),
                       ),
                     ],

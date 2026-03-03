@@ -61,11 +61,14 @@ from app.services.recommendation_ranking import (
 )
 from app.services.natural_language_alerts import (
     generate_natural_language_alert,
+    generate_ai_risk_summary,
     format_risk_summary,
 )
 from app.services.retraining_pipeline import (
     evaluate_retraining_readiness,
     get_retraining_status,
+    prepare_training_data,
+    save_retraining_metadata,
 )
 from app.services.explainability import explain_prediction
 from app.services import ml_prediction
@@ -499,6 +502,7 @@ async def get_natural_language_alert(
 @router.get("/risk-summary/natural-language")
 async def get_natural_language_risk_summary(
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
+    use_cloud_ai: bool = Query(False, description="When true, optionally enhance summary with Gemini"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -534,9 +538,23 @@ async def get_natural_language_risk_summary(
     summary = format_risk_summary(
         risk_score=ra.risk_score,
         risk_level=ra.risk_level,
-        drivers=drivers,
+        drivers=drivers if isinstance(drivers, list) else [str(drivers)],
         patient_name=target_user.full_name,
     )
+
+    if use_cloud_ai:
+        try:
+            summary = generate_ai_risk_summary(
+                risk_score=ra.risk_score,
+                risk_level=ra.risk_level,
+                drivers=drivers if isinstance(drivers, list) else [str(drivers)],
+            )
+        except RuntimeError as exc:
+            logger.warning(
+                "Cloud AI risk summary unavailable; using NL template summary. user_id=%s reason=%s",
+                target_user.user_id,
+                exc,
+            )
 
     return {
         "user_id": target_user.user_id,
@@ -591,6 +609,57 @@ async def check_retraining_readiness(
         last_retrain_date=last_date,
     )
     return result
+
+
+# =============================================
+# PREPARE_TRAINING_DATA - Validate data before retrain
+# Used by: Admin pipeline, pre-retrain checks
+# Returns: Data quality report
+# Roles: DOCTOR, ADMIN
+# =============================================
+@router.post("/model/prepare-training-data")
+async def prepare_training_data_endpoint(
+    current_user: User = Depends(get_current_doctor_user),
+    db: Session = Depends(get_db),
+):
+    """Validate and prepare training data from stored risk assessments."""
+    assessments = db.query(RiskAssessment).all()
+    records = [
+        {
+            "heart_rate": a.heart_rate,
+            "spo2": a.spo2,
+            "risk_label": a.risk_level,
+        }
+        for a in assessments
+        if a.heart_rate is not None
+    ]
+    return prepare_training_data(records)
+
+
+# =============================================
+# SAVE_RETRAINING_METADATA - Record retrain run info
+# Used by: Admin after manual/automated retrain
+# Returns: Saved metadata confirmation
+# Roles: DOCTOR, ADMIN
+# =============================================
+class RetrainingMetadataRequest(BaseModel):
+    version: str = Field(..., description="Model version string")
+    accuracy: float = Field(..., ge=0, le=1, description="Accuracy score 0-1")
+    records_used: int = Field(..., ge=0, description="Number of records used")
+    notes: Optional[str] = Field(None, max_length=500)
+
+@router.post("/model/save-retraining-metadata")
+async def save_retraining_metadata_endpoint(
+    body: RetrainingMetadataRequest,
+    current_user: User = Depends(get_current_doctor_user),
+):
+    """Save metadata about a completed retraining run."""
+    return save_retraining_metadata(
+        version=body.version,
+        accuracy=body.accuracy,
+        records_used=body.records_used,
+        notes=body.notes,
+    )
 
 
 # =============================================================================

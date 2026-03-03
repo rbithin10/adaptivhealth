@@ -8,9 +8,11 @@ If login fails, we show a simple error message.
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
+import '../providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   // The API client used to talk to the server.
@@ -68,17 +70,17 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final response = await widget.apiClient.login(
+      final authProvider = context.read<AuthProvider>();
+      final success = await authProvider.login(
         _emailController.text.trim(),
         _passwordController.text,
       );
 
-      if (response['access_token'] != null) {
-        // Success - token stored in secure storage by ApiClient
+      if (success) {
         widget.onLoginSuccess();
       } else {
         setState(() {
-          _errorMessage = 'Login failed. Please try again.';
+          _errorMessage = authProvider.errorMessage ?? 'Login failed. Please try again.';
         });
       }
     } catch (e) {

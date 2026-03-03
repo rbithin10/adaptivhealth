@@ -11,7 +11,7 @@ Use this checklist to validate admin user management in the web dashboard.
 ### Preconditions
 - Admin account exists and can log in
 - At least one non-admin user exists
-- Backend running on http://localhost:8080
+- Backend API reachable (AWS ALB default or local backend via REACT_APP_API_URL)
 
 ### Access Control
 - [ ] Non-admin users are redirected to `/dashboard`
@@ -59,7 +59,7 @@ Use this checklist to validate clinician-facing patient management (list, filter
 ### Prep
 - Clinician account exists and can log in
 - At least 3 patients exist with varied ages and risk levels
-- Backend running on http://localhost:8080
+- Backend API reachable (AWS ALB default or local backend via REACT_APP_API_URL)
 
 ### Access Control
 - [ ] Non-clinician users are blocked from patient list routes
@@ -93,7 +93,7 @@ Use this checklist to validate alerts list, severity display, and acknowledgemen
 
 ### Prep
 - At least 3 alerts exist with mixed severities (critical, warning, info)
-- Backend running on http://localhost:8080
+- Backend API reachable (AWS ALB default or local backend via REACT_APP_API_URL)
 
 ### Access Control
 - [ ] Patients can see only their own alerts

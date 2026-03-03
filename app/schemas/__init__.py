@@ -16,7 +16,9 @@ from app.schemas.user import (
 from app.schemas.vital_signs import (
     VitalSignCreate,
     VitalSignResponse,
-    VitalSignsHistoryResponse
+    VitalSignsHistoryResponse,
+    EdgeBatchItem,
+    EdgeBatchSyncRequest,
 )
 
 # Activity schemas
@@ -67,13 +69,64 @@ from app.schemas.nutrition import (
     NutritionEntryBase,
     NutritionCreate,
     NutritionResponse,
-    NutritionListResponse
+    NutritionListResponse,
+    NutritionRecommendationResponse,
+    NutritionLogCreate,
+    NutritionLogResponse,
 )
 
 # Message schemas
 from app.schemas.message import (
     MessageCreate,
-    MessageResponse
+    MessageResponse,
+    InboxSummaryResponse,
+)
+
+# Rehab schemas
+from app.schemas.rehab import (
+    SessionPlanResponse,
+    ProgressResponse,
+    RehabProgramResponse,
+    CompleteSessionRequest,
+)
+
+# Medical history schemas
+from app.schemas.medical_history import (
+    MedicalHistoryCreate,
+    MedicalHistoryResponse,
+    MedicationCreate,
+    MedicationUpdate,
+    MedicationResponse,
+    MedicalProfileResponse,
+    MedicalExtractionStatusResponse,
+    DocumentUploadResponse,
+    ExtractionConfirmRequest,
+)
+
+# Medication reminder schemas
+from app.schemas.medication_reminder import (
+    ReminderSettingUpdate,
+    ReminderCreate,
+    ReminderResponse,
+    AdherenceCreate,
+    AdherenceResponse,
+    AdherenceHistoryResponse,
+)
+
+# Food analysis schemas
+from app.schemas.food_analysis import (
+    FoodAnalysisResponse,
+    BarcodeProductResponse,
+)
+
+# Natural language schemas
+from app.schemas.nl import (
+    RiskSummaryResponse,
+    TodaysWorkoutResponse,
+    AlertExplanationResponse,
+    ProgressSummaryResponse,
+    ChatRequest,
+    ChatResponse,
 )
 
 __all__ = [
@@ -87,7 +140,9 @@ __all__ = [
     # Vital signs
     "VitalSignCreate",
     "VitalSignResponse",
-    "VitalSignListResponse",
+    "VitalSignsHistoryResponse",
+    "EdgeBatchItem",
+    "EdgeBatchSyncRequest",
     # Activity
     "ActivityType",
     "ActivityPhase",
@@ -124,9 +179,50 @@ __all__ = [
     "NutritionCreate",
     "NutritionResponse",
     "NutritionListResponse",
+    "NutritionRecommendationResponse",
+    "NutritionLogCreate",
+    "NutritionLogResponse",
 
     # Messages
     "MessageCreate",
     "MessageResponse",
+    "InboxSummaryResponse",
+
+    # Rehab
+    "SessionPlanResponse",
+    "ProgressResponse",
+    "RehabProgramResponse",
+    "CompleteSessionRequest",
+
+    # Medical history
+    "MedicalHistoryCreate",
+    "MedicalHistoryResponse",
+    "MedicationCreate",
+    "MedicationUpdate",
+    "MedicationResponse",
+    "MedicalProfileResponse",
+    "MedicalExtractionStatusResponse",
+    "DocumentUploadResponse",
+    "ExtractionConfirmRequest",
+
+    # Medication reminders
+    "ReminderSettingUpdate",
+    "ReminderCreate",
+    "ReminderResponse",
+    "AdherenceCreate",
+    "AdherenceResponse",
+    "AdherenceHistoryResponse",
+
+    # Food analysis
+    "FoodAnalysisResponse",
+    "BarcodeProductResponse",
+
+    # Natural language
+    "RiskSummaryResponse",
+    "TodaysWorkoutResponse",
+    "AlertExplanationResponse",
+    "ProgressSummaryResponse",
+    "ChatRequest",
+    "ChatResponse",
 ]
 

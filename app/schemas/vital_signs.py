@@ -30,7 +30,7 @@ looks like when sent to the API. Checks that all numbers are reasonable
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
@@ -89,6 +89,22 @@ class VitalSignBatchCreate(BaseModel):
     Useful for syncing historical data or bulk imports.
     """
     vitals: List[VitalSignCreate] = Field(..., description="List of vital sign records")
+
+
+class EdgeBatchItem(BaseModel):
+    """Single edge sync payload entry."""
+    timestamp: Optional[str] = None
+    prediction: Optional[Dict[str, Any]] = None
+    vitals: Dict[str, Any] = Field(default_factory=dict)
+    alerts: Optional[List[Dict[str, Any]]] = None
+    gps: Optional[Dict[str, Any]] = None
+
+
+class EdgeBatchSyncRequest(BaseModel):
+    """Batch sync payload from mobile edge queue."""
+    source: str = "edge_ai"
+    batch: List[EdgeBatchItem] = Field(default_factory=list)
+    device_timestamp: Optional[str] = None
 
 
 # =============================================================================

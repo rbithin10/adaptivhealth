@@ -1,0 +1,435 @@
+[
+  {
+    "name": "Overnight Oats with Chia and Berries",
+    "meal_type": "breakfast",
+    "calories": 320,
+    "protein": 14,
+    "carbs": 44,
+    "fat": 10,
+    "prep_time_minutes": 10,
+    "ingredients": [
+      "1/2 cup rolled oats",
+      "3/4 cup low-fat milk",
+      "1 tbsp chia seeds",
+      "1/2 cup mixed berries",
+      "1 tsp honey"
+    ],
+    "instructions": [
+      "Mix oats, milk, and chia seeds in a jar.",
+      "Refrigerate overnight.",
+      "Top with berries and honey before serving."
+    ],
+    "tags": ["Heart Healthy", "High Fiber", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Avocado Egg Toast on Whole Grain",
+    "meal_type": "breakfast",
+    "calories": 350,
+    "protein": 17,
+    "carbs": 28,
+    "fat": 18,
+    "prep_time_minutes": 12,
+    "ingredients": [
+      "1 slice whole-grain bread",
+      "1 boiled egg",
+      "1/2 avocado",
+      "Pinch of black pepper",
+      "Lemon juice"
+    ],
+    "instructions": [
+      "Toast bread until golden.",
+      "Mash avocado with lemon juice.",
+      "Spread avocado on toast and top with sliced egg."
+    ],
+    "tags": ["Heart Healthy", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Greek Yogurt Walnut Parfait",
+    "meal_type": "breakfast",
+    "calories": 290,
+    "protein": 20,
+    "carbs": 26,
+    "fat": 11,
+    "prep_time_minutes": 8,
+    "ingredients": [
+      "3/4 cup plain Greek yogurt",
+      "1/2 cup strawberries",
+      "1 tbsp chopped walnuts",
+      "1 tbsp oats"
+    ],
+    "instructions": [
+      "Layer yogurt, fruit, and oats in a bowl.",
+      "Top with walnuts.",
+      "Serve chilled."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Spinach Tomato Omelet",
+    "meal_type": "breakfast",
+    "calories": 280,
+    "protein": 22,
+    "carbs": 8,
+    "fat": 16,
+    "prep_time_minutes": 15,
+    "ingredients": [
+      "2 eggs",
+      "1 cup spinach",
+      "1/2 tomato diced",
+      "1 tsp olive oil",
+      "Pinch of turmeric"
+    ],
+    "instructions": [
+      "Sauté spinach and tomato in olive oil.",
+      "Add whisked eggs.",
+      "Cook until set and fold before serving."
+    ],
+    "tags": ["Heart Healthy", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Lentil Vegetable Soup",
+    "meal_type": "lunch",
+    "calories": 360,
+    "protein": 20,
+    "carbs": 52,
+    "fat": 8,
+    "prep_time_minutes": 35,
+    "ingredients": [
+      "1 cup cooked lentils",
+      "1 carrot diced",
+      "1 celery stalk diced",
+      "1/2 onion chopped",
+      "2 cups reduced-salt vegetable broth"
+    ],
+    "instructions": [
+      "Sauté onion, carrot, and celery.",
+      "Add lentils and broth.",
+      "Simmer 20 minutes and serve warm."
+    ],
+    "tags": ["Heart Healthy", "High Fiber", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Quinoa Chickpea Salad",
+    "meal_type": "lunch",
+    "calories": 410,
+    "protein": 16,
+    "carbs": 58,
+    "fat": 12,
+    "prep_time_minutes": 20,
+    "ingredients": [
+      "1 cup cooked quinoa",
+      "1/2 cup chickpeas",
+      "1/2 cucumber chopped",
+      "Cherry tomatoes",
+      "1 tbsp olive oil and lemon dressing"
+    ],
+    "instructions": [
+      "Combine quinoa and chickpeas in a bowl.",
+      "Add vegetables and dressing.",
+      "Mix and chill for 10 minutes."
+    ],
+    "tags": ["Heart Healthy", "High Fiber"]
+  },
+  {
+    "name": "Salmon and Brown Rice Bowl",
+    "meal_type": "lunch",
+    "calories": 480,
+    "protein": 32,
+    "carbs": 42,
+    "fat": 20,
+    "prep_time_minutes": 25,
+    "ingredients": [
+      "120g baked salmon",
+      "3/4 cup brown rice",
+      "1 cup steamed broccoli",
+      "1 tsp olive oil",
+      "Lemon wedge"
+    ],
+    "instructions": [
+      "Bake salmon with lemon and pepper.",
+      "Prepare brown rice and broccoli.",
+      "Assemble bowl and drizzle olive oil."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Turkey and Hummus Wrap",
+    "meal_type": "lunch",
+    "calories": 390,
+    "protein": 28,
+    "carbs": 36,
+    "fat": 14,
+    "prep_time_minutes": 10,
+    "ingredients": [
+      "1 whole wheat wrap",
+      "90g sliced turkey breast",
+      "2 tbsp hummus",
+      "Lettuce and cucumber",
+      "Sliced bell peppers"
+    ],
+    "instructions": [
+      "Spread hummus on wrap.",
+      "Add turkey and vegetables.",
+      "Roll tightly and slice."
+    ],
+    "tags": ["Heart Healthy", "High Fiber"]
+  },
+  {
+    "name": "Grilled Mackerel with Steamed Greens",
+    "meal_type": "dinner",
+    "calories": 430,
+    "protein": 34,
+    "carbs": 18,
+    "fat": 24,
+    "prep_time_minutes": 22,
+    "ingredients": [
+      "1 mackerel fillet",
+      "1 cup kale",
+      "1 cup green beans",
+      "1 tsp olive oil",
+      "Garlic and lemon"
+    ],
+    "instructions": [
+      "Season mackerel and grill until cooked.",
+      "Steam kale and beans.",
+      "Serve fish with greens and lemon."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich"]
+  },
+  {
+    "name": "Baked Cod with Tomato Olive Salsa",
+    "meal_type": "dinner",
+    "calories": 360,
+    "protein": 33,
+    "carbs": 16,
+    "fat": 17,
+    "prep_time_minutes": 28,
+    "ingredients": [
+      "120g cod fillet",
+      "1/2 cup diced tomatoes",
+      "1 tbsp chopped olives",
+      "1 tsp olive oil",
+      "Parsley"
+    ],
+    "instructions": [
+      "Bake cod for 15 minutes at 200°C.",
+      "Mix tomato, olives, and parsley.",
+      "Top cod with salsa before serving."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Chicken and Vegetable Stir Fry",
+    "meal_type": "dinner",
+    "calories": 450,
+    "protein": 35,
+    "carbs": 32,
+    "fat": 18,
+    "prep_time_minutes": 25,
+    "ingredients": [
+      "120g chicken breast",
+      "1 cup mixed vegetables",
+      "1/2 cup cooked brown rice",
+      "1 tsp sesame oil",
+      "Reduced-salt soy sauce"
+    ],
+    "instructions": [
+      "Sauté chicken until cooked.",
+      "Add vegetables and cook until tender-crisp.",
+      "Serve over brown rice."
+    ],
+    "tags": ["Heart Healthy", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Tofu Broccoli Garlic Bowl",
+    "meal_type": "dinner",
+    "calories": 400,
+    "protein": 24,
+    "carbs": 34,
+    "fat": 17,
+    "prep_time_minutes": 20,
+    "ingredients": [
+      "150g firm tofu",
+      "1 cup broccoli florets",
+      "2 cloves garlic",
+      "1 tsp olive oil",
+      "1/2 cup quinoa"
+    ],
+    "instructions": [
+      "Pan-sear tofu cubes until golden.",
+      "Add broccoli and garlic, cook 5 minutes.",
+      "Serve over cooked quinoa."
+    ],
+    "tags": ["Heart Healthy", "High Fiber", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Apple Almond Butter Slices",
+    "meal_type": "snack",
+    "calories": 210,
+    "protein": 5,
+    "carbs": 24,
+    "fat": 11,
+    "prep_time_minutes": 5,
+    "ingredients": [
+      "1 medium apple",
+      "1 tbsp almond butter",
+      "Cinnamon sprinkle"
+    ],
+    "instructions": [
+      "Slice the apple.",
+      "Spread almond butter on each slice.",
+      "Sprinkle cinnamon and serve."
+    ],
+    "tags": ["Heart Healthy", "High Fiber"]
+  },
+  {
+    "name": "Carrot Sticks with Hummus",
+    "meal_type": "snack",
+    "calories": 180,
+    "protein": 6,
+    "carbs": 20,
+    "fat": 8,
+    "prep_time_minutes": 6,
+    "ingredients": [
+      "1 cup carrot sticks",
+      "3 tbsp hummus",
+      "Paprika pinch"
+    ],
+    "instructions": [
+      "Arrange carrot sticks on a plate.",
+      "Serve with hummus dip.",
+      "Top hummus with paprika."
+    ],
+    "tags": ["Heart Healthy", "High Fiber", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Trail Mix with Walnuts and Pumpkin Seeds",
+    "meal_type": "snack",
+    "calories": 230,
+    "protein": 8,
+    "carbs": 16,
+    "fat": 16,
+    "prep_time_minutes": 5,
+    "ingredients": [
+      "2 tbsp walnuts",
+      "1 tbsp pumpkin seeds",
+      "1 tbsp raisins",
+      "1 tbsp unsweetened coconut flakes"
+    ],
+    "instructions": [
+      "Combine all ingredients in a small bowl.",
+      "Portion into a snack container.",
+      "Enjoy with water or herbal tea."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich"]
+  },
+  {
+    "name": "Sardine Whole Grain Crackers",
+    "meal_type": "snack",
+    "calories": 240,
+    "protein": 17,
+    "carbs": 18,
+    "fat": 11,
+    "prep_time_minutes": 7,
+    "ingredients": [
+      "1 can sardines in water",
+      "4 whole-grain crackers",
+      "Lemon juice",
+      "Fresh dill"
+    ],
+    "instructions": [
+      "Drain sardines and mash lightly.",
+      "Top crackers with sardines.",
+      "Finish with lemon and dill."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Mediterranean Bean Salad",
+    "meal_type": "lunch",
+    "calories": 370,
+    "protein": 18,
+    "carbs": 48,
+    "fat": 11,
+    "prep_time_minutes": 15,
+    "ingredients": [
+      "1 cup mixed beans",
+      "Cucumber and tomato",
+      "Red onion",
+      "1 tbsp olive oil",
+      "Lemon and oregano"
+    ],
+    "instructions": [
+      "Rinse beans and combine with chopped vegetables.",
+      "Whisk olive oil, lemon, and oregano.",
+      "Toss salad and chill before eating."
+    ],
+    "tags": ["Heart Healthy", "High Fiber", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Baked Sweet Potato and Black Beans",
+    "meal_type": "dinner",
+    "calories": 420,
+    "protein": 15,
+    "carbs": 68,
+    "fat": 10,
+    "prep_time_minutes": 35,
+    "ingredients": [
+      "1 medium sweet potato",
+      "1/2 cup black beans",
+      "1 tbsp plain yogurt",
+      "Salsa",
+      "Cilantro"
+    ],
+    "instructions": [
+      "Bake sweet potato until soft.",
+      "Top with black beans, yogurt, and salsa.",
+      "Garnish with cilantro."
+    ],
+    "tags": ["Heart Healthy", "High Fiber", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Berry Spinach Smoothie",
+    "meal_type": "breakfast",
+    "calories": 260,
+    "protein": 15,
+    "carbs": 34,
+    "fat": 7,
+    "prep_time_minutes": 6,
+    "ingredients": [
+      "1 cup spinach",
+      "1/2 cup frozen berries",
+      "3/4 cup unsweetened yogurt",
+      "1 tbsp flaxseed",
+      "Water or ice"
+    ],
+    "instructions": [
+      "Add all ingredients to blender.",
+      "Blend until smooth.",
+      "Serve immediately."
+    ],
+    "tags": ["Heart Healthy", "Omega-3 Rich", "Anti-Inflammatory"]
+  },
+  {
+    "name": "Chickpea Cucumber Snack Bowl",
+    "meal_type": "snack",
+    "calories": 190,
+    "protein": 8,
+    "carbs": 24,
+    "fat": 6,
+    "prep_time_minutes": 8,
+    "ingredients": [
+      "1/2 cup chickpeas",
+      "1/2 cucumber diced",
+      "Lemon juice",
+      "Mint leaves",
+      "Pinch of salt-free seasoning"
+    ],
+    "instructions": [
+      "Combine chickpeas and cucumber.",
+      "Add lemon juice and seasoning.",
+      "Top with mint and serve."
+    ],
+    "tags": ["Heart Healthy", "High Fiber"]
+  }
+]

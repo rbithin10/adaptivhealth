@@ -2,223 +2,137 @@
 
 ## Overview
 
-Four FastAPI endpoints that provide patient-friendly natural-language summaries for the AI coach feature. All endpoints follow the same pattern: accept query parameters, return structured data + `nl_summary` text field.
+AdaptivHealth uses a **Natural Language (NL) first** architecture.
 
-**Base path**: `/api/v1/nl`
+- Primary path: deterministic NL builders convert model/clinical outputs into clear patient-facing text.
+- Secondary path: Gemini is used only for gap-fill scenarios (open-ended chat, image analysis, or explicit cloud enhancement).
 
----
-
-## Endpoints
-
-### 1. Risk Summary
-**GET** `/api/v1/nl/risk-summary`
-
-Returns encouraging, patient-safe risk assessment summary.
-
-**Query Parameters:**
-- `user_id` (UUID, required) - User identifier
-- `time_window_hours` (int, optional, default=24) - Time window for analysis
-
-**Response:** `RiskSummaryResponse`
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "time_window_hours": 24,
-  "risk_level": "LOW",
-  "risk_score": 0.23,
-  "key_factors": {
-    "avg_heart_rate": 72,
-    "max_heart_rate": 95,
-    "avg_spo2": 98,
-    "alert_count": 0
-  },
-  "safety_status": "SAFE",
-  "nl_summary": "Over the past 24 hours, your health readings look stable and within safe ranges. Your average heart rate was 72 BPM (peak: 95 BPM), and oxygen levels averaged 98%. No alerts were triggered, which is great. You're okay for light to moderate activities, just listen to your body."
-}
-```
+This preserves clinical consistency while still supporting flexible AI assistance.
 
 ---
 
-### 2. Today's Workout
-**GET** `/api/v1/nl/todays-workout`
+## Architecture Policy
 
-Returns encouraging workout recommendation with safety guidance.
+### 1) NL-first (default)
+Used for core summaries and guidance:
+- Risk summary
+- Today’s workout guidance
+- Alert explanation
+- Progress summary
 
-**Query Parameters:**
-- `user_id` (UUID, required) - User identifier
-- `date` (date, optional, default=today) - Target date
+These responses are built from structured backend data (risk assessments, vitals, alerts, activity sessions, recommendations) and rendered using internal NL builder functions.
 
-**Response:** `TodaysWorkoutResponse`
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "date": "2026-02-21",
-  "activity_type": "WALKING",
-  "intensity_level": "LIGHT",
-  "duration_minutes": 20,
-  "target_hr_min": 85,
-  "target_hr_max": 110,
-  "risk_level": "LOW",
-  "nl_summary": "Today's recommendation: Try a light walk for 20 minutes at a comfortable, easy pace. Aim to keep your heart rate between 85-110 BPM during the activity. If you feel any discomfort, chest pain, or severe breathlessness, stop and rest. Otherwise, enjoy your workout!"
-}
-```
+### 2) Gemini as gap-fill (optional)
+Gemini is used when:
+- User asks open-ended questions in chat that do not match a known NL intent.
+- User uses image-based chat analysis.
+- A caller explicitly requests cloud enhancement for advanced ML risk summary (`use_cloud_ai=true`).
 
 ---
 
-### 3. Alert Explanation
-**GET** `/api/v1/nl/alert-explanation`
+## Route Map
 
-Returns calm, clear explanation of health alert with recommended action.
+## Base: `/api/v1/nl` (AI Coach)
+Implemented in `app/api/nl_endpoints.py`, router prefix set in `app/main.py`.
 
-**Query Parameters:**
-- `user_id` (UUID, required) - User identifier
-- `alert_id` (UUID, optional) - Specific alert ID (defaults to latest)
+### GET `/api/v1/nl/risk-summary`
+- Purpose: Patient-friendly summary of latest risk + recent vitals/alerts.
+- Source: NL builder (`build_risk_summary_text`) with real DB data.
+- Auth: Required (`get_current_user`).
 
-**Response:** `AlertExplanationResponse`
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "alert_id": "123e4567-e89b-12d3-a456-426614174000",
-  "alert_type": "HIGH_HEART_RATE",
-  "severity_level": "MEDIUM",
-  "alert_time": "2026-02-21T14:30:00Z",
-  "context": {
-    "during_activity": true,
-    "activity_type": "walking",
-    "heart_rate": 145,
-    "spo2": 97
-  },
-  "recommended_action": "SLOW_DOWN",
-  "nl_summary": "At 02:30 PM, your heart rate reached 145 BPM during walking. This requires attention—it's outside your typical safe range. Slow down the pace—ease up on intensity and see if your readings stabilize."
-}
-```
+### GET `/api/v1/nl/todays-workout`
+- Purpose: Daily workout explanation in plain language.
+- Source: NL builder (`build_todays_workout_text`) + recommendation/risk context.
+- Auth: Required.
 
-**Recommended Actions:**
-- `CONTINUE` - Safe to continue activity
-- `SLOW_DOWN` - Reduce intensity
-- `STOP_AND_REST` - Stop and rest 10-15 minutes
-- `CONTACT_DOCTOR` - Contact care team
-- `EMERGENCY` - Seek immediate medical attention
+### GET `/api/v1/nl/alert-explanation`
+- Purpose: Explain why an alert happened and what to do next.
+- Source: NL builder (`build_alert_explanation_text`) + alert/activity/vitals context.
+- Auth: Required.
 
----
+### GET `/api/v1/nl/progress-summary`
+- Purpose: Motivational period-over-period progress interpretation.
+- Source: NL builder (`build_progress_summary_text`) + trend computation.
+- Auth: Required.
 
-### 4. Progress Summary
-**GET** `/api/v1/nl/progress-summary`
+### POST `/api/v1/nl/chat`
+- Purpose: Conversational AI coach.
+- Source policy:
+  1. Template NL response for known intents.
+  2. Gemini fallback for unmatched/open-ended prompts.
+  3. Generic fallback if Gemini unavailable.
+- Auth: Required.
+- Rate limit: 10 requests/min per user (in-memory limiter).
 
-Returns motivational progress summary comparing current and previous periods.
-
-**Query Parameters:**
-- `user_id` (UUID, required) - User identifier
-- `range` (string, optional, default="7d") - Time range ("7d" or "30d")
-
-**Response:** `ProgressSummaryResponse`
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "range": "7d",
-  "current_period": {
-    "start": "2026-02-14T00:00:00Z",
-    "end": "2026-02-21T00:00:00Z",
-    "workout_count": 5,
-    "total_active_minutes": 110,
-    "avg_risk_level": "LOW",
-    "time_in_safe_zone_minutes": 95,
-    "time_above_safe_zone_minutes": 15,
-    "alert_count": 1
-  },
-  "previous_period": {
-    "start": "2026-02-07T00:00:00Z",
-    "end": "2026-02-14T00:00:00Z",
-    "workout_count": 3,
-    "total_active_minutes": 75,
-    "avg_risk_level": "LOW",
-    "time_in_safe_zone_minutes": 65,
-    "time_above_safe_zone_minutes": 10,
-    "alert_count": 2
-  },
-  "trend": {
-    "workout_frequency": "IMPROVING",
-    "alerts": "IMPROVING",
-    "risk": "STABLE",
-    "overall": "IMPROVING"
-  },
-  "nl_summary": "Over the past 7 days, you completed 5 workouts totaling 110 active minutes. That's 2 more workouts than the previous period and 1 fewer alert. Excellent progress! Your consistency is paying off. Keep up the great work—try to maintain at least this many sessions going forward."
-}
-```
-
-**Trend Values:**
-- `IMPROVING` - Metrics getting better
-- `STABLE` - Metrics consistent
-- `WORSENING` - Metrics declining (caring, non-blaming tone)
+### POST `/api/v1/nl/chat-with-image`
+- Purpose: Multimodal coaching analysis (food, medication, edema, general).
+- Source: Gemini Vision.
+- Auth: Required.
+- Gemini key required: returns 503 if missing.
 
 ---
 
-## Implementation Details
+## Base: `/api/v1` (Advanced ML NL helpers)
+Implemented in `app/api/advanced_ml.py`.
 
-### Architecture
-- **Schemas**: `app/schemas/nl.py` - Pydantic models for requests/responses
-- **Builders**: `app/services/nl_builders.py` - NL text generation functions
-- **Routes**: `app/api/nl_endpoints.py` - FastAPI endpoint handlers
-- **Tests**: `tests/test_nl_endpoints.py` - Unit tests for builders
+### GET `/api/v1/risk-summary/natural-language`
+- Purpose: Clinician/dashboard plain-language summary of latest risk assessment.
+- Default behavior: internal NL template (`format_risk_summary`).
+- Optional cloud enhancement: `use_cloud_ai=true` attempts Gemini enhancement.
+- If Gemini enhancement fails, endpoint gracefully falls back to internal NL summary.
 
-### Current State
-All endpoints use **dummy data** and are ready for database integration. Each route has a `TODO` comment marking where to add real DB queries:
-
-```python
-# TODO: Real DB query
-# risk_assessment = db.query(RiskAssessment).filter(...).first()
-# vitals = db.query(VitalSignRecord).filter(...).all()
-```
-
-### Tone Guidelines
-- **Risk Summary**: Encouraging, not scary
-- **Workout**: Motivational with safety cues
-- **Alert**: Calm and clear, only urgent for EMERGENCY actions
-- **Progress**: 
-  - IMPROVING: Supportive and proud
-  - STABLE: Calm and encouraging
-  - WORSENING: Caring and cautious, no blame
-
-### Integration with Mobile App
-The mobile app's `FloatingChatbot` currently calls `GET /api/v1/risk-summary/natural-language` (from `advanced_ml.py`). Consider migrating to use these new NL endpoints for richer functionality:
-
-```dart
-// Current: getRiskSummaryNL() → /api/v1/risk-summary/natural-language
-// Future: Can expand to use /api/v1/nl/* endpoints for different contexts
-```
+### POST `/api/v1/alerts/natural-language`
+- Purpose: Convert technical alert fields to patient-friendly phrasing.
+- Source: internal template generator (`generate_natural_language_alert`).
+- Note: This is deterministic NL output, not mandatory Gemini.
 
 ---
 
-## Testing
+## What NL Makes Human-Interpretable
 
-Run tests:
-```bash
-pytest tests/test_nl_endpoints.py -v
-```
+NL layer translates model/system outputs such as:
+- `risk_score`, `risk_level`, `risk_factors_json`
+- Vitals aggregates (HR, SpO2)
+- Alert severity/context
+- Activity adherence/progress trends
+- Recommendation intensity and safe ranges
 
-Test coverage:
-- ✅ Route registration
-- ✅ Risk summary builder
-- ✅ Workout builder
-- ✅ Alert explanation builder
-- ✅ Progress summary builder
-- ✅ Trend computation logic
+into short, readable coaching language for patients/clinicians.
+
+This is exactly the “AI model output to human-interpretable explanation” role.
 
 ---
 
-## Next Steps
+## Client Usage
 
-1. **Database Integration**: Replace dummy data with real queries:
-   - `RiskAssessment` - Latest risk for user
-   - `VitalSignRecord` - Aggregate vitals in time window
-   - `ExerciseRecommendation` - Active recommendation for date
-   - `Alert` - Latest or specific alert by ID
-   - `ActivitySession` - Aggregate sessions in period
+### Mobile App
+- Uses `/api/v1/nl/*` summaries and `/api/v1/nl/chat`.
+- File: `mobile-app/lib/services/api_client.dart`
+- UI entry point: floating coach chat (`mobile-app/lib/widgets/floating_chatbot.dart`).
 
-2. **Authentication**: Add `Depends(get_current_user)` to ensure users can only access their own data
+### Web Dashboard
+- Uses advanced ML NL endpoints in patient detail panel:
+  - `/risk-summary/natural-language`
+  - `/alerts/natural-language`
+- Files:
+  - `web-dashboard/src/services/api.ts`
+  - `web-dashboard/src/pages/PatientDetailPage.tsx`
 
-3. **Mobile Integration**: Update `FloatingChatbot` to use new endpoints for richer responses
+---
 
-4. **A/B Testing**: Track which NL summaries lead to better engagement/outcomes
+## Operational Notes
 
-5. **LLM Enhancement**: Consider replacing rule-based builders with LLM generation (GPT-4, Claude, etc.) for more natural language
+- Required for Gemini paths: `GEMINI_API_KEY` (aliases supported in config).
+- Without Gemini key:
+  - `/api/v1/nl/chat` still works for template-matched intents.
+  - `/api/v1/nl/chat-with-image` returns 503.
+  - `/api/v1/risk-summary/natural-language?use_cloud_ai=true` falls back to template summary.
+
+---
+
+## Summary
+
+AdaptivHealth NL is **not** Gemini takeover.
+
+- Core coaching interpretation is provided by internal NL logic over your model outputs.
+- Gemini is a controlled augmentation layer for conversational/image gaps and optional enhancement.

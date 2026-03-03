@@ -120,19 +120,17 @@ GET /nutrition/recommendations?user_id={id}&date={date}
       meal_type: "breakfast|lunch|dinner|snack",
       suggested_items: ["oatmeal", "berries", "yogurt"],
       calories_target: 500,
-      sodium_limit_mg: 300,
       suggested_recipes: [...],
-      benefits: "Heart-healthy, low sodium",
+      benefits: "Heart-healthy",
       nutritionist_notes: "Based on your recovery phase"
     }
   ],
   daily_nutrition_goals: {
     calories: 2000,
-    sodium_mg: 2300,
     potassium_mg: 3500,
     water_liters: 2.5
   },
-  restrictions: ["high_sodium_foods", "saturated_fats"],
+   restrictions: ["saturated_fats"],
   assigned_nutritionist: "Dr. Amanda White"
 }
 ```
@@ -141,7 +139,7 @@ GET /nutrition/recommendations?user_id={id}&date={date}
 
 #### New Screen: "Nutrition"
 1. **Daily Nutrition Summary**
-   - Progress rings: Calories, Sodium, Water intake
+   - Progress rings: Calories, Water intake
    - Status indicators (on track/caution/over limit)
 
 2. **Meal Suggestions**

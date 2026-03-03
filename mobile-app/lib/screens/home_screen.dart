@@ -6,6 +6,7 @@ If the server is slow or down, we show safe demo values instead of a blank scree
 */
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
@@ -13,8 +14,10 @@ import 'dart:async';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
+import '../services/chat_store.dart';
 import '../services/edge_ai_store.dart';
 import '../services/mock_vitals_service.dart';
+import '../widgets/ai_coach_position_store.dart';
 import '../widgets/widgets.dart';
 import 'fitness_plans_screen.dart';
 import 'recovery_screen.dart';
@@ -23,6 +26,10 @@ import 'profile_screen.dart';
 import 'nutrition_screen.dart';
 import 'doctor_messaging_screen.dart';
 import 'notifications_screen.dart';
+import 'rehab_program_screen.dart';
+import 'history_screen.dart';
+import 'device_pairing_screen.dart';
+import '../widgets/sos_button.dart';
 // Note: ChatbotScreen removed - AI Coach is now a floating widget (FloatingChatbot)
 
 class HomeScreen extends StatefulWidget {
@@ -219,6 +226,90 @@ class _HomeScreenState extends State<HomeScreen> {
     final brightness = MediaQuery.of(context).platformBrightness;
     return Scaffold(
       backgroundColor: AdaptivColors.getBackgroundColor(brightness),
+      drawer: Drawer(
+        child: SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              DrawerHeader(
+                decoration: const BoxDecoration(
+                  color: AdaptivColors.primaryUltralight,
+                ),
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Text(
+                    'Quick Navigation',
+                    style: AdaptivTypography.sectionTitle,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.notifications_none),
+                title: const Text('Notifications'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          NotificationsScreen(apiClient: widget.apiClient),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.health_and_safety_outlined),
+                title: const Text('Health Insights'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => HealthScreen(apiClient: widget.apiClient),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Activity History'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => HistoryScreen(apiClient: widget.apiClient),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.spa_outlined),
+                title: const Text('Rehabilitation'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => RehabProgramScreen(apiClient: widget.apiClient),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bluetooth),
+                title: const Text('Device Pairing'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => DevicePairingScreen(
+                        apiClient: widget.apiClient,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AdaptivColors.getSurfaceColor(brightness),
@@ -260,6 +351,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          SOSButton(apiClient: widget.apiClient),
           Container(
             margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
@@ -283,32 +375,62 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
+          // Keep chatbot inside visible body bounds at all times.
+          const double fabSize = 56.0;
+          const double horizontalMargin = 16.0;
+          const double topMargin = 8.0;
+          const double bottomMargin = 16.0;
+
+          final double minFabX = 0.0;
+          final double maxFabX = (constraints.maxWidth - fabSize).clamp(0.0, double.infinity);
+          final double minFabY = topMargin;
+          final double maxFabY = (constraints.maxHeight - fabSize - bottomMargin)
+              .clamp(minFabY, double.infinity);
+
+          // Sync with global coach position (shared across all screens).
+          final sharedPosition = AiCoachPositionStore.position;
+          if (sharedPosition != null) {
+            _fabX = sharedPosition.dx;
+            _fabY = sharedPosition.dy;
+          }
+
           // Initialise FAB position to bottom-right on first layout.
           if (_fabX < 0 || _fabY < 0) {
-            _fabX = constraints.maxWidth - 56 - 16;
-            _fabY = constraints.maxHeight - 56 - 24;
+            _fabX = (constraints.maxWidth - fabSize - horizontalMargin)
+                .clamp(minFabX, maxFabX);
+            _fabY = (constraints.maxHeight - fabSize - bottomMargin)
+                .clamp(minFabY, maxFabY);
+          } else {
+            // Re-clamp on rebuild (rotation/layout changes) to prevent
+            // chatbot from being rendered outside the body stack.
+            _fabX = _fabX.clamp(minFabX, maxFabX);
+            _fabY = _fabY.clamp(minFabY, maxFabY);
           }
+
+          AiCoachPositionStore.setPosition(Offset(_fabX, _fabY));
           return Stack(
             children: [
               // Main tab content fills the available space.
               Positioned.fill(child: _getSelectedScreen()),
 
-              // Draggable floating AI Health Coach.
-              Positioned(
-                left: _fabX,
-                top: _fabY,
-                child: FloatingChatbot(
-                  apiClient: widget.apiClient,
-                  posX: _fabX,
-                  posY: _fabY,
-                  onPositionChanged: (offset) {
-                    setState(() {
-                      _fabX = offset.dx;
-                      _fabY = offset.dy;
-                    });
-                  },
+              if (_selectedIndex != 4)
+                // Draggable floating AI Health Coach.
+                Positioned(
+                  left: _fabX,
+                  top: _fabY,
+                  child: FloatingChatbot(
+                    apiClient: widget.apiClient,
+                    posX: _fabX,
+                    posY: _fabY,
+                    onPositionChanged: (offset) {
+                      setState(() {
+                        _fabX = offset.dx.clamp(minFabX, maxFabX);
+                        _fabY = offset.dy.clamp(minFabY, maxFabY);
+                        AiCoachPositionStore.setPosition(Offset(_fabX, _fabY));
+                      });
+                    },
+                  ),
                 ),
-              ),
             ],
           );
         },
@@ -348,6 +470,17 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _selectedIndex = index;
           });
+          final chatStore = Provider.of<ChatStore>(context, listen: false);
+          chatStore.currentScreen = [
+            'home',
+            'health',
+            'fitness',
+            'wellness',
+            'recovery',
+            'nutrition',
+            'messaging',
+            'rehab',
+          ][_selectedIndex];
         },
         type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.white,
@@ -546,7 +679,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     EdgeAiStore? edgeStore;
                     try {
                       edgeStore = Provider.of<EdgeAiStore>(context);
-                    } catch (_) {}
+                    } catch (e) {
+                      if (kDebugMode) {
+                        debugPrint('Error in _buildHomeTab.edgeStoreLookup: $e');
+                      }
+                    }
                     final prediction = edgeStore?.latestPrediction;
                     final edgeRiskLevel = prediction?.riskLevel ?? riskLevel;
                     final edgeRiskColor = AdaptivColors.getRiskColor(edgeRiskLevel);
@@ -693,6 +830,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildQuickActions(),
                 const SizedBox(height: 24),
 
+                // Rehab Program Card (if user is in rehab)
+                _buildRehabCard(user),
+
                 // Recent Activity
                 _buildRecentActivity(),
                 const SizedBox(height: 24),
@@ -717,7 +857,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       try {
                         final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
                         edgeStore.syncNow();
-                      } catch (_) {}
+                      } catch (e) {
+                        if (kDebugMode) {
+                          debugPrint('Error in _buildHomeTab.syncNow: $e');
+                        }
+                      }
                     },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Refresh Data'),
@@ -1118,6 +1262,28 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String? _activityImage(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'walking':
+        return 'assets/exercises/walking.png';
+      case 'running':
+      case 'light_jogging':
+        return 'assets/exercises/light_jogging.png';
+      case 'cycling':
+        return 'assets/exercises/cycling.png';
+      case 'swimming':
+        return 'assets/exercises/swimming.png';
+      case 'yoga':
+        return 'assets/exercises/yoga.png';
+      case 'stretching':
+        return 'assets/exercises/stretching.png';
+      case 'strength_training':
+        return 'assets/exercises/resistance_bands.png';
+      default:
+        return null;
+    }
+  }
+
   /// Format a datetime string into a relative label like "2h ago" or "Yesterday".
   String _relativeTime(String? isoString) {
     if (isoString == null || isoString.isEmpty) return '';
@@ -1148,6 +1314,108 @@ class _HomeScreenState extends State<HomeScreen> {
       return status != null ? status.toString() : 'Session';
     }
     return parts.join(' • ');
+  }
+
+  // ------------------------------------------------------------------
+  // Rehab Program card — only visible when user.rehab_phase != 'not_in_rehab'
+  // ------------------------------------------------------------------
+  Widget _buildRehabCard(Map<String, dynamic> user) {
+    final rehabPhase = user['rehab_phase'] as String? ?? 'not_in_rehab';
+    if (rehabPhase == 'not_in_rehab') return const SizedBox.shrink();
+
+    return FutureBuilder<Map<String, dynamic>>(
+      future: widget.apiClient.getRehabProgram().catchError((e) => <String, dynamic>{}),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.only(bottom: 24),
+            child: SizedBox(height: 80, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+          );
+        }
+
+        final data = snapshot.data;
+        if (data == null || data.isEmpty) return const SizedBox.shrink();
+
+        final progress = data['progress_summary'] as Map<String, dynamic>?;
+        final programType = data['program_type'] as String? ?? '';
+        final status = data['status'] as String? ?? 'active';
+
+        final currentWeek = progress?['current_week'] as int? ?? 1;
+        final sessionsThisWeek = progress?['sessions_completed_this_week'] as int? ?? 0;
+        final sessionsRequired = progress?['sessions_required_this_week'] as int? ?? 3;
+
+        final isPhase2 = programType == 'phase_2_light';
+        final label = isPhase2 ? 'Phase II Rehab' : 'Phase III';
+        final isCompleted = status == 'completed';
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RehabProgramScreen(apiClient: widget.apiClient),
+                ),
+              ).then((_) => _loadData());
+            },
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isCompleted
+                      ? [AdaptivColors.stable, AdaptivColors.stable.withOpacity(0.8)]
+                      : [AdaptivColors.primary, AdaptivColors.primaryDark],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      isCompleted ? Icons.emoji_events : Icons.fitness_center,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'My Rehab Program',
+                          style: GoogleFonts.dmSans(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isCompleted
+                              ? '$label — completed'
+                              : '$label • Week $currentWeek • $sessionsThisWeek of $sessionsRequired today',
+                          style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.white70),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildRecentActivity() {
@@ -1209,6 +1477,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 final a = item as Map<String, dynamic>;
                 final type = a['activity_type'] as String?;
                 return _buildActivityItem(
+                  imagePath: _activityImage(type),
                   icon: _activityIcon(type),
                   title: (type ?? 'Activity')
                       .replaceAll('_', ' ')
@@ -1230,6 +1499,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActivityItem({
+    String? imagePath,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -1252,7 +1522,18 @@ class _HomeScreenState extends State<HomeScreen> {
               color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: color, size: 20),
+            child: imagePath != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      imagePath,
+                      width: 20,
+                      height: 20,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(icon, color: color, size: 20),
+                    ),
+                  )
+                : Icon(icon, color: color, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1620,7 +1901,11 @@ class _HomeScreenState extends State<HomeScreen> {
             oldestLabel = '${diff.inDays}d ago';
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('Error in _buildTimelineLabels: $e');
+        }
+      }
     }
 
     return Row(
@@ -1679,19 +1964,20 @@ class _HomeScreenState extends State<HomeScreen> {
             if (hasError) {
               final isHighRisk = riskLevel.toLowerCase() == 'high';
               final isSimulatorRunning = _mockVitalsService?.isRunning ?? false;
-              return RecommendationCard(
+              return CompactRecommendationCard(
                 activityType: isHighRisk ? ActivityType.meditation : ActivityType.walking,
                 title: isHighRisk ? 'Rest & Recovery' : 'Steady Movement',
-                description: isSimulatorRunning
-                    ? 'Live simulator is running. Follow this safe activity guidance while values update in real time.'
-                    : (isHighRisk
-                        ? 'Your recovery score is low. Take it easy today.'
-                        : 'Light cardio to maintain your heart health.'),
                 duration: Duration(minutes: isHighRisk ? 15 : 30),
                 targetHRZone: isHighRisk ? HRZone.resting : HRZone.light,
-                confidence: 0.75,
-                isPriority: true,
-                onStart: () {
+                onTap: () {
+                  if (isSimulatorRunning) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Simulator mode is active. Opening Fitness tab.'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
                   setState(() => _selectedIndex = 1);
                 },
               );
@@ -1703,15 +1989,12 @@ class _HomeScreenState extends State<HomeScreen> {
             final durationMinutes = _safeToInt(recommendation['duration_minutes'], 20);
             final confidence = _safeToDouble(recommendation['confidence_score'], 0.85);
 
-            return RecommendationCard(
+            return CompactRecommendationCard(
               activityType: activityType,
               title: (recommendation['title'] ?? 'Today\'s Recommendation').toString(),
-              description: (recommendation['description'] ?? recommendation['warnings'])?.toString(),
               duration: Duration(minutes: durationMinutes > 0 ? durationMinutes : 20),
               targetHRZone: _mapIntensityToHRZone(recommendation['intensity_level']),
-              confidence: confidence,
-              isPriority: true,
-              onStart: () {
+              onTap: () {
                 setState(() => _selectedIndex = 1);
               },
             );

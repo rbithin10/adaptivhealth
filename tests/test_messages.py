@@ -213,3 +213,133 @@ class TestMessages:
             json={"receiver_id": user_b["id"], "content": "Hello"}
         )
         assert resp.status_code == 401
+
+    def test_get_inbox_for_clinician_success(self, client, admin_token):
+        """Clinician inbox returns conversation summaries with unread counts."""
+        patient = register_user(client, "inbox_patient@example.com", "StrongPass1", "Inbox Patient", admin_token)
+        clinician = register_user(
+            client,
+            "inbox_clinician@example.com",
+            "StrongPass1",
+            "Inbox Clinician",
+            admin_token,
+            role=UserRole.CLINICIAN.value,
+        )
+
+        patient_token = login_user(client, "inbox_patient@example.com", "StrongPass1")
+        clinician_token = login_user(client, "inbox_clinician@example.com", "StrongPass1")
+
+        send_resp = client.post(
+            "/api/v1/messages",
+            json={"receiver_id": clinician["id"], "content": "I need advice on my workout."},
+            headers=auth_header(patient_token),
+        )
+        assert send_resp.status_code == 201
+
+        inbox_resp = client.get(
+            "/api/v1/messages/inbox",
+            headers=auth_header(clinician_token),
+        )
+        assert inbox_resp.status_code == 200
+        inbox = inbox_resp.json()
+        assert len(inbox) >= 1
+        assert any(item["patient_id"] == patient["id"] for item in inbox)
+
+    def test_get_inbox_patient_forbidden(self, client, admin_token):
+        """Patients cannot access clinician inbox endpoint."""
+        register_user(client, "inbox_patient2@example.com", "StrongPass1", "Inbox Patient 2", admin_token)
+        patient_token = login_user(client, "inbox_patient2@example.com", "StrongPass1")
+
+        inbox_resp = client.get(
+            "/api/v1/messages/inbox",
+            headers=auth_header(patient_token),
+        )
+        assert inbox_resp.status_code == 403
+
+    def test_messaging_conversations_compat_endpoint(self, client, admin_token):
+        """GET /messaging/conversations returns spec-compatible conversation summaries."""
+        patient = register_user(client, "conv_patient@example.com", "StrongPass1", "Conversation Patient", admin_token)
+        clinician = register_user(
+            client,
+            "conv_clinician@example.com",
+            "StrongPass1",
+            "Conversation Clinician",
+            admin_token,
+            role=UserRole.CLINICIAN.value,
+        )
+
+        patient_token = login_user(client, "conv_patient@example.com", "StrongPass1")
+        clinician_token = login_user(client, "conv_clinician@example.com", "StrongPass1")
+
+        first_send = client.post(
+            "/api/v1/messages",
+            json={"receiver_id": clinician["id"], "content": "First message"},
+            headers=auth_header(patient_token),
+        )
+        assert first_send.status_code == 201
+
+        response = client.get(
+            "/api/v1/messaging/conversations",
+            headers=auth_header(clinician_token),
+        )
+        assert response.status_code == 200
+        payload = response.json()
+
+        assert payload["user_id"] == clinician["id"]
+        assert payload["total_conversations"] >= 1
+        assert len(payload["conversations"]) >= 1
+        assert payload["conversations"][0]["conversation_id"].startswith("conv_")
+
+    def test_conversation_messages_send_and_mark_read_compat(self, client, admin_token):
+        """Compat endpoints for thread history, send, and mark-read work together."""
+        patient = register_user(client, "conv2_patient@example.com", "StrongPass1", "Conv2 Patient", admin_token)
+        clinician = register_user(
+            client,
+            "conv2_clinician@example.com",
+            "StrongPass1",
+            "Conv2 Clinician",
+            admin_token,
+            role=UserRole.CLINICIAN.value,
+        )
+
+        patient_token = login_user(client, "conv2_patient@example.com", "StrongPass1")
+        clinician_token = login_user(client, "conv2_clinician@example.com", "StrongPass1")
+
+        send_resp = client.post(
+            f"/api/v1/messaging/conversations/conv_{clinician['id']}/messages",
+            json={"content": "Hello from patient", "type": "text"},
+            headers=auth_header(patient_token),
+        )
+        assert send_resp.status_code == 201
+        sent_payload = send_resp.json()
+        assert sent_payload["conversation_id"] == f"conv_{clinician['id']}"
+        assert sent_payload["status"] == "sent"
+
+        history_resp = client.get(
+            f"/api/v1/messaging/conversations/conv_{patient['id']}/messages?limit=50&offset=0",
+            headers=auth_header(clinician_token),
+        )
+        assert history_resp.status_code == 200
+        history = history_resp.json()
+        assert history["conversation_id"] == f"conv_{patient['id']}"
+        assert len(history["messages"]) >= 1
+
+        read_resp = client.put(
+            f"/api/v1/messaging/conversations/conv_{patient['id']}/read",
+            headers=auth_header(clinician_token),
+        )
+        assert read_resp.status_code == 200
+        read_payload = read_resp.json()
+        assert read_payload["conversation_id"] == f"conv_{patient['id']}"
+        assert "messages_marked_read" in read_payload
+
+    def test_conversation_messages_invalid_id_returns_400(self, client, admin_token):
+        """Invalid conversation_id format is rejected for compatibility route."""
+        user = register_user(client, "convbad@example.com", "StrongPass1", "Conv Bad", admin_token)
+        user_token = login_user(client, "convbad@example.com", "StrongPass1")
+
+        response = client.get(
+            "/api/v1/messaging/conversations/not_a_number/messages",
+            headers=auth_header(user_token),
+        )
+        assert response.status_code == 400
