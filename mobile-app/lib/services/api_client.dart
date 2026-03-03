@@ -32,6 +32,9 @@ class ApiClient {
     defaultValue: 'false',
   );
 
+  // EC2 development server — used by emulator, physical device, and web.
+  static const String _ec2BaseUrl = 'http://13.201.126.13/api/v1';
+
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
       return _configuredBaseUrl;
@@ -39,13 +42,8 @@ class ApiClient {
     if (_useProduction == 'true') {
       return _productionBaseUrl;
     }
-    if (kIsWeb) {
-      return 'http://localhost:8080/api/v1';
-    }
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8080/api/v1';
-    }
-    return 'http://localhost:8080/api/v1';
+    // All platforms (emulator, real device, web) point to EC2 during development.
+    return _ec2BaseUrl;
   }
 
   // One HTTP client shared by the whole app.
