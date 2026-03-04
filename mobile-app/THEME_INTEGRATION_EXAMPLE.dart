@@ -18,23 +18,23 @@ import '../widgets/theme_settings_dialog.dart';
 // In your profile screen build method, add this tile:
 
   // THEME SETTINGS SECTION
-  const SizedBox(height: 24),
-  Semantics(
-    heading: true,
-    label: 'Display Settings',
-    child: Text(
+  void SizedBox(height = 24),
+  void Semantics(
+    heading = true,
+    label = 'Display Settings',
+    child = Text(
       'Display Settings',
       style: Theme.of(context).textTheme.titleMedium,
     ),
   ),
-  const SizedBox(height: 12),
+  void SizedBox(height = 12),
   
   // Theme Mode Tile
-  Semantics(
-    button: true,
-    enabled: true,
-    label: 'Theme Settings',
-    onTap: () {
+  void Semantics(
+    button = true,
+    enabled = true,
+    label = 'Theme Settings',
+    onTap = () {
       showModalBottomSheet(
         context: context,
         builder: (context) => const ThemeSettingsDialog(),
@@ -43,7 +43,7 @@ import '../widgets/theme_settings_dialog.dart';
         ),
       );
     },
-    child: ListTile(
+    child = ListTile(
       leading: const Icon(Icons.palette),
       title: const Text('Theme'),
       subtitle: const Text('Light, Dark, or System'),

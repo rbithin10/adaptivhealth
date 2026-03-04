@@ -43,7 +43,7 @@ class _QueueHttpClientAdapter implements HttpClientAdapter {
 EdgeRiskPrediction _prediction() {
   return EdgeRiskPrediction(
     riskScore: 0.81,
-    riskLevel: 'high',
+    riskLevel: 'moderate',
     confidence: 0.9,
     inferenceTimeMs: 12,
     modelVersion: '1.0.0',
@@ -132,6 +132,7 @@ void main() {
       dio.httpClientAdapter = _QueueHttpClientAdapter([
         (options) async => throw _httpError(options, 401), // init probe
         (options) async => throw _httpError(options, 401), // trySync probe
+        (options) async => throw _httpError(options, 401), // batch sync
       ]);
 
       final service = CloudSyncService(dio);

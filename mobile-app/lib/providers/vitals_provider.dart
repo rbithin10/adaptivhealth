@@ -7,6 +7,7 @@ import 'package:health/health.dart';
 import '../services/api_client.dart';
 import '../services/ble/ble_health_parser.dart';
 import '../services/ble/ble_service.dart';
+import '../services/fitbit/fitbit_service.dart';
 import '../services/health/health_service.dart';
 import '../services/mock_vitals_service.dart';
 import '../services/edge_ai_store.dart';
@@ -15,6 +16,7 @@ import '../services/edge_ai_store.dart';
 enum VitalsSource {
   ble,
   health,
+  fitbit,
   mock,
 }
 
@@ -45,6 +47,7 @@ class VitalsProvider extends ChangeNotifier {
   final HealthService _healthService;
 
   MockVitalsService? _mockVitalsService;
+  Timer? _fitbitPollTimer;
 
   final StreamController<VitalsReading> _vitalsController =
       StreamController<VitalsReading>.broadcast();
@@ -64,6 +67,9 @@ class VitalsProvider extends ChangeNotifier {
 
   bool _isDisposed = false;
 
+  // Fitbit singleton — lazily accessed so unit tests can inject fakes.
+  FitbitService get _fitbit => FitbitService.instance;
+
   VitalsProvider({
     required ApiClient apiClient,
     required EdgeAiStore edgeAiStore,
@@ -75,6 +81,7 @@ class VitalsProvider extends ChangeNotifier {
         _healthService = healthService ?? HealthService.instance {
     _listenToBleConnectionState();
     _loadPatientContext();
+    _tryRestoreFitbitSource();
   }
 
   VitalsSource get activeSource => _activeSource;
@@ -82,7 +89,16 @@ class VitalsProvider extends ChangeNotifier {
   Stream<VitalsReading> get vitalsStream => _vitalsController.stream;
 
   bool get isConnected =>
-      _activeSource == VitalsSource.ble || _activeSource == VitalsSource.health;
+      _activeSource == VitalsSource.ble ||
+      _activeSource == VitalsSource.health ||
+      _activeSource == VitalsSource.fitbit;
+
+  /// Most recent reading from any source. Null until the first reading arrives.
+  VitalsReading? get latestReading => _latestReading;
+  VitalsReading? _latestReading;
+
+  /// True when the demo simulator is actively generating readings.
+  bool get isMockRunning => _mockVitalsService?.isRunning ?? false;
 
   Future<void> connectBle(BluetoothDevice device) async {
     await _stopMockSource();
@@ -107,6 +123,89 @@ class VitalsProvider extends ChangeNotifier {
     _setActiveSource(VitalsSource.ble);
   }
 
+  // ── Fitbit source ──────────────────────────────────────────────────────────
+
+  /// Initiates the Fitbit OAuth2 PKCE flow, stores tokens, and starts
+  /// periodic vitals polling.  Throws [FitbitAuthException] on failure.
+  Future<void> connectFitbit() async {
+    await _fitbit.authorize();
+    await _stopMockSource();
+    _stopHealthPolling();
+    _stopFitbitPolling();
+
+    _setActiveSource(VitalsSource.fitbit);
+    await _pollFitbitAndEmit();
+
+    _fitbitPollTimer = Timer.periodic(
+      const Duration(minutes: 15),
+      (_) => _pollFitbitAndEmit(),
+    );
+  }
+
+  /// Disconnects Fitbit, clears tokens, and falls back to mock.
+  Future<void> disconnectFitbit() async {
+    _stopFitbitPolling();
+    await _fitbit.disconnect();
+    if (_activeSource == VitalsSource.fitbit) {
+      fallbackToMock();
+    }
+  }
+
+  /// On startup, resume Fitbit polling if valid tokens are already stored.
+  Future<void> _tryRestoreFitbitSource() async {
+    final connected = await _fitbit.isConnected;
+    if (!connected) return;
+
+    // Only auto-restore if no higher-priority source is already active.
+    if (_activeSource == VitalsSource.ble || _activeSource == VitalsSource.health) {
+      return;
+    }
+
+    await _stopMockSource();
+    _setActiveSource(VitalsSource.fitbit);
+    await _pollFitbitAndEmit();
+
+    _fitbitPollTimer = Timer.periodic(
+      const Duration(minutes: 15),
+      (_) => _pollFitbitAndEmit(),
+    );
+  }
+
+  Future<void> _pollFitbitAndEmit() async {
+    if (_activeSource != VitalsSource.fitbit) return;
+
+    try {
+      final vitals = await _fitbit.fetchLatestVitals();
+
+      if (vitals.heartRate == null) return; // no data yet
+
+      final reading = VitalsReading(
+        heartRate: vitals.heartRate!,
+        spo2: vitals.spo2,
+        systolicBp: vitals.systolicBp,
+        diastolicBp: vitals.diastolicBp,
+        timestamp: vitals.timestamp,
+        source: VitalsSource.fitbit,
+      );
+
+      _emitReading(reading);
+      _sendToEdgeAi(reading);
+    } on FitbitAuthException catch (_) {
+      // Tokens expired and refresh failed — fall back to mock.
+      _stopFitbitPolling();
+      fallbackToMock();
+    } catch (_) {
+      // Network error — leave timer running for next interval.
+    }
+  }
+
+  void _stopFitbitPolling() {
+    _fitbitPollTimer?.cancel();
+    _fitbitPollTimer = null;
+  }
+
+  // ── Health Connect source ─────────────────────────────────────────────────
+
   Future<void> enableHealthKit() async {
     final authorized = await _healthService.requestAuthorization();
     if (!authorized) {
@@ -126,6 +225,7 @@ class VitalsProvider extends ChangeNotifier {
     );
   }
 
+  /// Internal fallback when BLE/HealthKit disconnects — uses defaults.
   void fallbackToMock() {
     _activateMockSource();
   }
@@ -220,7 +320,33 @@ class VitalsProvider extends ChangeNotifier {
     _sendToEdgeAi(unified);
   }
 
-  Future<void> _activateMockSource() async {
+  // ── Public mock / demo simulator API ──────────────────────────────────────
+
+  /// Start the demo simulator. All readings flow through [vitalsStream] so
+  /// every screen (including ActiveWorkoutScreen) receives them.
+  Future<void> startMock({
+    MockScenario scenario = MockScenario.rest,
+    Duration interval = const Duration(seconds: 5),
+  }) =>
+      _activateMockSource(scenario: scenario, interval: interval);
+
+  /// Stop the demo simulator.
+  Future<void> stopMock() async {
+    await _stopMockSource();
+    notifyListeners();
+  }
+
+  /// Change the scenario while the simulator is running.
+  void setMockScenario(MockScenario scenario) {
+    _mockVitalsService?.setScenario(scenario);
+  }
+
+  // ── Internal mock source ───────────────────────────────────────────────────
+
+  Future<void> _activateMockSource({
+    MockScenario scenario = MockScenario.rest,
+    Duration interval = const Duration(seconds: 5),
+  }) async {
     await _stopBleReadingSubscription();
     _stopHealthPolling();
 
@@ -243,7 +369,10 @@ class VitalsProvider extends ChangeNotifier {
     });
 
     if (!(_mockVitalsService!.isRunning)) {
-      await _mockVitalsService!.start();
+      await _mockVitalsService!.start(
+        scenario: scenario,
+        interval: interval,
+      );
     }
 
     _setActiveSource(VitalsSource.mock);
@@ -276,9 +405,11 @@ class VitalsProvider extends ChangeNotifier {
   }
 
   void _emitReading(VitalsReading reading) {
+    _latestReading = reading;
     if (!_vitalsController.isClosed) {
       _vitalsController.add(reading);
     }
+    if (!_isDisposed) notifyListeners();
   }
 
   Future<void> _loadPatientContext() async {
@@ -316,6 +447,8 @@ class VitalsProvider extends ChangeNotifier {
         return 'wearable';
       case VitalsSource.health:
         return 'healthkit';
+      case VitalsSource.fitbit:
+        return 'wearable';
       case VitalsSource.mock:
         return 'walking';
     }
@@ -376,6 +509,7 @@ class VitalsProvider extends ChangeNotifier {
     _bleConnectionSubscription?.cancel();
     _mockSubscription?.cancel();
     _healthPollTimer?.cancel();
+    _fitbitPollTimer?.cancel();
 
     _mockVitalsService?.dispose();
     _vitalsController.close();

@@ -57,7 +57,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
       final gender = (profile['gender'] as String?)?.toLowerCase();
       final activityLevel = (profile['activity_level'] as String?)?.toLowerCase();
 
-      if (age == null || weightKg == null || heightCm == null) {
+      if (weightKg == null || heightCm == null) {
         return;
       }
 
@@ -206,7 +206,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: mealType,
+                initialValue: mealType,
                 decoration: const InputDecoration(labelText: 'Meal Type'),
                 items: const [
                   DropdownMenuItem(value: 'breakfast', child: Text('Breakfast')),
@@ -537,7 +537,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: mealType,
+                initialValue: mealType,
                 decoration: const InputDecoration(labelText: 'Meal Type'),
                 items: const [
                   DropdownMenuItem(value: 'breakfast', child: Text('Breakfast')),
@@ -823,7 +823,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
           if (_entries.isEmpty)
             _buildEmptyEntriesState()
           else
-            ..._entries.map(_buildNutritionCard).toList(),
+            ..._entries.map(_buildNutritionCard),
         ],
       ),
     );
@@ -880,7 +880,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '${_totalCaloriesToday} / ${_goalCalories} kcal consumed today',
+              '$_totalCaloriesToday / $_goalCalories kcal consumed today',
               style: AdaptivTypography.caption,
             ),
           ],

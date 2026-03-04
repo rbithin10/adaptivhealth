@@ -3,6 +3,7 @@
 /// These lightweight classes hold the results from on-device TFLite
 /// inference. They mirror the backend's risk prediction response but
 /// are tagged with source='edge' for cloud sync conflict resolution.
+library;
 
 // Result of on-device risk prediction via TFLite Random Forest
 class EdgeRiskPrediction {

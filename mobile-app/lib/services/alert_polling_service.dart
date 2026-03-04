@@ -57,7 +57,7 @@ class AlertPollingService {
       for (final item in alertsRaw) {
         if (item is! Map) continue;
 
-        final alert = Map<String, dynamic>.from(item as Map);
+        final alert = Map<String, dynamic>.from(item);
 
         final acknowledged = alert['acknowledged'] as bool? ?? false;
         if (acknowledged) continue;

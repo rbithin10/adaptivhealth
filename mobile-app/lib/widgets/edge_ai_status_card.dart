@@ -12,6 +12,7 @@
 ///   const EdgeAiStatusCard()
 ///
 ///   // The widget auto-updates via Provider when new predictions arrive.
+library;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';

@@ -1,246 +1,79 @@
-react-dom.development.js:29895 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
-deprecations.ts:9 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-warnOnce @ deprecations.ts:9
-deprecations.ts:9 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-warnOnce @ deprecations.ts:9
-stream:1  Failed to load resource: the server responded with a status of 404 (Not Found)
-DashboardPage.tsx:203 WebSocket connection to 'ws://localhost:8080/api/v1/alerts/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1Iiwicm9sZSI6ImNsaW5pY2lhbiIsImV4cCI6MTc3MjQ4NjkzMywiaWF0IjoxNzcyNDg1MTMzLCJ0eXBlIjoiYWNjZXNzIn0.vorz4df1eiDTdS_bxYOf0DaMHYuY0FVoCxNUGhyFuDE' failed: 
-connectWebSocket @ DashboardPage.tsx:203
-eventSource.onerror @ DashboardPage.tsx:233
-api.ts:325  GET http://localhost:8080/api/v1/patients/3/risk-assessments/latest 404 (Not Found)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getLatestRiskAssessmentForUser @ api.ts:325
-(anonymous) @ DashboardPage.tsx:348
-loadDashboardData @ DashboardPage.tsx:348
-api.ts:325  GET http://localhost:8080/api/v1/patients/3/risk-assessments/latest 404 (Not Found)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getLatestRiskAssessmentForUser @ api.ts:325
-(anonymous) @ DashboardPage.tsx:348
-loadDashboardData @ DashboardPage.tsx:348
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:199  GET http://localhost:8080/api/v1/users/me 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getCurrentUser @ api.ts:199
-loadTopBarData @ ClinicianTopBar.tsx:20
-(anonymous) @ ClinicianTopBar.tsx:36
-commitHookEffectListMount @ react-dom.development.js:23189
-commitPassiveMountOnFiber @ react-dom.development.js:24965
-commitPassiveMountEffects_complete @ react-dom.development.js:24930
-commitPassiveMountEffects_begin @ react-dom.development.js:24917
-commitPassiveMountEffects @ react-dom.development.js:24905
-flushPassiveEffectsImpl @ react-dom.development.js:27078
-flushPassiveEffects @ react-dom.development.js:27023
-(anonymous) @ react-dom.development.js:26808
-workLoop @ scheduler.development.js:266
-flushWork @ scheduler.development.js:239
-performWorkUntilDeadline @ scheduler.development.js:533
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:199  GET http://localhost:8080/api/v1/users/me 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getCurrentUser @ api.ts:199
-loadTopBarData @ ClinicianTopBar.tsx:20
-(anonymous) @ ClinicianTopBar.tsx:36
-commitHookEffectListMount @ react-dom.development.js:23189
-invokePassiveEffectMountInDEV @ react-dom.development.js:25193
-invokeEffectsInDev @ react-dom.development.js:27390
-commitDoubleInvokeEffectsInDEV @ react-dom.development.js:27369
-flushPassiveEffectsImpl @ react-dom.development.js:27095
-flushPassiveEffects @ react-dom.development.js:27023
-(anonymous) @ react-dom.development.js:26808
-workLoop @ scheduler.development.js:266
-flushWork @ scheduler.development.js:239
-performWorkUntilDeadline @ scheduler.development.js:533
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:408  GET http://localhost:8080/api/v1/alerts/stats 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlertStats @ api.ts:408
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
-api.ts:390  GET http://localhost:8080/api/v1/alerts?page=1&per_page=5 401 (Unauthorized)
-dispatchXhrRequest @ xhr.js:198
-xhr @ xhr.js:15
-dispatchRequest @ dispatchRequest.js:51
-Promise.then
-_request @ Axios.js:163
-request @ Axios.js:40
-Axios.<computed> @ Axios.js:211
-wrap @ bind.js:12
-getAlerts @ api.ts:390
-refreshAlertWidgets @ DashboardPage.tsx:134
-(anonymous) @ DashboardPage.tsx:179
+ | fbp-code: 6 | device is not connected
+I/Quality (31025): Skipped: false 1 cost 25.451427 refreshRate 0 processName com.example.adaptiv_health
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=0 scannerId=10 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+I/Quality (31025): Skipped: false 2 cost 36.101562 refreshRate 0 processName com.example.adaptiv_health
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+Another exception was thrown: Incorrect use of ParentDataWidget.
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=0 scannerId=10 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=0 scannerId=10 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+Another exception was thrown: Incorrect use of ParentDataWidget.
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=0 scannerId=10 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+I/Quality (31025): Skipped: false 1 cost 19.252548 refreshRate 0 processName com.example.adaptiv_health
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=0 scannerId=10 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+I/Quality (31025): Skipped: false 1 cost 31.531754 refreshRate 0 processName com.example.adaptiv_health
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+Another exception was thrown: Incorrect use of ParentDataWidget.
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=6 scannerId=-1 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): could not find callback wrapper
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=6 scannerId=-1 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+V/AutofillManager(31025): requestHideFillUi(null): anchor = null
+I/Quality (31025): Skipped: false 1 cost 18.466043 refreshRate 0 processName com.example.adaptiv_health
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): could not find callback wrapper
+Another exception was thrown: Incorrect use of ParentDataWidget.
+D/[FBP-Android](31025): [FBP] onMethodCall: startScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): onScannerRegistered() - status=6 scannerId=-1 mScannerId=0
+Another exception was thrown: Incorrect use of ParentDataWidget.
+D/[FBP-Android](31025): [FBP] onMethodCall: stopScan
+D/BluetoothAdapter(31025): isLeEnabled(): ON
+D/BluetoothLeScanner(31025): could not find callback wrapper
+D/FlutterWatchKit( 6631): MFLMisfitDevice W0FC0301YA status changed oldState CONNECTING newState DISCONNECTED
+I/flutter ( 6631): [DeviceSDK] device W0FC0301YA did received device state changed old state: connecting newState: disconnected
+E/flutter ( 6631): [ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception: {"error_code":"0062003","step":"fetch device information","component":"sdk","error":"{errorCode: 3, desc: null, logDesc: {\"error_code\":\"execution_timeout\",\"phase_result\":{\"phase_id\":\"fetch_device_information\",\"result_code\":\"waiting_for_execution_timeout\"}})}"}
+E/flutter ( 6631):
+E/flutter ( 6631): [ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception: {"error_code":"0062003","step":"fetch device information","component":"sdk","error":"{errorCode: 3, desc: null, logDesc: {\"error_code\":\"execution_timeout\",\"phase_result\":{\"phase_id\":\"fetch_device_information\",\"result_code\":\"waiting_for_execution_timeout\"}})}"}
+E/flutter ( 6631):
+D/FlutterWatchKit( 6631): MFLMisfitDevice W0FC0301YA status changed oldState DISCONNECTED newState CONNECTING
+I/flutter ( 6631): [DeviceSDK] device W0FC0301YA did received device state changed old state: disconnected newState: connecting
+E/BLASTBufferQueue(31025): BLASTBufferItemConsumer::onDisconnect()
+E/BLASTBuffe

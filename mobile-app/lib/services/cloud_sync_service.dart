@@ -10,6 +10,7 @@
 ///   - Vitals + edge predictions: every 15 minutes (or on manual sync)
 ///   - GPS emergencies: immediately when connectivity returns
 ///   - Model version check: once per app launch + weekly background
+library;
 
 import 'dart:async';
 import 'dart:convert';
@@ -394,12 +395,12 @@ class CloudSyncService {
           _recordQueueEvent(
             type: 'validation_error',
             message:
-                'Dropped emergency sync item due to non-retryable ${statusCode} response.',
+                'Dropped emergency sync item due to non-retryable $statusCode response.',
           );
           _setSyncError(
             type: 'validation_error',
             message:
-                'Dropped one emergency sync item due to non-retryable server validation response (${statusCode}).',
+                'Dropped one emergency sync item due to non-retryable server validation response ($statusCode).',
           );
           _pendingSyncs.remove(emergency);
           continue;
@@ -458,12 +459,12 @@ class CloudSyncService {
         _recordQueueEvent(
           type: 'validation_error',
           message:
-              'Dropped ${batch.length} queued reading(s) due to non-retryable validation response (${statusCode}).',
+              'Dropped ${batch.length} queued reading(s) due to non-retryable validation response ($statusCode).',
         );
         _setSyncError(
           type: 'validation_error',
           message:
-              'Dropped ${batch.length} queued reading(s) due to non-retryable validation response (${statusCode}).',
+              'Dropped ${batch.length} queued reading(s) due to non-retryable validation response ($statusCode).',
         );
         await _saveQueue();
         _updateDerivedSyncState();

@@ -204,10 +204,13 @@ class _AdaptivHealthAppState extends State<AdaptivHealthApp> {
           ChangeNotifierProvider<EdgeAiStore>.value(value: _edgeAiStore!),
         if (_edgeAiStore != null)
           ChangeNotifierProvider<VitalsProvider>(
+            // VitalsProvider starts idle — no automatic mock.
+            // The user connects a device (BLE / HealthKit) or manually
+            // starts the demo simulator from the Profile screen.
             create: (_) => VitalsProvider(
               apiClient: _apiClient,
               edgeAiStore: _edgeAiStore!,
-            )..fallbackToMock(),
+            ),
           ),
         ChangeNotifierProvider<ChatStore>.value(value: _chatStore),
       ],

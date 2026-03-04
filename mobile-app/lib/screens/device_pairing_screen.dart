@@ -10,6 +10,7 @@ import '../providers/vitals_provider.dart';
 import '../services/api_client.dart';
 import '../services/ble/ble_permission_handler.dart';
 import '../services/ble/ble_service.dart';
+import '../services/fitbit/fitbit_service.dart';
 import '../theme/colors.dart';
 import '../widgets/ai_coach_overlay.dart';
 
@@ -36,14 +37,26 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   bool _discoverAll = false;
   String? _connectedDeviceId;
 
+  // Scan timing
+  DateTime? _scanStartTime;
+  Timer? _scanElapsedTimer;
+  int _scanElapsedSeconds = 0;
+
+  // Last-seen timestamps per device remote ID
+  final Map<String, DateTime> _deviceLastSeen = {};
+
   @override
   void initState() {
     super.initState();
 
     _scanSubscription = _bleService.scanResultsStream.listen((results) {
       if (!mounted) return;
+      final now = DateTime.now();
       setState(() {
         _scanResults = results;
+        for (final r in results) {
+          _deviceLastSeen[r.device.remoteId.str] = now;
+        }
       });
     });
 
@@ -60,6 +73,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   void dispose() {
     _scanSubscription?.cancel();
     _connectionSubscription?.cancel();
+    _scanElapsedTimer?.cancel();
     super.dispose();
   }
 
@@ -121,6 +135,12 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     setState(() {
       _isScanning = true;
       _scanResults = [];
+      _scanStartTime = DateTime.now();
+      _scanElapsedSeconds = 0;
+    });
+    _scanElapsedTimer?.cancel();
+    _scanElapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _scanElapsedSeconds++);
     });
 
     try {
@@ -134,6 +154,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         SnackBar(content: Text('Scan failed: $e')),
       );
     } finally {
+      _scanElapsedTimer?.cancel();
       if (mounted) {
         setState(() {
           _isScanning = false;
@@ -142,14 +163,27 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
-  Future<void> _connect(ScanResult result) async {
+   Future<void> _connect(ScanResult result) async {
     setState(() {
       _connectedDeviceId = result.device.remoteId.str;
     });
 
     try {
-      // Connect via VitalsProvider so the unified vitals pipeline receives
-      // real BLE heart rate data (instead of staying on mock source).
+      // Detect advertised services
+      final advertisedServices = result.advertisementData.serviceUuids;
+      final hasSpO2 = advertisedServices.contains(BleService.pulseOximeterServiceUuid);
+      final hasBP = advertisedServices.contains(BleService.bloodPressureServiceUuid);
+      final hasTemp = advertisedServices.contains(BleService.healthThermometerServiceUuid);
+
+      // Connect via BLE service directly with multi-service support
+      await _bleService.connectToDevice(
+        result.device,
+        subscribeSpO2: hasSpO2,
+        subscribeBloodPressure: hasBP,
+        subscribeTemperature: hasTemp,
+      );
+
+      // Also connect via VitalsProvider for unified pipeline
       final vitalsProvider = context.read<VitalsProvider>();
       await vitalsProvider.connectBle(result.device);
 
@@ -170,6 +204,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
+
   Future<void> _disconnect() async {
     await _bleService.disconnect();
     if (!mounted) return;
@@ -178,39 +213,224 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     });
   }
 
-  /// Show a rationale dialog then call enableHealthKit on the VitalsProvider.
+  // ── Fitness platform definitions ─────────────────────────────────────────
+
+  static const List<_FitnessSource> _fitnessSources = [
+    _FitnessSource(
+      name: 'Samsung Health',
+      icon: Icons.watch,
+      color: Color(0xFF1428A0),
+      syncNote: 'Open Samsung Health → Settings → Connected services → '
+          'Health Connect and enable sync.',
+    ),
+    _FitnessSource(
+      name: 'Garmin Connect',
+      icon: Icons.directions_run,
+      color: Color(0xFF007CC2),
+      syncNote: 'Open Garmin Connect → More → Settings → Health Snapshot → '
+          'allow Health Connect export.',
+    ),
+    _FitnessSource(
+      name: 'Fitbit',
+      icon: Icons.fitness_center,
+      color: Color(0xFF00B0B9),
+      syncNote: 'Open Fitbit → Today tab → Profile → App Settings → '
+          'Health Connect → enable sync.',
+    ),
+    _FitnessSource(
+      name: 'Polar Flow',
+      icon: Icons.favorite,
+      color: Color(0xFFD00000),
+      syncNote: 'Open Polar Flow → Profile → General Settings → '
+          'Health Connect → enable sync.',
+    ),
+    _FitnessSource(
+      name: 'Withings Health Mate',
+      icon: Icons.monitor_heart,
+      color: Color(0xFF00C4B4),
+      syncNote: 'Open Health Mate → Account → Connected Apps → '
+          'Health Connect → allow write.',
+    ),
+    _FitnessSource(
+      name: 'Zepp / Amazfit',
+      icon: Icons.watch_outlined,
+      color: Color(0xFF6B3FA0),
+      syncNote: 'Open Zepp app → Profile → Health Connect → enable sync.',
+    ),
+    _FitnessSource(
+      name: 'Google Fit',
+      icon: Icons.sports_gymnastics,
+      color: Color(0xFF4285F4),
+      syncNote: 'Google Fit writes to Health Connect automatically once '
+          'you grant AdaptivHealth read permissions.',
+    ),
+    _FitnessSource(
+      name: 'Other / Generic',
+      icon: Icons.devices_other,
+      color: Colors.grey,
+      syncNote: 'Any app that writes to Health Connect will be read once '
+          'you grant AdaptivHealth permissions.',
+    ),
+  ];
+
+  /// Show the fitness platform picker, then proceed to Health Connect flow.
   Future<void> _connectViaHealth() async {
-    final healthAppName = isIOS ? 'Apple Health' : 'Health Connect';
+    if (isIOS) {
+      // iOS always goes through HealthKit — no platform picker needed.
+      await _doConnectViaHealth('Apple Health');
+      return;
+    }
+
+    // Show platform picker
+    final selected = await showModalBottomSheet<_FitnessSource>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final brightness = Theme.of(ctx).brightness;
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (_, scrollController) => Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Which fitness app are you using?',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: AdaptivColors.getTextColor(brightness),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'AdaptivHealth reads data through Health Connect. '
+                      'Select your platform to see how to enable the sync.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AdaptivColors.getSecondaryTextColor(brightness),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(),
+              Expanded(
+                child: ListView.separated(
+                  controller: scrollController,
+                  itemCount: _fitnessSources.length,
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1, indent: 72),
+                  itemBuilder: (_, i) {
+                    final src = _fitnessSources[i];
+                    return ListTile(
+                      leading: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: src.color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(src.icon, color: src.color, size: 22),
+                      ),
+                      title: Text(
+                        src.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'Syncs via Health Connect',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color:
+                              AdaptivColors.getSecondaryTextColor(brightness),
+                        ),
+                      ),
+                      trailing: const Icon(Icons.chevron_right, size: 20),
+                      onTap: () => Navigator.pop(ctx, src),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null || !mounted) return;
+
+    // Fitbit is connected directly via the Web API (OAuth2 PKCE),
+    // not through Health Connect.
+    if (selected.name == 'Fitbit') {
+      await _connectFitbitDirect();
+      return;
+    }
+
+    // Show sync instructions for the chosen platform, then confirm
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Connect via $healthAppName'),
+        title: Row(
+          children: [
+            Icon(selected.icon, color: selected.color, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                selected.name,
+                style: const TextStyle(fontSize: 17),
+              ),
+            ),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'AdaptivHealth will read the following data from $healthAppName:',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+            const Text(
+              'Step 1 — Enable Health Connect sync:',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
             ),
-            const SizedBox(height: 12),
-            _bulletItem(Icons.favorite, 'Heart Rate'),
-            _bulletItem(Icons.air, 'Blood Oxygen (SpO2)'),
-            _bulletItem(Icons.monitor_heart, 'Blood Pressure'),
-            _bulletItem(Icons.directions_walk, 'Steps'),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             Text(
-              'This lets any smartwatch (Samsung, Fitbit, Garmin, Polar, '
-              'Apple Watch, etc.) that syncs to $healthAppName feed live '
-              'data into AdaptivHealth. Data is polled every 20 seconds.',
+              selected.syncNote,
               style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Step 2 — Grant permissions:',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Tap "Grant Access" and allow AdaptivHealth to read '
+              'Heart Rate, SpO₂, Blood Pressure, and Steps from '
+              'Health Connect.',
+              style: TextStyle(fontSize: 13),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const Text('Back'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -221,9 +441,115 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     );
 
     if (confirmed != true || !mounted) return;
+    await _doConnectViaHealth(selected.name);
+  }
+
+  // ── Fitbit direct API connection ──────────────────────────────────────────────
+
+  /// Presents a Fitbit-specific auth dialog, then runs the PKCE OAuth2 flow
+  /// via [VitalsProvider.connectFitbit].  No Health Connect is required.
+  Future<void> _connectFitbitDirect() async {
+    final brightness = Theme.of(context).brightness;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFF00B0B9).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.fitness_center,
+                  color: Color(0xFF00B0B9), size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text('Connect Fitbit', style: TextStyle(fontSize: 17)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'AdaptivHealth will connect directly to your Fitbit account '
+              'via the Fitbit Web API.  No Health Connect is required.\n',
+              style: TextStyle(
+                fontSize: 13,
+                color: AdaptivColors.getSecondaryTextColor(brightness),
+              ),
+            ),
+            const Text(
+              'What gets read (15-min refresh):',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            const _BulletRow(icon: Icons.favorite, label: 'Heart Rate (intraday)'),
+            const _BulletRow(icon: Icons.air, label: 'Blood Oxygen (SpO₂)'),
+            const _BulletRow(
+                icon: Icons.monitor_heart, label: 'Blood Pressure (if logged)'),
+            const SizedBox(height: 14),
+            Text(
+              'Tapping “Connect” will open the Fitbit login page in your browser.',
+              style: TextStyle(
+                fontSize: 12,
+                color: AdaptivColors.getSecondaryTextColor(brightness),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00B0B9),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true || !mounted) return;
 
     setState(() => _isConnectingHealth = true);
+    try {
+      await context.read<VitalsProvider>().connectFitbit();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fitbit connected — data refreshes every 15 min'),
+          backgroundColor: Color(0xFF00B0B9),
+        ),
+      );
+    } on FitbitAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fitbit auth failed: ${e.message}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fitbit connection error: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isConnectingHealth = false);
+    }
+  }
 
+  // ── Health Connect source ─────────────────────────────────────────────────
+
+  /// Calls VitalsProvider.enableHealthKit() and shows result snackbar.
+  Future<void> _doConnectViaHealth(String platformName) async {
+    setState(() => _isConnectingHealth = true);
     try {
       await context.read<VitalsProvider>().enableHealthKit();
       if (!mounted) return;
@@ -231,7 +557,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       if (source == VitalsSource.health) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Connected via $healthAppName — syncing every 20 s'),
+            content: Text('Connected via $platformName — syncing every 20 s'),
             backgroundColor: Colors.green,
           ),
         );
@@ -239,8 +565,9 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Could not read from $healthAppName. '
-              'Make sure your watch app has synced recently and permissions are granted.',
+              'Could not read from $platformName. '
+              'Make sure $platformName has synced recently and '
+              'Health Connect write-permission is enabled in that app.',
             ),
           ),
         );
@@ -255,29 +582,162 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
-  Widget _bulletItem(IconData icon, String label) {
+  String _resolveDeviceName(ScanResult result) {
+    final platformName = result.device.platformName.trim();
+    if (platformName.isNotEmpty) return platformName;
+    final advertisedName = result.advertisementData.advName.trim();
+    if (advertisedName.isNotEmpty) return advertisedName;
+    // Return the short MAC/ID so the card always has a meaningful primary text.
+    final id = result.device.remoteId.str;
+    return id.length > 17 ? id.substring(0, 17) : id;
+  }
+
+  /// Returns true when no human-readable name could be resolved.
+  bool _isNameUnknown(ScanResult result) {
+    return result.device.platformName.trim().isEmpty &&
+        result.advertisementData.advName.trim().isEmpty;
+  }
+
+  /// Maps BLE manufacturer company ID to a human-readable name.
+  /// Falls back to hex company ID string if the company is unknown.
+  String? _resolveManufacturer(ScanResult result) {
+    final mfData = result.advertisementData.manufacturerData;
+    if (mfData.isEmpty) return null;
+    final companyId = mfData.keys.first;
+    const known = <int, String>{
+      0x004C: 'Apple',
+      0x0006: 'Microsoft',
+      0x0059: 'Nordic Semi',
+      0x0075: 'Samsung',
+      0x0131: 'Polar',
+      0x0157: 'Garmin',
+      0x0294: 'Fitbit',
+      0x0499: 'Ruuvi',
+      0x000D: 'TI',
+      0x001D: 'Qualcomm',
+    };
+    final name = known[companyId];
+    if (name != null) return name;
+    return '0x${companyId.toRadixString(16).toUpperCase().padLeft(4, '0')}';
+  }
+
+  /// Formats a DateTime as a short relative age string (e.g. "2s ago").
+  String _formatLastSeen(DateTime? lastSeen) {
+    if (lastSeen == null) return '';
+    final diff = DateTime.now().difference(lastSeen);
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    return '${diff.inMinutes}m ago';
+  }
+
+  /// Progress banner shown below the scan button while (or just after) scanning.
+  Widget _buildScanTimingBanner(Brightness brightness) {
+    const totalSeconds = 10;
+    final progress = (_scanElapsedSeconds / totalSeconds).clamp(0.0, 1.0);
+    final subColor = AdaptivColors.getSecondaryTextColor(brightness);
+    final deviceCount = _scanResults.length;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: AdaptivColors.primary),
-          const SizedBox(width: 8),
-          Text(label),
-        ],
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.blue.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.blue.withValues(alpha: 0.22)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (_isScanning)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.8),
+                  )
+                else
+                  Icon(Icons.check_circle_outline,
+                      color: Colors.green.shade600, size: 14),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _isScanning
+                        ? 'Scanning... ${_scanElapsedSeconds}s / ${totalSeconds}s'
+                        : 'Scan complete — took ${_scanElapsedSeconds}s',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _isScanning
+                          ? Colors.blue.shade700
+                          : Colors.green.shade700,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$deviceCount ${deviceCount == 1 ? 'device' : 'devices'} found',
+                  style: TextStyle(fontSize: 11, color: subColor),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: _isScanning ? progress : 1.0,
+                minHeight: 4,
+                backgroundColor: Colors.blue.withValues(alpha: 0.15),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  _isScanning ? Colors.blue : Colors.green,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  String _resolveDeviceName(ScanResult result) {
-    final platformName = result.device.platformName.trim();
-    if (platformName.isNotEmpty) {
-      return platformName;
+    Widget _serviceBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+    Widget _buildServiceBadges(ScanResult result) {
+    final advertisedServices = result.advertisementData.serviceUuids;
+    final hasHR = advertisedServices.contains(BleService.heartRateServiceUuid);
+    final hasSpO2 = advertisedServices.contains(BleService.pulseOximeterServiceUuid);
+    final hasBP = advertisedServices.contains(BleService.bloodPressureServiceUuid);
+    final hasTemp = advertisedServices.contains(BleService.healthThermometerServiceUuid);
+
+    if (!hasHR && !hasSpO2 && !hasBP && !hasTemp) {
+      return _serviceBadge('Unknown device', Colors.orange);
     }
-    final advertisedName = result.advertisementData.advName.trim();
-    if (advertisedName.isNotEmpty) {
-      return advertisedName;
-    }
-    return 'Unknown Device';
+
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        if (hasHR) _serviceBadge('HR', Colors.red),
+        if (hasSpO2) _serviceBadge('SpO2', Colors.blue),
+        if (hasBP) _serviceBadge('BP', Colors.purple),
+        if (hasTemp) _serviceBadge('Temp', Colors.teal),
+      ],
+    );
   }
 
   @override
@@ -374,8 +834,11 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             ),
           ),
           const SizedBox(height: 10),
+          if (_isScanning || _scanStartTime != null)
+            _buildScanTimingBanner(brightness),
 
-          // ── Health Connect / HealthKit section ───────────────────          if (kIsWeb)
+          // ── Health Connect / HealthKit section ─────────────────────
+          if (kIsWeb)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Container(
@@ -399,7 +862,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
                 ),
               ),
             )
-          else          Padding(
+          else
+            Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
               decoration: BoxDecoration(
@@ -555,51 +1019,34 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                     itemCount: _scanResults.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final result = _scanResults[index];
                       final deviceName = _resolveDeviceName(result);
+                      final nameUnknown = _isNameUnknown(result);
+                      final macAddress = result.device.remoteId.str;
                       final isConnected =
-                          _connectedDeviceId == result.device.remoteId.str &&
-                              _connectionState == BluetoothConnectionState.connected;
+                          _connectedDeviceId == macAddress &&
+                              _connectionState ==
+                                  BluetoothConnectionState.connected;
                       final isHrDevice = result.advertisementData.serviceUuids
                           .contains(BleService.heartRateServiceUuid);
+                      final isLastUsed =
+                          _bleService.lastSavedDeviceId == macAddress;
 
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: AdaptivColors.getSurfaceColor(brightness),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isHrDevice
-                                ? AdaptivColors.neutral300
-                                : Colors.orange.withValues(alpha: 0.5),
-                          ),
-                        ),
-                        child: ListTile(
-                          leading: Icon(
-                            isHrDevice ? Icons.favorite : Icons.bluetooth,
-                            color: isHrDevice ? Colors.red : Colors.grey,
-                            size: 20,
-                          ),
-                          title: Text(deviceName),
-                          subtitle: Text(
-                            isHrDevice
-                                ? 'RSSI: ${result.rssi} dBm'
-                                : 'RSSI: ${result.rssi} dBm · not a heart rate monitor',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isHrDevice
-                                  ? AdaptivColors.getSecondaryTextColor(brightness)
-                                  : Colors.orange,
-                            ),
-                          ),
-                          trailing: isConnected
-                              ? const Icon(Icons.check_circle, color: Colors.green)
-                              : ElevatedButton(
-                                  onPressed: () => _connect(result),
-                                  child: const Text('Connect'),
-                                ),
-                        ),
+                      return _ScanResultCard(
+                        deviceName: deviceName,
+                        nameUnknown: nameUnknown,
+                        macAddress: macAddress,
+                        rssi: result.rssi,
+                        isHrDevice: isHrDevice,
+                        isConnected: isConnected,
+                        isLastUsed: isLastUsed,
+                        serviceBadgesWidget: _buildServiceBadges(result),
+                        brightness: brightness,
+                        onConnect: () => _connect(result),
+                        manufacturerName: _resolveManufacturer(result),
+                        lastSeenLabel: _formatLastSeen(_deviceLastSeen[macAddress]),
                       );
                     },
                   ),
@@ -617,6 +1064,9 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         return const Icon(Icons.bluetooth, color: Colors.blue, size: 22);
       case VitalsSource.health:
         return const Icon(Icons.watch, color: Colors.green, size: 22);
+      case VitalsSource.fitbit:
+        return const Icon(Icons.fitness_center,
+            color: Color(0xFF00B0B9), size: 22);
       case VitalsSource.mock:
         return const Icon(Icons.science, color: Colors.orange, size: 22);
     }
@@ -628,6 +1078,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
         return 'BLE Heart Rate Monitor';
       case VitalsSource.health:
         return isIOS ? 'Apple Health' : 'Health Connect';
+      case VitalsSource.fitbit:
+        return 'Fitbit';
       case VitalsSource.mock:
         return 'Simulated (Demo Mode)';
     }
@@ -644,6 +1096,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       case VitalsSource.health:
         color = Colors.green;
         label = 'SYNCED';
+        break;
+      case VitalsSource.fitbit:
+        color = const Color(0xFF00B0B9);
+        label = 'FITBIT';
         break;
       case VitalsSource.mock:
         color = Colors.orange;
@@ -665,6 +1121,347 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
           color: color,
         ),
       ),
+    );
+  }
+}
+// ---------------------------------------------------------------------------
+// Data class for fitness platform source picker
+// ---------------------------------------------------------------------------
+
+class _FitnessSource {
+  final String name;
+  final IconData icon;
+  final Color color;
+
+  /// Short instructions shown to the user explaining how to enable
+  /// Health Connect sync in this specific app.
+  final String syncNote;
+
+  const _FitnessSource({
+    required this.name,
+    required this.icon,
+    required this.color,
+    required this.syncNote,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Small helper widget used inside the Fitbit auth dialog
+// ---------------------------------------------------------------------------
+
+class _BulletRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _BulletRow({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFF00B0B9)),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// BLE scan result card
+// ---------------------------------------------------------------------------
+
+class _ScanResultCard extends StatelessWidget {
+  final String deviceName;
+  final bool nameUnknown;
+  final String macAddress;
+  final int rssi;
+  final bool isHrDevice;
+  final bool isConnected;
+  final bool isLastUsed;
+  final Widget serviceBadgesWidget;
+  final Brightness brightness;
+  final VoidCallback onConnect;
+  final String? manufacturerName;
+  final String lastSeenLabel;
+
+  const _ScanResultCard({
+    required this.deviceName,
+    required this.nameUnknown,
+    required this.macAddress,
+    required this.rssi,
+    required this.isHrDevice,
+    required this.isConnected,
+    required this.isLastUsed,
+    required this.serviceBadgesWidget,
+    required this.brightness,
+    required this.onConnect,
+    this.manufacturerName,
+    this.lastSeenLabel = '',
+  });
+
+  // Returns 0-4 (number of filled signal bars).
+  int get _signalBars {
+    if (rssi >= -60) return 4;
+    if (rssi >= -70) return 3;
+    if (rssi >= -80) return 2;
+    if (rssi >= -90) return 1;
+    return 0;
+  }
+
+  Color get _signalColor {
+    if (rssi >= -60) return Colors.green;
+    if (rssi >= -70) return Colors.lightGreen;
+    if (rssi >= -80) return Colors.orange;
+    return Colors.red;
+  }
+
+  String get _signalLabel {
+    if (rssi >= -60) return 'Excellent';
+    if (rssi >= -70) return 'Good';
+    if (rssi >= -80) return 'Fair';
+    return 'Weak';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final subColor = AdaptivColors.getSecondaryTextColor(brightness);
+    final surfaceColor = AdaptivColors.getSurfaceColor(brightness);
+
+    // Border is teal-green for HR monitors, subtle for generic devices.
+    final borderColor = isConnected
+        ? Colors.green
+        : isHrDevice
+            ? Colors.teal.withValues(alpha: 0.55)
+            : AdaptivColors.neutral300;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor, width: isConnected ? 2 : 1),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Device type icon
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: (isHrDevice ? Colors.red : Colors.blueGrey)
+                      .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isHrDevice ? Icons.monitor_heart_rounded : Icons.bluetooth,
+                  color: isHrDevice ? Colors.red : Colors.blueGrey,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // Name + MAC address
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Row: name + badges
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            deviceName,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: nameUnknown ? subColor : textColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isLastUsed) ...[
+                          const SizedBox(width: 6),
+                          _ChipLabel(
+                              label: 'Last used',
+                              color: Colors.blue.shade700),
+                        ],
+                        if (isConnected) ...[
+                          const SizedBox(width: 6),
+                          _ChipLabel(
+                              label: 'Connected', color: Colors.green),
+                        ],
+                      ],
+                    ),
+
+                    const SizedBox(height: 2),
+
+                    // MAC + manufacturer name
+                    Row(
+                      children: [
+                        Text(
+                          macAddress,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            color: subColor,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        if (manufacturerName != null) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '· $manufacturerName',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.blue.shade400,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    // Last-seen timestamp — updates on each scan advertisement
+                    if (lastSeenLabel.isNotEmpty)
+                      Text(
+                        'Last seen: $lastSeenLabel',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: subColor,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              // Signal strength column
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _SignalBars(bars: _signalBars, color: _signalColor),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$rssi dBm',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _signalColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    _signalLabel,
+                    style: TextStyle(fontSize: 10, color: subColor),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Device type + service badges row
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (isHrDevice)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _ChipLabel(
+                    label: 'Heart Rate Monitor',
+                    color: Colors.red.shade700,
+                    filled: false,
+                  ),
+                ),
+              Expanded(child: serviceBadgesWidget),
+              if (!isConnected)
+                ElevatedButton(
+                  onPressed: onConnect,
+                  style: ElevatedButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Connect',
+                      style: TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                )
+              else
+                const Icon(Icons.check_circle_rounded,
+                    color: Colors.green, size: 22),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Small inline label chip used inside scan result cards.
+class _ChipLabel extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool filled;
+
+  const _ChipLabel({
+    required this.label,
+    required this.color,
+    this.filled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: filled ? color.withValues(alpha: 0.12) : Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            fontSize: 10, fontWeight: FontWeight.w700, color: color),
+      ),
+    );
+  }
+}
+
+// Four-bar signal strength widget (like WiFi bars).
+class _SignalBars extends StatelessWidget {
+  final int bars; // 0-4
+  final Color color;
+
+  const _SignalBars({required this.bars, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(4, (i) {
+        final filled = i < bars;
+        final height = 6.0 + i * 3.0; // 6, 9, 12, 15 px
+        return Padding(
+          padding: const EdgeInsets.only(left: 2),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: 5,
+            height: height,
+            decoration: BoxDecoration(
+              color: filled ? color : color.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        );
+      }),
     );
   }
 }

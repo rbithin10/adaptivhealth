@@ -17,7 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:adaptiv_health/theme/colors.dart';
 import 'package:adaptiv_health/theme/theme.dart';
-import 'package:adaptiv_health/theme/theme_provider.dart';
+import 'package:adaptiv_health/providers/theme_provider.dart';
 import 'package:adaptiv_health/screens/login_screen.dart';
 import 'package:adaptiv_health/screens/profile_screen.dart';
 import 'package:adaptiv_health/services/api_client.dart';
@@ -28,7 +28,7 @@ class MockApiClient extends Fake implements ApiClient {
   Future<Map<String, dynamic>> getCurrentUser() async {
     return {
       'user_id': 1,
-      'email': 'test@example.com',
+      'email': 'patient1@test.com',
       'full_name': 'Test User',
       'name': 'Test User',
       'age': 30,
@@ -45,12 +45,30 @@ class MockApiClient extends Fake implements ApiClient {
   }
 
   @override
-  Future<void> updateProfile({
+  Future<Map<String, dynamic>> updateProfile({
     String? fullName,
     int? age,
     String? gender,
     String? phone,
-  }) async {}
+    double? weightKg,
+    double? heightCm,
+    String? emergencyContactName,
+    String? emergencyContactPhone,
+    String? activityLevel,
+    String? exerciseLimitations,
+    String? primaryGoal,
+    String? rehabPhase,
+    int? stressLevel,
+    String? sleepQuality,
+    String? smokingStatus,
+    String? alcoholFrequency,
+    double? sedentaryHours,
+    int? phq2Score,
+  }) async {
+    return {
+      'status': 'ok',
+    };
+  }
 }
 
 void main() {
@@ -65,9 +83,8 @@ void main() {
 
     testWidgets('LoginScreen applies light theme colors when brightness is light',
         (WidgetTester tester) async {
-      await tester.binding.window.mediaQueryData =
-          const MediaQueryData(platformBrightness: Brightness.light);
-      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+        tester.binding.window.platformBrightnessTestValue = Brightness.light;
+        addTearDown(tester.binding.window.clearPlatformBrightnessTestValue);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -92,9 +109,8 @@ void main() {
 
     testWidgets('LoginScreen applies dark theme colors when brightness is dark',
         (WidgetTester tester) async {
-      await tester.binding.window.mediaQueryData =
-          const MediaQueryData(platformBrightness: Brightness.dark);
-      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+        tester.binding.window.platformBrightnessTestValue = Brightness.dark;
+        addTearDown(tester.binding.window.clearPlatformBrightnessTestValue);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -114,9 +130,8 @@ void main() {
 
     testWidgets('ProfileScreen respects brightness from MediaQuery',
         (WidgetTester tester) async {
-      await tester.binding.window.mediaQueryData =
-          const MediaQueryData(platformBrightness: Brightness.dark);
-      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+        tester.binding.window.platformBrightnessTestValue = Brightness.dark;
+        addTearDown(tester.binding.window.clearPlatformBrightnessTestValue);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -207,9 +222,10 @@ void main() {
 
     testWidgets('Tap targets are at least 48x48 logical pixels',
         (WidgetTester tester) async {
-      await tester.binding.window.physicalSize = const Size(1080, 1920);
-      await tester.binding.window.devicePixelRatio = 1.0;
+      tester.binding.window.physicalSizeTestValue = const Size(1080, 1920);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
       addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+      addTearDown(tester.binding.window.clearDevicePixelRatioTestValue);
 
       await tester.pumpWidget(
         MaterialApp(

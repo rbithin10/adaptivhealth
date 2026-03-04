@@ -30,6 +30,13 @@ import 'rehab_program_screen.dart';
 import 'history_screen.dart';
 import 'device_pairing_screen.dart';
 import '../widgets/sos_button.dart';
+import 'home/home_heart_rate_ring.dart';
+import 'home/home_quick_actions.dart';
+import 'home/home_rehab_card.dart';
+import 'home/home_recent_activity.dart';
+import 'home/home_sparkline.dart';
+import 'home/home_recommendation_card.dart';
+import 'home/home_vitals_grid.dart';
 import '../providers/theme_provider.dart';
 // Note: ChatbotScreen removed - AI Coach is now a floating widget (FloatingChatbot)
 
@@ -597,6 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Base values from API; overridden live by ValueListenableBuilder below
         final apiHeartRate = _safeToInt(vitals['heart_rate'], 72);
         final apiSpo2     = _safeToInt(vitals['spo2'], 98);
+        final apiHrv      = _safeToInt(vitals['hrv'], 0);
         final systolicBp = _safeBloodPressure(
           vitals['blood_pressure'],
           'systolic',
@@ -737,7 +745,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             children: [
                               Center(
-                                child: _buildHeartRateRing(
+                                child: HomeHeartRateRing(
                                   heartRate: heartRate,
                                   riskLevel: edgeRiskLevel,
                                   maxSafeHR: 150,
@@ -846,10 +854,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
                         const SizedBox(height: 24),
                         // Secondary Vitals Grid
-                        _buildVitalsGrid(
+                        HomeVitalsGrid(
                           spo2: spo2,
                           systolicBp: systolicBp,
                           diastolicBp: diastolicBp,
+                          hrv: apiHrv,
+                          spo2Trend: _sparklinesFrom(
+                            extractor: (r) => r.spo2.toDouble(),
+                            current: spo2.toDouble(),
+                          ),
+                          bpTrend: _sparklinesFrom(
+                            extractor: (r) => r.bloodPressureSystolic.toDouble(),
+                            current: systolicBp.toDouble(),
+                          ),
+                          hrvTrend: _sparklinesFrom(
+                            extractor: (r) => r.hrv ?? 0.0,
+                            current: apiHrv.toDouble(),
+                          ),
+                          onViewAll: _navigateToHealth,
                         ),
                       ],
                     );
@@ -858,22 +880,46 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 24),
 
                 // Quick Actions
-                _buildQuickActions(),
+                HomeQuickActionsRow(
+                  onWorkout: () => setState(() => _selectedIndex = 1),
+                  onRecovery: _navigateToRecovery,
+                  onHealth: _navigateToHealth,
+                  onAiCoach: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Tap the AI Coach button in the corner →'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 // Rehab Program Card (if user is in rehab)
-                _buildRehabCard(user),
+                HomeRehabCard(
+                  apiClient: widget.apiClient,
+                  user: user,
+                  onReturn: _loadData,
+                ),
 
                 // Recent Activity
-                _buildRecentActivity(),
+                HomeRecentActivity(
+                  activitiesFuture: _activitiesFuture,
+                  onViewAll: _navigateToHealth,
+                ),
                 const SizedBox(height: 24),
 
                 // Heart Rate Sparkline
-                _buildHeartRateSparkline(),
+                HomeSparkline(
+                  vitalsHistoryNotifier: _vitalsHistoryNotifier,
+                  vitalHistoryFuture: _vitalHistoryFuture,
+                ),
                 const SizedBox(height: 24),
 
                 // AI Recommendation Card
-                _buildRecommendationCard(riskLevel),
+                HomeRecommendationCard(
+                  recommendationFuture: _recommendationFuture,
+                  riskLevel: riskLevel,
+                  onNavigateToFitness: () => setState(() => _selectedIndex = 1),
+                ),
                 const SizedBox(height: 24),
 
                 // Refresh button with enhanced design
@@ -1060,14 +1106,44 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Extract the most-recent [points] values for [extractor] from the live
+  /// readings history, left-padding with [current] when fewer exist.
+  List<double> _sparklinesFrom({
+    required double Function(VitalReading) extractor,
+    required double current,
+    int points = 6,
+  }) {
+    final history = _vitalsHistoryNotifier.value;
+    final taken = history.reversed
+        .take(points - 1)
+        .map(extractor)
+        .toList()
+        .reversed
+        .toList();
+    // Left-pad with the oldest available value (or current) to fill blanks.
+    final pad = taken.isNotEmpty ? taken.first : current;
+    while (taken.length < points - 1) taken.insert(0, pad);
+    return [...taken, current];
+  }
+
   Widget _buildVitalsGrid({
     required int spo2,
     required int systolicBp,
     required int diastolicBp,
+    required int hrv,
   }) {
-    // Sample trend data for visualization
-    final hrTrend = [68.0, 72.0, 75.0, 71.0, 73.0, 72.0];
-    final spo2Trend = [97.0, 98.0, 98.0, 97.0, 98.0, spo2.toDouble()];
+    final spo2Trend = _sparklinesFrom(
+      extractor: (r) => r.spo2.toDouble(),
+      current: spo2.toDouble(),
+    );
+    final bpTrend = _sparklinesFrom(
+      extractor: (r) => r.bloodPressureSystolic.toDouble(),
+      current: systolicBp.toDouble(),
+    );
+    final hrvTrend = _sparklinesFrom(
+      extractor: (r) => r.hrv ?? 0.0,
+      current: hrv.toDouble(),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1084,11 +1160,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const Spacer(),
-              Text(
-                'View All',
-                style: AdaptivTypography.label.copyWith(
-                  color: AdaptivColors.primary,
-                  fontWeight: FontWeight.w600,
+              GestureDetector(
+                onTap: _navigateToHealth,
+                child: Text(
+                  'View All',
+                  style: AdaptivTypography.label.copyWith(
+                    color: AdaptivColors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -1128,6 +1207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       : systolicBp > 130
                           ? VitalStatus.warning
                           : VitalStatus.safe,
+                  trend: bpTrend,
                   onTap: () {},
                 ),
               ),
@@ -1137,10 +1217,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: VitalCard(
                   icon: Icons.timeline,
                   label: 'HRV',
-                  value: '45',
+                  value: hrv > 0 ? hrv.toString() : '—',
                   unit: 'ms',
-                  status: VitalStatus.safe,
-                  trend: hrTrend,
+                  status: hrv > 40
+                      ? VitalStatus.safe
+                      : hrv > 20
+                          ? VitalStatus.caution
+                          : VitalStatus.warning,
+                  trend: hrvTrend,
                   onTap: () {},
                 ),
               ),

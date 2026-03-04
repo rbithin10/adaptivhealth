@@ -6,7 +6,6 @@ When the user taps "Start Workout", we create a workout session on the server.
 */
 
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -535,18 +534,23 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     'cooldown_stretches': 'assets/exercises/cooldown_stretches.png',
   };
 
-  int _currentHR = 80;
+  // Heart rate tracking — null means no reading received yet.
+  int? _currentHR;
   int _peakHR = 0;
   int _minHR = 999;
   int _maxSafeHR = 185;
   bool _isEndingWorkout = false;
   int _elapsedSeconds = 0;
   Timer? _timer;
-  Timer? _hrSimTimer;
 
-  // Live BLE/VitalsProvider subscription (used when a real device is paired)
+  // True once the first real reading arrives from any source.
+  bool _hasReceivedReading = false;
+
+  // Which source the last reading came from — shown in the UI.
+  VitalsSource? _activeSource;
+
+  // Live stream subscription from VitalsProvider (BLE / HealthKit / mock).
   StreamSubscription<VitalsReading>? _vitalsSubscription;
-  bool _usingLiveSource = false;
 
   // Edge AI state for this workout
   String _edgeRiskLevel = 'low';
@@ -565,7 +569,6 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    _hrSimTimer?.cancel();
     _vitalsSubscription?.cancel();
     super.dispose();
   }
@@ -592,33 +595,30 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     });
   }
 
-  /// Determines whether a live vitals source (BLE or HealthKit) is available
-  /// and subscribes to it. Falls back to simulated HR when only mock data is
-  /// available (e.g. no paired device).
+  /// Subscribes to the VitalsProvider stream for live HR data.
+  ///
+  /// Handles all three sources: BLE, Health Connect / HealthKit, and the
+  /// explicit mock simulator from the Profile screen. Does NOT run a local
+  /// simulation — if no readings arrive the display shows the last known
+  /// value until a device is connected.
   void _startHeartRateSource() {
     try {
       final vitals = Provider.of<VitalsProvider>(context, listen: false);
-      if (vitals.activeSource != VitalsSource.mock) {
-        // A real data source is active — subscribe to live readings.
-        _usingLiveSource = true;
-        _vitalsSubscription = vitals.vitalsStream.listen(_onLiveReading);
-        return;
-      }
+      _vitalsSubscription = vitals.vitalsStream.listen(_onLiveReading);
     } catch (_) {
-      // VitalsProvider may not be in the widget tree (e.g. tests).
+      // VitalsProvider not in widget tree (e.g. unit tests) — no HR data.
     }
-
-    // No live source available — use simulated HR for demo/testing.
-    _startHeartRateSimulation();
   }
 
-  /// Handle an incoming live vitals reading from BLE or HealthKit.
+  /// Handle an incoming live vitals reading from BLE, HealthKit, or mock.
   void _onLiveReading(VitalsReading reading) {
     if (!mounted) return;
     final newHR = reading.heartRate.round();
 
     setState(() {
       _currentHR = newHR;
+      _hasReceivedReading = true;
+      _activeSource = reading.source;
       if (newHR > _peakHR) _peakHR = newHR;
       if (newHR < _minHR) _minHR = newHR;
     });
@@ -626,22 +626,15 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     _processWithEdgeAi(newHR);
   }
 
-  /// Fallback: simulate heart rate when no real data source is connected.
-  void _startHeartRateSimulation() {
-    _hrSimTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!mounted) return;
-      final base = 80 + (_elapsedSeconds ~/ 10).clamp(0, 60);
-      final jitter = (DateTime.now().millisecond % 15) - 7;
-      final newHR = (base + jitter).clamp(55, 200);
-
-      setState(() {
-        _currentHR = newHR;
-        if (newHR > _peakHR) _peakHR = newHR;
-        if (newHR < _minHR) _minHR = newHR;
-      });
-
-      _processWithEdgeAi(newHR);
-    });
+  /// Human-readable label for the active data source shown in the UI.
+  String get _sourceLabel {
+    switch (_activeSource) {
+      case VitalsSource.ble:    return 'BLE Device';
+      case VitalsSource.health: return 'Health Connect';
+      case VitalsSource.fitbit: return 'Fitbit';
+      case VitalsSource.mock:   return 'Demo Simulator';
+      case null:                return '';
+    }
   }
 
   // Run edge AI on each heart rate reading
@@ -684,14 +677,13 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
 
   void _endWorkout() async {
     _timer?.cancel();
-    _hrSimTimer?.cancel();
     _vitalsSubscription?.cancel();
     setState(() => _isEndingWorkout = true);
 
     try {
       await widget.apiClient.endSession(
         sessionId: widget.sessionId,
-        avgHeartRate: _currentHR,
+        avgHeartRate: _currentHR ?? 0,   // 0 if workout ended before any reading
         maxHeartRate: _peakHR,
       );
 
@@ -721,8 +713,9 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
     }
   }
 
-  // Get color based on edge AI risk level
+  // Get color based on edge AI risk level (only meaningful once data arrives)
   Color _getHRColor() {
+    if (!_hasReceivedReading) return Colors.white38;
     if (_edgeRiskLevel == 'high' || _activeAlerts.any((a) => a.severity == 'critical')) {
       return AdaptivColors.critical;
     } else if (_edgeRiskLevel == 'moderate' || _activeAlerts.any((a) => a.severity == 'warning')) {
@@ -737,7 +730,10 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final fillPercentage = _maxSafeHR > 0 ? (_currentHR / _maxSafeHR).clamp(0.0, 1.0) : 0.5;
+    final hr = _currentHR ?? 0;
+    final fillPercentage = (_hasReceivedReading && _maxSafeHR > 0)
+        ? (hr / _maxSafeHR).clamp(0.0, 1.0)
+        : 0.0;
     final hrColor = _getHRColor();
 
     return AiCoachOverlay(
@@ -891,60 +887,48 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                 ),
               ),
 
-            // Giant BPM Display with edge AI risk color
+            // BPM display — shows waiting state when no data has arrived yet
             Expanded(
               child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Pulsing heart icon
-                    Icon(Icons.favorite, color: hrColor, size: 36),
-                    const SizedBox(height: 8),
-                    Text(
-                      _currentHR.toString(),
-                      style: GoogleFonts.dmSans(
-                        fontSize: 110,
-                        fontWeight: FontWeight.w700,
-                        color: hrColor,
-                        height: 1.0,
-                      ),
-                    ),
-                    Text(
-                      'BPM',
-                      style: GoogleFonts.dmSans(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w400,
-                        color: Colors.white60,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Risk score from edge AI
-                    if (_edgeRiskScore > 0)
-                      Text(
-                        'Risk: ${(_edgeRiskScore * 100).toStringAsFixed(0)}%',
-                        style: GoogleFonts.dmSans(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: hrColor.withOpacity(0.8),
-                        ),
-                      ),
-                  ],
-                ),
+                child: _hasReceivedReading
+                    ? _buildBpmDisplay(hr, hrColor)
+                    : _buildWaitingForData(),
               ),
             ),
 
-            // Stats row: Peak HR, Min HR, Zone
+            // Stats row: Peak HR, Min HR, Max Safe
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildWorkoutStat('Peak', '$_peakHR', 'BPM'),
-                  _buildWorkoutStat('Min', '${_minHR < 999 ? _minHR : 0}', 'BPM'),
+                  _buildWorkoutStat('Peak',
+                      _hasReceivedReading ? '$_peakHR' : '—', 'BPM'),
+                  _buildWorkoutStat('Min',
+                      _hasReceivedReading ? '${_minHR < 999 ? _minHR : 0}' : '—', 'BPM'),
                   _buildWorkoutStat('Max Safe', '$_maxSafeHR', 'BPM'),
                 ],
               ),
             ),
+            // Data source label
+            if (_hasReceivedReading)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.sensors, color: Colors.white38, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Live from $_sourceLabel',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 11,
+                        color: Colors.white38,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 24),
 
             // Zone progress bar
@@ -964,7 +948,9 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
                         ),
                       ),
                       Text(
-                        '${(fillPercentage * 100).toInt()}% of max',
+                        _hasReceivedReading
+                            ? '${(fillPercentage * 100).toInt()}% of max'
+                            : '—',
                         style: GoogleFonts.dmSans(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -1018,6 +1004,82 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Shown when no heart rate data has arrived yet.
+  Widget _buildWaitingForData() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.sensors_off, color: Colors.white24, size: 48),
+        const SizedBox(height: 16),
+        Text(
+          'Waiting for heart rate data',
+          style: GoogleFonts.dmSans(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.white54,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Connect a BLE device, Health Connect,\nor start the demo simulator (Profile tab)',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.dmSans(
+            fontSize: 12,
+            color: Colors.white30,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 24),
+        // Timer keeps running so workout duration is still tracked.
+        Text(
+          'Workout time: ${_formatTimer(_elapsedSeconds)}',
+          style: GoogleFonts.dmSans(
+            fontSize: 13,
+            color: Colors.white38,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Shown once the first real reading has arrived.
+  Widget _buildBpmDisplay(int hr, Color hrColor) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.favorite, color: hrColor, size: 36),
+        const SizedBox(height: 8),
+        Text(
+          hr.toString(),
+          style: GoogleFonts.dmSans(
+            fontSize: 110,
+            fontWeight: FontWeight.w700,
+            color: hrColor,
+            height: 1.0,
+          ),
+        ),
+        Text(
+          'BPM',
+          style: GoogleFonts.dmSans(
+            fontSize: 22,
+            fontWeight: FontWeight.w400,
+            color: Colors.white60,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_edgeRiskScore > 0)
+          Text(
+            'Risk: ${(_edgeRiskScore * 100).toStringAsFixed(0)}%',
+            style: GoogleFonts.dmSans(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: hrColor.withOpacity(0.8),
+            ),
+          ),
+      ],
     );
   }
 

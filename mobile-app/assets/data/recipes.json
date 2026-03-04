@@ -1,4 +1,7 @@
-[
+{
+  "version": 2,
+  "last_updated": "2025-07-15",
+  "recipes": [
   {
     "name": "Overnight Oats with Chia and Berries",
     "meal_type": "breakfast",
@@ -432,4 +435,5 @@
     ],
     "tags": ["Heart Healthy", "High Fiber"]
   }
-]
+  ]
+}

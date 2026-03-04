@@ -9,9 +9,11 @@ within the same app session.
 */
 
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:io';
 import '../theme/colors.dart';
@@ -57,6 +59,7 @@ class _FloatingChatbotState extends State<FloatingChatbot>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ChangeNotifierProvider<ChatStore>.value(
         value: chatStore,
@@ -155,30 +158,125 @@ class ChatBottomSheet extends StatefulWidget {
   State<ChatBottomSheet> createState() => _ChatBottomSheetState();
 }
 
-class _ChatBottomSheetState extends State<ChatBottomSheet> {
+class _ChatBottomSheetState extends State<ChatBottomSheet>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
-  late final ChatStore _chatStore;
   late final SpeechToText _speech;
-  bool _initialized = false;
+  late final FlutterTts _tts;
   bool _isListening = false;
   bool _speechAvailable = false;
+  bool _isSpeaking = false;
+  bool _ttsReady = false;
+
+  // Pulsing ring shown around the mic button while recording.
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseScale;
+
+  // Convenience accessor — avoids repeating Provider.of everywhere.
+  ChatStore get _chatStore => Provider.of<ChatStore>(context, listen: false);
 
   @override
   void initState() {
     super.initState();
+
+    // ── Speech-to-text ───────────────────────────────────────────────────────
     _speech = SpeechToText();
     _initializeSpeech();
+
+    // ── Mic pulse animation ──────────────────────────────────────────────────
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _pulseScale = Tween<double>(begin: 1.0, end: 1.7).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    // ── Text-to-speech ───────────────────────────────────────────────────────
+    _tts = FlutterTts();
+    _initializeTts();
+
+    // ── Greeting ─────────────────────────────────────────────────────────────
+    // Seed after first frame so notifyListeners() does not fire during layout.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _chatStore.ensureGreeting();
+    });
+  }
+
+  Future<void> _initializeTts() async {
+    try {
+      await _tts.awaitSpeakCompletion(true);
+      await _tts.setQueueMode(1);
+      await _tts.setSharedInstance(true);
+      await _tts.setLanguage('en-US');
+      await _tts.setSpeechRate(0.48);
+      await _tts.setVolume(1.0);
+      await _tts.setPitch(1.0);
+      _tts.setStartHandler(() {
+        if (mounted) setState(() => _isSpeaking = true);
+      });
+      _tts.setCompletionHandler(() {
+        if (mounted) setState(() => _isSpeaking = false);
+      });
+      _tts.setCancelHandler(() {
+        if (mounted) setState(() => _isSpeaking = false);
+      });
+      _tts.setErrorHandler((_) {
+        if (mounted) setState(() => _isSpeaking = false);
+      });
+      _ttsReady = true;
+    } catch (_) {
+      _ttsReady = false;
+    }
+  }
+
+  /// Speaks the AI reply aloud, stripping markdown symbols first.
+  Future<void> _speakResponse(String text) async {
+    final clean = text
+        .replaceAll(RegExp(r'[*_`#>\[\]]'), '')
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
+        .trim();
+    if (clean.isEmpty) return;
+    if (!_ttsReady) {
+      await _initializeTts();
+      if (!_ttsReady) return;
+    }
+    await _tts.stop();
+    await _tts.speak(clean);
+  }
+
+  Future<void> _stopSpeaking() async {
+    await _tts.stop();
+    if (mounted) setState(() => _isSpeaking = false);
   }
 
   Future<void> _initializeSpeech() async {
+    // Request RECORD_AUDIO permission first; without it speech_to_text
+    // silently returns available=false and the mic button stays disabled.
+    final micStatus = await Permission.microphone.request();
+    if (!micStatus.isGranted) {
+      // Permission denied — mic stays disabled, no crash.
+      return;
+    }
     final available = await _speech.initialize(
       onStatus: (status) {
         if (status == 'done' || status == 'notListening') {
+          _pulseController.stop();
+          _pulseController.reset();
           if (!mounted) return;
           setState(() {
             _isListening = false;
           });
         }
+      },
+      onError: (_) {
+        _pulseController.stop();
+        _pulseController.reset();
+        if (!mounted) return;
+        setState(() {
+          _isListening = false;
+        });
       },
     );
     if (!mounted) return;
@@ -187,15 +285,9 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
     });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_initialized) {
-      _chatStore = Provider.of<ChatStore>(context, listen: false);
-      // Seed greeting only when the conversation is brand-new
-      _chatStore.ensureGreeting();
-      _initialized = true;
-    }
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _sendMessage() {
@@ -219,24 +311,40 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
           isUser: false,
           timestamp: DateTime.now(),
         ));
+        _speakResponse(response);
       }
     }).catchError((error) {
       if (mounted) {
         _chatStore.setTyping(false);
+        const fallback =
+            "Sorry, I couldn't reach the server right now. Please try again in a moment.";
         _chatStore.addMessage(ChatMessage(
-          text: "Sorry, I couldn't reach the server right now. Please try again in a moment.",
+          text: fallback,
           isUser: false,
           timestamp: DateTime.now(),
         ));
+        _speakResponse(fallback);
       }
     });
   }
 
   Future<void> _toggleVoiceInput() async {
-    if (!_speechAvailable) return;
+    if (!_speechAvailable) {
+      await _initializeSpeech();
+    }
+
+    if (!_speechAvailable) {
+      _showSnack('Microphone is unavailable. Please enable speech services and try again.');
+      return;
+    }
+
+    // Stop any ongoing TTS before opening the mic.
+    if (_isSpeaking) await _stopSpeaking();
 
     if (_isListening) {
       await _speech.stop();
+      _pulseController.stop();
+      _pulseController.reset();
       if (!mounted) return;
       setState(() {
         _isListening = false;
@@ -244,19 +352,34 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
       return;
     }
 
-    final started = await _speech.listen(
+    final startedResult = await _speech.listen(
+      listenMode: ListenMode.confirmation,
+      partialResults: true,
       onResult: (result) {
+        _controller.value = _controller.value.copyWith(
+          text: result.recognizedWords,
+          selection: TextSelection.collapsed(
+            offset: result.recognizedWords.length,
+          ),
+        );
         if (result.finalResult) {
-          _controller.text = result.recognizedWords;
+          _pulseController.stop();
+          _pulseController.reset();
+          if (mounted) setState(() => _isListening = false);
           _sendMessage();
         }
       },
     );
 
+    final bool started = startedResult == true;
+
     if (!mounted) return;
-    setState(() {
-      _isListening = started;
-    });
+    setState(() => _isListening = started);
+    if (started) {
+      _pulseController.repeat(reverse: true);
+    } else {
+      _showSnack('Could not start voice input. Please try again.');
+    }
   }
 
   void _showCameraOptions() {
@@ -276,11 +399,6 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                 leading: const Icon(LucideIcons.pill),
                 title: const Text('Identify Pill'),
                 onTap: () => _captureAndAnalyze('pill'),
-              ),
-              ListTile(
-                leading: const Icon(LucideIcons.scan),
-                title: const Text('Check Swelling'),
-                onTap: () => _captureAndAnalyze('edema'),
               ),
             ],
           ),
@@ -329,14 +447,18 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
           isUser: false,
           timestamp: DateTime.now(),
         ));
+        _speakResponse(response);
       }
     } catch (_) {
       if (mounted) {
+        const fallback =
+            'I could not analyze that image right now. Please try again.';
         _chatStore.addMessage(ChatMessage(
-          text: 'I could not analyze that image right now. Please try again.',
+          text: fallback,
           isUser: false,
           timestamp: DateTime.now(),
         ));
+        _speakResponse(fallback);
       }
     } finally {
       if (mounted) {
@@ -374,9 +496,9 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
 
   @override
   void dispose() {
-    if (_isListening) {
-      _speech.stop();
-    }
+    if (_isListening) _speech.stop();
+    _pulseController.dispose();
+    _tts.stop();
     _controller.dispose();
     super.dispose();
   }
@@ -388,14 +510,44 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
       builder: (context, store, _) {
         final messages = store.messages;
         final isTyping = store.isTyping;
+        final mediaQuery = MediaQuery.of(context);
+        final keyboardInset = mediaQuery.viewInsets.bottom;
+        final screenHeight = mediaQuery.size.height;
+        final safeTop = mediaQuery.padding.top;
+
+        // Base target height when keyboard is hidden.
+        const baseFactor = 0.75;
+        double targetHeight = screenHeight * baseFactor;
+
+        // Available visible height when keyboard is open.
+        final availableHeight = screenHeight - keyboardInset - safeTop - 8;
+        if (targetHeight > availableHeight) {
+          targetHeight = availableHeight;
+        }
+
+        // Keep a minimum functional size but never overflow available area.
+        if (targetHeight < 260) {
+          targetHeight = availableHeight > 260 ? 260 : availableHeight;
+        }
+
+        if (targetHeight < 0) {
+          targetHeight = 0;
+        }
 
         return Container(
-          height: MediaQuery.of(context).size.height * 0.7,
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          child: Column(
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(
+              bottom: keyboardInset,
+            ),
+            child: SizedBox(
+              height: targetHeight,
+              child: Column(
             children: [
               // Handle bar
               Container(
@@ -439,16 +591,20 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                               Container(
                                 width: 8,
                                 height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AdaptivColors.stable,
+                                decoration: BoxDecoration(
+                                  color: _isSpeaking
+                                      ? Colors.blueAccent
+                                      : AdaptivColors.stable,
                                   shape: BoxShape.circle,
                                 ),
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                'Online',
+                                _isSpeaking ? 'Speaking...' : 'Online',
                                 style: AdaptivTypography.caption.copyWith(
-                                  color: AdaptivColors.stable,
+                                  color: _isSpeaking
+                                      ? Colors.blueAccent
+                                      : AdaptivColors.stable,
                                 ),
                               ),
                             ],
@@ -460,6 +616,15 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                       icon: const Icon(Icons.close),
                       onPressed: () => Navigator.pop(context),
                     ),
+                    if (_isSpeaking)
+                      IconButton(
+                        tooltip: 'Stop speaking',
+                        icon: const Icon(
+                          Icons.volume_off_rounded,
+                          color: Colors.redAccent,
+                        ),
+                        onPressed: _stopSpeaking,
+                      ),
                   ],
                 ),
               ),
@@ -551,14 +716,41 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                         icon: const Icon(LucideIcons.camera),
                         onPressed: isTyping ? null : _showCameraOptions,
                       ),
-                      IconButton(
-                        icon: Icon(
-                          _isListening ? LucideIcons.micOff : LucideIcons.mic,
-                          color: _isListening ? Colors.red : null,
+                      // Mic button with pulsing ring when recording.
+                      SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            if (_isListening)
+                              AnimatedBuilder(
+                                animation: _pulseScale,
+                                builder: (_, __) => Container(
+                                  width: 40 * _pulseScale.value,
+                                  height: 40 * _pulseScale.value,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.red.withValues(
+                                      alpha:
+                                          (1.8 - _pulseScale.value) * 0.25,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              icon: Icon(
+                                _isListening
+                                    ? LucideIcons.micOff
+                                    : LucideIcons.mic,
+                                color: _isListening ? Colors.red : null,
+                                size: 22,
+                              ),
+                              onPressed: isTyping ? null : _toggleVoiceInput,
+                            ),
+                          ],
                         ),
-                        onPressed: isTyping
-                            ? null
-                            : (_speechAvailable ? _toggleVoiceInput : null),
                       ),
                       Expanded(
                         child: TextField(
@@ -598,6 +790,8 @@ class _ChatBottomSheetState extends State<ChatBottomSheet> {
                 ),
               ),
             ],
+          ),
+            ),
           ),
         );
       },

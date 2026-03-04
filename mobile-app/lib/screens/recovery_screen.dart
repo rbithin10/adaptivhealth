@@ -167,9 +167,9 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           .catchError((_) => <String, dynamic>{}),
     ]);
 
-    final session = results[0] as Map<String, dynamic>;
-    final vitals = results[1] as Map<String, dynamic>;
-    final recommendation = results[2] as Map<String, dynamic>;
+    final session = results[0];
+    final vitals = results[1];
+    final recommendation = results[2];
 
     return _RecoveryData(
       session: session,
@@ -867,38 +867,58 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ScaleTransition(
-          scale: Tween<double>(begin: 0.55, end: 1.0).animate(
-            CurvedAnimation(
-                parent: _breathingController, curve: Curves.easeInOut),
-          ),
-          child: Container(
-            width: 150,
-            height: 150,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AdaptivColors.primaryUltralight,
-              border:
-                  Border.all(color: AdaptivColors.primary, width: 2.5),
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.air, color: AdaptivColors.primary, size: 30),
-                  const SizedBox(height: 6),
-                  Text(
-                    _breathingPhase,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AdaptivColors.primary,
-                    ),
+        AnimatedBuilder(
+          animation: _breathingController,
+          builder: (context, _) {
+            final t = _breathingController.value;
+            final cfg = _cfg;
+            double scale;
+            if (t <= cfg.inhaleEnd) {
+              // Inhale: grow 0.55 → 1.0 over the inhale fraction
+              final progress =
+                  cfg.inhaleEnd > 0 ? (t / cfg.inhaleEnd).clamp(0.0, 1.0) : 1.0;
+              scale = 0.55 + Curves.easeInOut.transform(progress) * 0.45;
+            } else if (t <= cfg.holdEnd) {
+              // Hold: stay fully expanded
+              scale = 1.0;
+            } else {
+              // Exhale: shrink 1.0 → 0.55 over the exhale fraction
+              final remaining = 1.0 - cfg.holdEnd;
+              final progress = remaining > 0
+                  ? ((t - cfg.holdEnd) / remaining).clamp(0.0, 1.0)
+                  : 1.0;
+              scale = 1.0 - Curves.easeInOut.transform(progress) * 0.45;
+            }
+            return Transform.scale(
+              scale: scale,
+              child: Container(
+                width: 150,
+                height: 150,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AdaptivColors.primaryUltralight,
+                  border: Border.all(color: AdaptivColors.primary, width: 2.5),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.air, color: AdaptivColors.primary, size: 30),
+                      const SizedBox(height: 6),
+                      Text(
+                        _breathingPhase,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AdaptivColors.primary,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
         if (_isBreathingActive) ...[
           const SizedBox(height: 10),

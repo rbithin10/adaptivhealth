@@ -13,6 +13,7 @@
 ///   // → Automatically runs risk prediction + threshold checks
 ///   // → Fires GPS emergency if critical
 ///   // → Queues everything for cloud sync
+library;
 
 import 'dart:math';
 

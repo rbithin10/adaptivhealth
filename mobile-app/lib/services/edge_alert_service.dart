@@ -18,6 +18,7 @@
 ///   - Auto-sync when they descend to cell coverage
 ///   The app can also trigger the phone's native SOS (if available)
 ///   or compose an SMS (SMS works on weaker signal than data).
+library;
 
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';

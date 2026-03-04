@@ -26,11 +26,61 @@ class FitnessPlansScreen extends StatefulWidget {
   State<FitnessPlansScreen> createState() => _FitnessPlansScreenState();
 }
 
+/// Immutable summary of the current ISO week's activity data.
+class _WeekStats {
+  final int activeDays;
+  final int totalMinutes;
+  final int totalCalories;
+  final int sessionsCompleted;
+
+  const _WeekStats({
+    required this.activeDays,
+    required this.totalMinutes,
+    required this.totalCalories,
+    required this.sessionsCompleted,
+  });
+
+  static const int sessionsGoal = 5;
+  double get goalFraction => sessionsCompleted / sessionsGoal;
+}
+
+/// Derive week stats from a raw activity list returned by the API.
+_WeekStats _computeThisWeek(List<dynamic> activities) {
+  final now      = DateTime.now();
+  final monday   = now.subtract(Duration(days: now.weekday - 1));
+  final weekStart = DateTime(monday.year, monday.month, monday.day);
+
+  final activeDays = <int>{};
+  int totalMin = 0;
+  int totalCal = 0;
+  int sessions = 0;
+
+  for (final dynamic raw in activities) {
+    if (raw is! Map) continue;
+    final a = Map<String, dynamic>.from(raw);
+    final ts = DateTime.tryParse(a['start_time'] as String? ?? '');
+    if (ts == null || ts.isBefore(weekStart)) continue;
+    activeDays.add(ts.weekday);
+    totalMin += (a['duration_minutes'] as num?)?.toInt() ?? 0;
+    totalCal += (a['calories_burned']  as num?)?.toInt() ?? 0;
+    sessions++;
+  }
+
+  return _WeekStats(
+    activeDays:        activeDays.length,
+    totalMinutes:      totalMin,
+    totalCalories:     totalCal,
+    sessionsCompleted: sessions,
+  );
+}
+
 class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoading = true;
   List<FitnessPlan> _plans = [];
+  List<dynamic> _activities = [];
+  Map<String, dynamic>? _userProfile;
   String _selectedFilter = 'All';
 
   final List<String> _filters = ['All', 'Cardio', 'Strength', 'Recovery', 'HIIT'];
@@ -52,18 +102,24 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
 
   Future<void> _loadPlans() async {
     setState(() => _isLoading = true);
-    
-    // Load AI-recommended plan from backend + generic workout options
+
+    // Fetch AI recommendation, activity history, and user profile in parallel.
     try {
-      final recommendation = await widget.apiClient.getLatestRecommendation();
-      final aiPlan = _mapRecommendationToPlan(recommendation);
-      final genericPlans = _getGenericPlans();
-      _plans = [aiPlan, ...genericPlans];
+      final results = await Future.wait([
+        widget.apiClient.getLatestRecommendation(),
+        widget.apiClient.getActivities(limit: 50),
+        widget.apiClient.getCurrentUser(),
+      ]);
+      _userProfile = results[2] as Map<String, dynamic>?;
+      final aiPlan  = _mapRecommendationToPlan(results[0] as Map<String, dynamic>);
+      _plans        = [aiPlan, ..._buildProfileAwareFallback(_userProfile)];
+      _activities   = results[1] as List<dynamic>;
     } catch (e) {
-      // If backend fails, fall back to generic plans only
-      _plans = _getGenericPlans();
+      // If backend fails, fall back to profile-aware generic plans.
+      _plans      = _buildProfileAwareFallback(_userProfile);
+      _activities = [];
     }
-    
+
     setState(() => _isLoading = false);
   }
 
@@ -77,8 +133,9 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     
     // Map activity string to enum
     ActivityType activityType = ActivityType.walking;
-    if (activityStr.contains('run')) activityType = ActivityType.running;
-    else if (activityStr.contains('cycl') || activityStr.contains('bike')) activityType = ActivityType.cycling;
+    if (activityStr.contains('run')) {
+      activityType = ActivityType.running;
+    } else if (activityStr.contains('cycl') || activityStr.contains('bike')) activityType = ActivityType.cycling;
     else if (activityStr.contains('swim')) activityType = ActivityType.swimming;
     else if (activityStr.contains('yoga')) activityType = ActivityType.yoga;
     else if (activityStr.contains('strength') || activityStr.contains('weight')) activityType = ActivityType.strength;
@@ -88,14 +145,16 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     // Map intensity + HR to zone
     HRZone zone = HRZone.moderate;
     if (hrMax != null) {
-      if (hrMax < 100) zone = HRZone.light;
-      else if (hrMax < 140) zone = HRZone.moderate;
+      if (hrMax < 100) {
+        zone = HRZone.light;
+      } else if (hrMax < 140) zone = HRZone.moderate;
       else if (hrMax < 170) zone = HRZone.hard;
       else zone = HRZone.maximum;
     } else {
       // Fallback to intensity mapping
-      if (intensityStr == 'low') zone = HRZone.light;
-      else if (intensityStr == 'moderate') zone = HRZone.moderate;
+      if (intensityStr == 'low') {
+        zone = HRZone.light;
+      } else if (intensityStr == 'moderate') zone = HRZone.moderate;
       else if (intensityStr == 'high') zone = HRZone.hard;
       else if (intensityStr == 'very_high') zone = HRZone.maximum;
     }
@@ -131,44 +190,105 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     return (caloriesPerMin[type] ?? 4) * minutes;
   }
   
-  /// Generic workout options (not personalized).
-  List<FitnessPlan> _getGenericPlans() {
+  /// Return fallback fitness plans tailored to the user's profile.
+  /// Falls back to safe generic options when the profile is unavailable.
+  List<FitnessPlan> _buildProfileAwareFallback(Map<String, dynamic>? profile) {
+    final rehabPhase   = (profile?['rehab_phase'] as String? ?? '').toLowerCase();
+    final activityLevel= (profile?['activity_level'] as String? ?? 'moderate').toLowerCase();
+    final age          = (profile?['age'] as num?)?.toInt() ?? 40;
+
+    final isRehab    = rehabPhase.contains('phase_1') || rehabPhase.contains('phase_2');
+    final isSedentary= activityLevel == 'sedentary' || activityLevel == 'lightly_active';
+    final isSenior   = age >= 60;
+
+    // Duration tier based on fitness level.
+    final int shortDuration  = isSedentary || isSenior ? 15 : 20;
+    final int mediumDuration = isSedentary || isSenior ? 25 : 35;
+    final int longDuration   = isSedentary || isSenior ? 35 : 45;
+
+    if (isRehab) {
+      // Phase 1/2 rehab: very gentle, low HR-zone activities.
+      return [
+        FitnessPlan(
+          id: 'gen_rehab_1',
+          title: 'Gentle Walking',
+          description: 'Supervised low-intensity walk suited to your recovery phase',
+          activityType: ActivityType.walking,
+          duration: Duration(minutes: shortDuration),
+          targetHRZone: HRZone.light,
+          confidence: 0.0,
+          isPriority: false,
+          benefits: ['Safe for rehab', 'Builds circulation', 'Low impact'],
+          caloriesBurn: _estimateCalories(ActivityType.walking, shortDuration),
+        ),
+        FitnessPlan(
+          id: 'gen_rehab_2',
+          title: 'Chair Stretching',
+          description: 'Seated range-of-motion exercises for joint mobility',
+          activityType: ActivityType.stretching,
+          duration: Duration(minutes: shortDuration),
+          targetHRZone: HRZone.resting,
+          confidence: 0.0,
+          isPriority: false,
+          benefits: ['Joint mobility', 'Safe seated', 'Reduces stiffness'],
+          caloriesBurn: _estimateCalories(ActivityType.stretching, shortDuration),
+        ),
+        FitnessPlan(
+          id: 'gen_rehab_3',
+          title: 'Breathing & Relaxation',
+          description: 'Diaphragmatic breathing to support cardiac recovery',
+          activityType: ActivityType.meditation,
+          duration: Duration(minutes: shortDuration),
+          targetHRZone: HRZone.resting,
+          confidence: 0.0,
+          isPriority: false,
+          benefits: ['Parasympathetic calm', 'Lowers BP', 'Reduces anxiety'],
+          caloriesBurn: _estimateCalories(ActivityType.meditation, shortDuration),
+        ),
+      ];
+    }
+
+    // Standard fallback — scaled by age/activity level.
     return [
       FitnessPlan(
         id: 'gen_1',
         title: 'Zone 2 Training',
-        description: 'Build aerobic base with steady-state cardio',
+        description: isSenior
+            ? 'Low-intensity steady-state cardio adapted for your age group'
+            : 'Build aerobic base with steady-state cardio',
         activityType: ActivityType.cycling,
-        duration: const Duration(minutes: 45),
+        duration: Duration(minutes: longDuration),
         targetHRZone: HRZone.moderate,
-        confidence: 0.0,  // Generic, not personalized
+        confidence: 0.0,
         isPriority: false,
         benefits: ['Fat burning', 'Endurance building', 'Heart efficiency'],
-        caloriesBurn: 315,
+        caloriesBurn: _estimateCalories(ActivityType.cycling, longDuration),
       ),
       FitnessPlan(
         id: 'gen_2',
         title: 'Gentle Yoga Flow',
         description: 'Recovery-focused stretching and breathing',
         activityType: ActivityType.yoga,
-        duration: const Duration(minutes: 20),
+        duration: Duration(minutes: shortDuration),
         targetHRZone: HRZone.resting,
         confidence: 0.0,
         isPriority: false,
         benefits: ['Flexibility', 'Stress relief', 'Better sleep'],
-        caloriesBurn: 60,
+        caloriesBurn: _estimateCalories(ActivityType.yoga, shortDuration),
       ),
       FitnessPlan(
         id: 'gen_3',
         title: 'Strength Basics',
-        description: 'Light resistance training for muscle tone',
+        description: isSedentary
+            ? 'Beginner-friendly resistance training with minimal load'
+            : 'Light resistance training for muscle tone',
         activityType: ActivityType.strength,
-        duration: const Duration(minutes: 35),
+        duration: Duration(minutes: mediumDuration),
         targetHRZone: HRZone.moderate,
         confidence: 0.0,
         isPriority: false,
         benefits: ['Muscle strength', 'Bone density', 'Metabolism'],
-        caloriesBurn: 175,
+        caloriesBurn: _estimateCalories(ActivityType.strength, mediumDuration),
       ),
     ];
   }
@@ -418,6 +538,9 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
   }
 
   Widget _buildWeeklySummary() {
+    final stats = _computeThisWeek(_activities);
+    final hasData = stats.sessionsCompleted > 0;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -449,13 +572,25 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildSummaryItem('Active Days', '4', Icons.directions_run),
-              _buildSummaryItem('Minutes', '120', Icons.timer),
-              _buildSummaryItem('Calories', '680', Icons.local_fire_department),
+              _buildSummaryItem(
+                'Active Days',
+                hasData ? stats.activeDays.toString() : '—',
+                Icons.directions_run,
+              ),
+              _buildSummaryItem(
+                'Minutes',
+                hasData ? stats.totalMinutes.toString() : '—',
+                Icons.timer,
+              ),
+              _buildSummaryItem(
+                'Calories',
+                hasData ? stats.totalCalories.toString() : '—',
+                Icons.local_fire_department,
+              ),
             ],
           ),
           const SizedBox(height: 16),
-          // Weekly progress bar
+          // Weekly goal progress
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -469,7 +604,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
                     ),
                   ),
                   Text(
-                    '4/5 workouts',
+                    '${stats.sessionsCompleted}/${_WeekStats.sessionsGoal} workouts',
                     style: AdaptivTypography.label.copyWith(
                       color: AdaptivColors.primary,
                       fontWeight: FontWeight.w600,
@@ -481,7 +616,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  value: 0.8,
+                  value: stats.goalFraction.clamp(0.0, 1.0),
                   backgroundColor: AdaptivColors.bg200,
                   valueColor: AlwaysStoppedAnimation(AdaptivColors.stable),
                   minHeight: 8,

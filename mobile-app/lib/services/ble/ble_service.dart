@@ -64,6 +64,9 @@ class BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
   StreamSubscription<List<int>>? _heartRateSubscription;
+  StreamSubscription<List<int>>? _spo2Subscription;
+  StreamSubscription<List<int>>? _bpSubscription;
+  StreamSubscription<List<int>>? _tempSubscription;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   BluetoothDevice? _connectedDevice;
@@ -90,6 +93,10 @@ class BleService {
 
 
   BluetoothDevice? get connectedDevice => _connectedDevice;
+
+  /// The remote ID of the last device that successfully connected.
+  /// Used by the pairing screen to highlight the "last used" device.
+  String? get lastSavedDeviceId => _lastSavedDeviceId;
 
   /// Whether the Bluetooth adapter is currently powered on.
   bool get isAdapterOn => _isAdapterOn;
@@ -141,6 +148,10 @@ class BleService {
     await FlutterBluePlus.startScan(
       withServices: discoverAll ? [] : [heartRateServiceUuid],
       timeout: timeout,
+      // lowLatency delivers more advertisement packets per second, which
+      // means device names appear faster (names are buried in the advert
+      // local-name field that may only arrive on the first packet seen).
+      androidScanMode: AndroidScanMode.lowLatency,
     );
 
     if (_connectedDevice == null && !_isReconnecting) {
@@ -322,7 +333,8 @@ class BleService {
 
     await _spo2Characteristic!.setNotifyValue(true);
 
-    _spo2Characteristic!.lastValueStream.listen((data) {
+    _spo2Subscription?.cancel();
+    _spo2Subscription = _spo2Characteristic!.lastValueStream.listen((data) {
       if (data.isEmpty) return;
 
       final reading = BleHealthParser.parsePulseOximeter(
@@ -364,7 +376,8 @@ class BleService {
 
     await _bpCharacteristic!.setNotifyValue(true);
 
-    _bpCharacteristic!.lastValueStream.listen((data) {
+    _bpSubscription?.cancel();
+    _bpSubscription = _bpCharacteristic!.lastValueStream.listen((data) {
       if (data.isEmpty) return;
 
       final reading = BleHealthParser.parseBloodPressure(
@@ -406,7 +419,8 @@ class BleService {
 
     await _tempCharacteristic!.setNotifyValue(true);
 
-    _tempCharacteristic!.lastValueStream.listen((data) {
+    _tempSubscription?.cancel();
+    _tempSubscription = _tempCharacteristic!.lastValueStream.listen((data) {
       if (data.isEmpty) return;
 
       final reading = BleHealthParser.parseTemperature(
@@ -490,7 +504,16 @@ class BleService {
     await _heartRateSubscription?.cancel();
     _heartRateSubscription = null;
 
-        // Cleanup Heart Rate
+    await _spo2Subscription?.cancel();
+    _spo2Subscription = null;
+
+    await _bpSubscription?.cancel();
+    _bpSubscription = null;
+
+    await _tempSubscription?.cancel();
+    _tempSubscription = null;
+
+    // Cleanup Heart Rate
     if (_heartRateCharacteristic != null) {
       try {
         await _heartRateCharacteristic!.setNotifyValue(false);
@@ -643,6 +666,13 @@ class BleService {
     _adapterStateSubscription = null;
 
     // Close broadcast stream controllers to release listeners.
+    await _spo2Subscription?.cancel();
+    _spo2Subscription = null;
+    await _bpSubscription?.cancel();
+    _bpSubscription = null;
+    await _tempSubscription?.cancel();
+    _tempSubscription = null;
+
     await _scanResultsController.close();
     await _connectionStateController.close();
     await _heartRateController.close();

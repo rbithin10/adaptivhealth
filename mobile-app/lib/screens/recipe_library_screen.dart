@@ -46,11 +46,18 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     try {
       final rawJson = await rootBundle.loadString('assets/data/recipes.json');
       final decoded = jsonDecode(rawJson);
-      if (decoded is! List) {
+
+      // Support both the legacy array format and the v2 versioned-object format.
+      final List<dynamic> rawList;
+      if (decoded is List) {
+        rawList = decoded;
+      } else if (decoded is Map && decoded['recipes'] is List) {
+        rawList = decoded['recipes'] as List<dynamic>;
+      } else {
         throw Exception('Invalid recipes format');
       }
 
-      final recipes = decoded
+      final recipes = rawList
           .whereType<Map<String, dynamic>>()
           .map((recipe) => Map<String, dynamic>.from(recipe))
           .toList();

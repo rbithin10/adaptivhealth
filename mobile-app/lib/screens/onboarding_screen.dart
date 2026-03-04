@@ -25,7 +25,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
-import '../theme/typography.dart';
 import '../services/api_client.dart';
 
 /// Key prefix for onboarding completion.

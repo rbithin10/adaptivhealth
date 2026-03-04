@@ -14,10 +14,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/widgets.dart';
-import '../widgets/edge_ai_status_card.dart';
 import '../widgets/ai_coach_overlay.dart';
 import '../services/api_client.dart';
 import '../services/edge_ai_store.dart';
@@ -64,6 +64,8 @@ class _HealthScreenState extends State<HealthScreen>
   bool _isInsightsLoading = false;
   List<Map<String, dynamic>> _aiInsights = [];
   bool _insightsLoaded = false;
+  DateTime? _insightsCachedAt; // when the cached insights were saved
+  bool _insightsFromCache = false; // true when showing stale cached data
 
   @override
   void initState() {
@@ -76,6 +78,8 @@ class _HealthScreenState extends State<HealthScreen>
       }
     });
     _loadHealthData();
+    // Restore last-known-good insights immediately on open
+    _loadCachedInsights();
   }
 
   @override
@@ -182,15 +186,63 @@ class _HealthScreenState extends State<HealthScreen>
     try {
       final raw    = await widget.apiClient.postNLChat(prompt, []);
       final parsed = _parseAiInsights(raw);
-      setState(() {
-        _aiInsights     = parsed;
-        _insightsLoaded = true;
-      });
+      if (parsed.isNotEmpty) {
+        await _saveInsightsCache(parsed);
+        if (!mounted) return;
+        setState(() {
+          _aiInsights       = parsed;
+          _insightsFromCache = false;
+          _insightsLoaded   = true;
+        });
+      } else {
+        if (!mounted) return;
+        setState(() => _insightsLoaded = true);
+      }
     } catch (_) {
-      // AI unavailable — static fallback will show
+      // AI unavailable — cached data (if any) already shown
+      if (!mounted) return;
       setState(() => _insightsLoaded = true);
     } finally {
-      setState(() => _isInsightsLoading = false);
+      if (mounted) setState(() => _isInsightsLoading = false);
+    }
+  }
+
+  /// Persist AI insights to SharedPreferences so they survive app restarts.
+  Future<void> _saveInsightsCache(List<Map<String, dynamic>> insights) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('ai_insights_cache_json', jsonEncode(insights));
+      await prefs.setString(
+          'ai_insights_cache_ts', DateTime.now().toIso8601String());
+    } catch (e) {
+      if (kDebugMode) debugPrint('HealthScreen._saveInsightsCache: $e');
+    }
+  }
+
+  /// Load last-known-good insights from SharedPreferences.
+  Future<void> _loadCachedInsights() async {
+    try {
+      final prefs  = await SharedPreferences.getInstance();
+      final cached = prefs.getString('ai_insights_cache_json');
+      final tsStr  = prefs.getString('ai_insights_cache_ts');
+      if (cached == null) return;
+      final dynamic decoded = jsonDecode(cached);
+      if (decoded is! List) return;
+      final items = decoded
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .where((m) => m['title'] != null && m['description'] != null)
+          .toList();
+      if (items.isEmpty) return;
+      final cachedAt = tsStr != null ? DateTime.tryParse(tsStr) : null;
+      if (!mounted) return;
+      setState(() {
+        _aiInsights       = items;
+        _insightsCachedAt = cachedAt;
+        _insightsFromCache = true;
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('HealthScreen._loadCachedInsights: $e');
     }
   }
 
@@ -250,8 +302,8 @@ class _HealthScreenState extends State<HealthScreen>
       });
 
     if (filtered.isEmpty) {
-      // Fall back to demo data as a flat-ish reference line
-      return _getDemoTrends().asMap().entries.map((e) {
+      // Fall back to sample data as a flat-ish reference line
+      return _getSampleTrends().asMap().entries.map((e) {
         final row = e.value;
         double y;
         switch (metricKey) {
@@ -382,7 +434,10 @@ class _HealthScreenState extends State<HealthScreen>
         .toList();
   }
 
-  List<Map<String, dynamic>> _getDemoTrends() {
+  /// Sample/seed trend data used only when the user has no vitals history yet.
+  /// This data is display-only and must never be uploaded or used for risk
+  /// computation.
+  List<Map<String, dynamic>> _getSampleTrends() {
     return [
       {'date': 'Mon', 'hr': 72, 'spo2': 98, 'bp': 118},
       {'date': 'Tue', 'hr': 75, 'spo2': 97, 'bp': 120},
@@ -572,11 +627,16 @@ class _HealthScreenState extends State<HealthScreen>
 
   Widget _buildVitalsSection(Brightness brightness) {
     final vitals   = _healthData['vitals'] as Map<String, dynamic>? ?? {};
+    final history  = _healthData['vitalsHistory'] as List<dynamic>? ?? [];
     final hr       = (vitals['heart_rate'] as num?)?.toInt() ?? 72;
     final spo2     = (vitals['spo2']        as num?)?.toInt() ?? 98;
     final systolic = (vitals['systolic_bp'] as num?)?.toInt() ?? 120;
     final diastolic= (vitals['diastolic_bp'] as num?)?.toInt() ?? 80;
     final hrv      = (vitals['hrv']          as num?)?.toInt() ?? 45;
+
+    final hrTrend  = _sparklinesFrom(history: history, field: 'heart_rate',  current: hr.toDouble());
+    final spo2Trend= _sparklinesFrom(history: history, field: 'spo2',         current: spo2.toDouble());
+    final hrvTrend = _sparklinesFrom(history: history, field: 'hrv',          current: hrv.toDouble());
 
     // Feed vitals to edge AI
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -670,7 +730,7 @@ class _HealthScreenState extends State<HealthScreen>
                     value: hr.toString(),
                     unit: 'BPM',
                     status: _getHRStatus(hr),
-                    trend: [68.0, 70.0, 72.0, 71.0, 73.0, hr.toDouble()],
+                    trend: hrTrend,
                     onTap: () => _showVitalDetail('Heart Rate'),
                   ),
                 ),
@@ -683,7 +743,7 @@ class _HealthScreenState extends State<HealthScreen>
                     value: spo2.toString(),
                     unit: '%',
                     status: spo2 < 95 ? VitalStatus.warning : VitalStatus.safe,
-                    trend: [97.0, 98.0, 98.0, 97.0, 98.0, spo2.toDouble()],
+                    trend: spo2Trend,
                     onTap: () => _showVitalDetail('SpO2'),
                   ),
                 ),
@@ -708,7 +768,7 @@ class _HealthScreenState extends State<HealthScreen>
                     value: hrv.toString(),
                     unit: 'ms',
                     status: hrv > 40 ? VitalStatus.safe : VitalStatus.caution,
-                    trend: [42.0, 44.0, 45.0, 43.0, 46.0, hrv.toDouble()],
+                    trend: hrvTrend,
                     onTap: () => _showVitalDetail('HRV'),
                   ),
                 ),
@@ -731,6 +791,31 @@ class _HealthScreenState extends State<HealthScreen>
     if (systolic > 140) return VitalStatus.critical;
     if (systolic > 130) return VitalStatus.warning;
     return VitalStatus.safe;
+  }
+
+  /// Extract up to [points]-1 historical values for [field] from
+  /// [vitalsHistory] (newest-first API list) and append [current] as the
+  /// final point.  Left-pads with [current] when fewer readings exist so
+  /// the sparkline always has exactly [points] values.
+  List<double> _sparklinesFrom({
+    required List<dynamic> history,
+    required String field,
+    required double current,
+    int points = 6,
+  }) {
+    final taken = history
+        .take(points - 1)
+        .map((dynamic v) {
+          if (v is Map) return (v[field] as num?)?.toDouble();
+          return null;
+        })
+        .whereType<double>()
+        .toList()
+        .reversed
+        .toList();
+    final pad = taken.isNotEmpty ? taken.first : current;
+    while (taken.length < points - 1) taken.insert(0, pad);
+    return [...taken, current];
   }
 
   /// Switch to the Trends tab and expand the corresponding metric card.
@@ -836,23 +921,46 @@ class _HealthScreenState extends State<HealthScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 16),
+                        // Demo data banner — shown when no real vitals history exists
+                        if (isDemoData)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: Colors.amber.withOpacity(0.4)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline,
+                                    size: 14, color: Colors.amber),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'No readings yet — chart will fill automatically as vitals sync.',
+                                    style: AdaptivTypography
+                                        .captionFor(brightness)
+                                        .copyWith(
+                                            color: Colors.amber[800],
+                                            fontStyle: FontStyle.italic),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         // 7D / 30D range toggle
                         Row(
                           children: [
                             _rangeChip(7, brightness),
                             const SizedBox(width: 8),
                             _rangeChip(30, brightness),
-                            const Spacer(),
-                            if (isDemoData)
-                              Text(
-                                'Demo · syncs automatically',
-                                style: AdaptivTypography.captionFor(brightness)
-                                    .copyWith(fontStyle: FontStyle.italic),
-                              ),
                           ],
                         ),
                         const SizedBox(height: 10),
-                        // Line chart
+                        // Line chart (sample data watermark shown inside when isDemoData)
                         _buildLineChart(spots, m.color, isDemoData, brightness),
                         const SizedBox(height: 10),
                         // Insight caption
@@ -927,7 +1035,7 @@ class _HealthScreenState extends State<HealthScreen>
     final minY = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b) * 0.97;
     final maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) * 1.03;
 
-    return SizedBox(
+    final chart = SizedBox(
       height: 100,
       child: LineChart(
         LineChartData(
@@ -951,6 +1059,27 @@ class _HealthScreenState extends State<HealthScreen>
           ],
         ),
       ),
+    );
+
+    if (!isDemoData) return chart;
+
+    // Overlay a "Sample data" watermark when showing seed data.
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        chart,
+        IgnorePointer(
+          child: Text(
+            'Sample data',
+            style: AdaptivTypography.captionFor(brightness).copyWith(
+              color: AdaptivColors.getSecondaryTextColor(brightness)
+                  .withOpacity(0.35),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1157,7 +1286,7 @@ class _HealthScreenState extends State<HealthScreen>
                 Text(title,
                     style: AdaptivTypography.body
                         .copyWith(fontWeight: FontWeight.w600)),
-                if (subtitle.isNotEmpty) ..[
+                if (subtitle.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(subtitle,
                       style: AdaptivTypography.bodySmallFor(brightness)),
@@ -1226,22 +1355,25 @@ class _HealthScreenState extends State<HealthScreen>
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          for (int i = 0; i < 4; i++) ...[_shimmerCard(brightness), const SizedBox(height: 12)],
+          for (int i = 0; i < 4; i++) ...[
+            _shimmerCard(brightness),
+            const SizedBox(height: 12),
+          ],
         ],
       );
     }
 
-    final insights = _aiInsights.isNotEmpty ? _aiInsights : _staticInsights();
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (_aiInsights.isNotEmpty)
+        if (_aiInsights.isNotEmpty) ...[
+          // Header row with source label
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 4),
             child: Row(
               children: [
-                const Icon(Icons.auto_awesome, size: 14, color: AdaptivColors.primary),
+                const Icon(Icons.auto_awesome,
+                    size: 14, color: AdaptivColors.primary),
                 const SizedBox(width: 6),
                 Text(
                   'Personalised by AI Coach',
@@ -1250,23 +1382,103 @@ class _HealthScreenState extends State<HealthScreen>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                const Spacer(),
+                if (_insightsFromCache && _insightsCachedAt != null)
+                  Text(
+                    _relativeCacheAge(_insightsCachedAt!),
+                    style: AdaptivTypography.captionFor(brightness).copyWith(
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
               ],
             ),
           ),
-        for (final insight in insights) ...[_buildInsightCard(insight, brightness), const SizedBox(height: 12)],
-        if (_insightsLoaded && _aiInsights.isEmpty)
+          const SizedBox(height: 8),
+          for (final insight in _aiInsights) ...[
+            _buildInsightCard(insight, brightness),
+            const SizedBox(height: 12),
+          ],
+          // Refresh button
           Center(
             child: TextButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('Load AI insights'),
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Refresh insights'),
               onPressed: () {
-                setState(() => _insightsLoaded = false);
+                setState(() {
+                  _insightsLoaded   = false;
+                  _insightsFromCache = false;
+                });
                 _loadAiInsights();
               },
             ),
           ),
+        ] else ...[
+          // Offline state card
+          Container(
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: AdaptivColors.getSurfaceColor(brightness),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: AdaptivColors.getBorderColor(brightness)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.cloud_off,
+                    size: 20,
+                    color: AdaptivColors.getSecondaryTextColor(brightness)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'AI Coach offline',
+                        style: AdaptivTypography.body.copyWith(
+                            fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        'Check your connection and tap retry.',
+                        style: AdaptivTypography.bodySmallFor(brightness),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() => _insightsLoaded = false);
+                    _loadAiInsights();
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ],
+        // General tips section — clearly labelled supplement, not AI-generated
+        const SizedBox(height: 8),
+        Text(
+          'General Cardiovascular Tips',
+          style: AdaptivTypography.labelFor(brightness)
+              .copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        for (final insight in _staticInsights()) ...[
+          _buildInsightCard(insight, brightness),
+          const SizedBox(height: 12),
+        ],
       ],
     );
+  }
+
+  /// Return a human-readable relative age for cached insight data.
+  String _relativeCacheAge(DateTime cachedAt) {
+    final diff = DateTime.now().difference(cachedAt);
+    if (diff.inMinutes < 2)  return 'Cached • just now';
+    if (diff.inMinutes < 60) return 'Cached • ${diff.inMinutes}m ago';
+    if (diff.inHours   < 24) return 'Cached • ${diff.inHours}h ago';
+    return 'Cached • ${diff.inDays}d ago';
   }
 
   List<Map<String, dynamic>> _staticInsights() {

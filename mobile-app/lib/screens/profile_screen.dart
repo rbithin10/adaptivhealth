@@ -18,6 +18,7 @@ import '../services/mock_vitals_service.dart';
 import '../services/notification_service.dart';
 import '../services/medication_reminder_service.dart';
 import '../providers/auth_provider.dart';
+import '../providers/vitals_provider.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/device_pairing_screen.dart';
 
@@ -53,13 +54,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _shareState = 'SHARING_ON';
   bool _consentLoading = false;
 
-  // DEV demo stream state
-  MockVitalsService? _mockVitalsService;
-  StreamSubscription<VitalReading>? _mockVitalsSub;
+  // DEV demo stream local UI state
+  // _mockRunning is kept as local state for immediate button feedback;
+  // the canonical truth is VitalsProvider.isMockRunning.
   bool _mockRunning = false;
   bool _mockBusy = false;
   MockScenario _mockMode = MockScenario.rest;
-  VitalReading? _lastMockReading;
 
   // Medication reminders state
   List<Map<String, dynamic>> _medications = [];
@@ -77,26 +77,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadConsentStatus();
     _loadMedicationReminders();
 
-    if (widget.mockVitalsService != null) {
-      _mockVitalsService = widget.mockVitalsService;
-      _mockRunning = _mockVitalsService!.isRunning;
-      _mockMode = _mockVitalsService!.currentScenario;
-      _mockVitalsSub = _mockVitalsService!.stream.listen((reading) {
-        if (!mounted) return;
-        setState(() {
-          _lastMockReading = reading;
-          _mockRunning = _mockVitalsService?.isRunning ?? false;
-        });
-      });
-    }
+    // Sync _mockRunning with VitalsProvider after first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        final provider = Provider.of<VitalsProvider>(context, listen: false);
+        if (provider.isMockRunning) {
+          setState(() => _mockRunning = true);
+        }
+      } catch (_) {}
+    });
   }
 
   @override
   void dispose() {
-    _mockVitalsSub?.cancel();
-    if (widget.mockVitalsService == null) {
-      _mockVitalsService?.dispose();
-    }
     _nameController.dispose();
     _ageController.dispose();
     _phoneController.dispose();
@@ -105,38 +99,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _startMockVitalsStream() async {
     if (_mockBusy || _mockRunning) return;
-
     setState(() => _mockBusy = true);
     try {
-      if (_mockVitalsService == null) {
-        final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
-        _mockVitalsService = MockVitalsService(
-          apiClient: widget.apiClient,
-          edgeAiStore: edgeStore,
-        );
-      }
-
-      await _mockVitalsSub?.cancel();
-      _mockVitalsSub = _mockVitalsService!.stream.listen((reading) {
-        if (!mounted) return;
-        setState(() {
-          _lastMockReading = reading;
-        });
-      });
-
-      await _mockVitalsService!.start(
-        interval: const Duration(seconds: 5),
+      // Delegate to VitalsProvider — readings flow through vitalsStream
+      // to every subscriber including ActiveWorkoutScreen.
+      final provider = Provider.of<VitalsProvider>(context, listen: false);
+      await provider.startMock(
         scenario: _mockMode,
+        interval: const Duration(seconds: 5),
       );
 
       if (!mounted) return;
-      setState(() {
-        _mockRunning = true;
-      });
+      setState(() => _mockRunning = true);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Mock vitals stream started (DEV ONLY)'),
+          content: Text('Demo simulator started'),
           duration: Duration(seconds: 2),
         ),
       );
@@ -144,41 +122,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Could not start mock stream: $e'),
+          content: Text('Could not start simulator: $e'),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() => _mockBusy = false);
-      }
+      if (mounted) setState(() => _mockBusy = false);
     }
   }
 
   Future<void> _stopMockVitalsStream() async {
     if (_mockBusy || !_mockRunning) return;
-
     setState(() => _mockBusy = true);
     try {
-      _mockVitalsService?.stop();
-      await _mockVitalsSub?.cancel();
-      _mockVitalsSub = null;
+      final provider = Provider.of<VitalsProvider>(context, listen: false);
+      await provider.stopMock();
 
       if (!mounted) return;
-      setState(() {
-        _mockRunning = false;
-      });
+      setState(() => _mockRunning = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Mock vitals stream stopped'),
+          content: Text('Demo simulator stopped'),
           duration: Duration(seconds: 2),
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() => _mockBusy = false);
-      }
+      if (mounted) setState(() => _mockBusy = false);
     }
   }
 
@@ -598,7 +568,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ? Padding(
                                   padding: const EdgeInsets.all(16),
                                   child: DropdownButtonFormField<String>(
-                                    value: _selectedGender,
+                                    initialValue: _selectedGender,
                                     decoration: const InputDecoration(
                                       labelText: 'Gender',
                                       prefixIcon: Icon(Icons.wc),
@@ -759,7 +729,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                             onChanged: _shareState == 'SHARING_DISABLE_REQUESTED'
                                                 ? null
                                                 : (_) => _toggleSharing(),
-                                            activeColor: AdaptivColors.primary,
+                                            activeThumbColor: AdaptivColors.primary,
                                           ),
                                   ],
                                 ),
@@ -1066,7 +1036,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
           DropdownButtonFormField<MockScenario>(
-            value: _mockMode,
+            initialValue: _mockMode,
             isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Simulation Scenario',
@@ -1095,18 +1065,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ? null
                 : (MockScenario? value) {
                     if (value == null) return;
-                    setState(() {
-                      _mockMode = value;
-                    });
-                    _mockVitalsService?.setScenario(value);
+                    setState(() => _mockMode = value);
+                    // Also update live provider in case mock is already running.
+                    try {
+                      Provider.of<VitalsProvider>(context, listen: false)
+                          .setMockScenario(value);
+                    } catch (_) {}
                   },
           ),
           const SizedBox(height: 10),
-          if (_lastMockReading != null)
-            _buildEdgeInfoRow(
+          Builder(builder: (ctx) {
+            // Show the most recent reading from VitalsProvider (mock source).
+            VitalsReading? latest;
+            try {
+              final p = Provider.of<VitalsProvider>(ctx, listen: false);
+              if (p.isMockRunning) latest = p.latestReading;
+            } catch (_) {}
+            if (latest == null) return const SizedBox.shrink();
+            return _buildEdgeInfoRow(
               'Last Mock Reading',
-              'HR ${_lastMockReading!.heartRate} | SpO₂ ${_lastMockReading!.spo2}% | BP ${_lastMockReading!.bloodPressureSystolic}/${_lastMockReading!.bloodPressureDiastolic} | Phase: ${_lastMockReading!.phase}',
-            ),
+              'HR ${latest.heartRate.toInt()} | '
+              'SpO₂ ${latest.spo2?.toInt() ?? '—'}% | '
+              'BP ${latest.systolicBp?.toInt() ?? '—'}/${latest.diastolicBp?.toInt() ?? '—'}',
+            );
+          }),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -1224,9 +1206,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   bool _hasEdgeStore() {
-    if (_mockVitalsService != null) {
-      return true;
-    }
     try {
       Provider.of<EdgeAiStore>(context, listen: false);
       return true;
@@ -1242,10 +1221,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600)),
-          Text(value, style: AdaptivTypography.caption.copyWith(fontWeight: FontWeight.w600)),
+          Expanded(
+            flex: 2,
+            child: Text(
+              label,
+              style: AdaptivTypography.caption.copyWith(
+                color: AdaptivColors.text600,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 3,
+            child: Text(
+              value,
+              style: AdaptivTypography.caption.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
         ],
       ),
     );
@@ -1431,7 +1431,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onChanged: (value) {
               _updateMedicationReminder(medId, enabled: value);
             },
-            activeColor: AdaptivColors.primary,
+            activeThumbColor: AdaptivColors.primary,
           ),
         ],
       ),

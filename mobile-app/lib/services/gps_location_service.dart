@@ -16,6 +16,7 @@
 /// NOTE: This uses a lightweight approach with platform channels
 /// to avoid adding the heavy geolocator package (~2MB). For production,
 /// you can swap in the `geolocator` package for more features.
+library;
 
 import 'dart:async';
 import 'package:flutter/services.dart';

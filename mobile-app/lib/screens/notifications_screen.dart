@@ -281,8 +281,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return const SizedBox.shrink();
     }
 
-    if (edgeStore == null) return const SizedBox.shrink();
-
     final hasAlerts = edgeStore.activeAlerts.isNotEmpty;
     final hasEmergency = edgeStore.latestEmergency != null;
     final hasPending = edgeStore.pendingSyncCount > 0;

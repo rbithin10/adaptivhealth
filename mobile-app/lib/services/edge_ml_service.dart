@@ -13,6 +13,7 @@
 /// FALLBACK:
 ///   If assets fail to load, _isReady stays false and EdgeAiStore falls back
 ///   to threshold-only alerts.
+library;
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';

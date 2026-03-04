@@ -527,7 +527,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'test@example.com',
+                        'patient1@test.com',
                         style: AdaptivTypography.caption.copyWith(
                           color: Colors.white.withOpacity(0.9),
                         ),
