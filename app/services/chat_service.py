@@ -27,6 +27,7 @@ de-identified before being sent to the external LLM.
 """
 
 import logging
+import re as _re
 from typing import Optional, Callable
 from datetime import datetime, timedelta, timezone
 
@@ -55,23 +56,34 @@ DISCLAIMER_SUFFIX = (
 # Intent Classification (keyword-based, server-side)
 # =============================================================================
 
+def _word_in(word: str, text: str) -> bool:
+    """Return True if `word` appears as a whole word (word-boundary) in `text`."""
+    return bool(_re.search(r"\b" + _re.escape(word) + r"\b", text))
+
+
 def _classify_intent(message: str) -> Optional[str]:
     """
     Classify user message into a known intent using keyword matching.
 
-    Mirrors the logic previously in floating_chatbot.dart, now server-side
-    for consistency and easier updates.
+    Uses word-boundary checks for short ambiguous words (e.g. 'health'
+    must not match 'healthy') to prevent false-positive intent matches.
 
     Returns intent string or None if no match.
     """
     lower = message.lower()
 
+    # Nutrition / Diet — checked FIRST so that "healthy food/diet" doesn't
+    # fall through to the risk_summary 'health' keyword below.
+    if any(_word_in(kw, lower) for kw in [
+        "nutrition", "food", "eat", "diet", "meal",
+    ]):
+        return "nutrition"
+
     # Health / Risk status
     if any(kw in lower for kw in [
-        "heart rate", "health", "risk", "safe", "status",
-        "how am i", "doing", "vitals", "blood pressure", "oxygen",
-        "spo2", "pulse",
-    ]):
+        "heart rate", "blood pressure", "spo2", "pulse",
+        "oxygen", "vitals", "how am i", "doing", "status",
+    ]) or _word_in("health", lower) or _word_in("risk", lower) or _word_in("safe", lower):
         return "risk_summary"
 
     # Workout / Exercise
@@ -89,19 +101,13 @@ def _classify_intent(message: str) -> Optional[str]:
 
     # Progress / Trends
     if any(kw in lower for kw in [
-        "progress", "improve", "better", "trend", "week", "month",
-    ]):
+        "progress", "improve", "trend",
+    ]) or _word_in("better", lower) or _word_in("week", lower) or _word_in("month", lower):
         return "progress"
 
     # Sleep
-    if "sleep" in lower:
+    if _word_in("sleep", lower):
         return "sleep"
-
-    # Nutrition / Diet
-    if any(kw in lower for kw in [
-        "nutrition", "food", "eat", "diet", "meal",
-    ]):
-        return "nutrition"
 
     # Contact doctor
     if any(kw in lower for kw in [
