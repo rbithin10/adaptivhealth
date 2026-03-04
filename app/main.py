@@ -112,6 +112,7 @@ app.add_middleware(
     allow_origin_regex=(
         r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"  # local dev
         r"|^https://(dashboard\.|www\.)?adaptivhealth\.com$"  # custom domain
+        r"|^https://dashboard-adaptivhealthuowd\.xyz$"  # custom Vercel dashboard domain
         r"|^https?://adaptivhealth-alb-[\w-]+\.me-central-1\.elb\.amazonaws\.com(:\d+)?$"  # AWS ALB
         r"|^https?://[\w-]+\.cloudfront\.net(:\d+)?$"  # CloudFront CDN
         r"|^https?://[\w.-]+\.s3-website[.-][\w-]+\.amazonaws\.com(:\d+)?$"  # S3 static hosting
@@ -174,11 +175,21 @@ async def log_requests(request: Request, call_next):
 def _cors_headers(request: Request) -> dict:
     """Build CORS headers from request origin so error responses aren't blocked by the browser."""
     origin = request.headers.get("origin", "")
+    # Allow localhost dev origins
     if re.match(r"^http://(localhost|127\.0\.0\.1):\d+$", origin):
         return {
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Credentials": "true",
         }
+
+    # Allow the production dashboard origin explicitly so error responses
+    # are not blocked by browsers when clients call the API.
+    if origin == "https://dashboard-adaptivhealthuowd.xyz":
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+
     return {}
 
 
