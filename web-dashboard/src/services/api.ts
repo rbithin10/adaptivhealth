@@ -102,7 +102,7 @@ class ApiService {
           const refreshToken = localStorage.getItem('refresh_token');
           if (refreshToken) {
             try {
-              const resp = await axios.post(`${API_BASE_URL}/api/v1/refresh`, { refresh_token: refreshToken });
+              const resp = await axios.post(`${API_BASE_URL}/api/v1/access/renew`, { refresh_token: refreshToken });
               const newToken = resp.data.access_token;
               localStorage.setItem('token', newToken);
               if (resp.data.refresh_token) {
@@ -147,7 +147,7 @@ class ApiService {
     formData.append('username', email);
     formData.append('password', password);
 
-    const response = await this.client.post<TokenResponse>('/login', formData, {
+    const response = await this.client.post<TokenResponse>('/access', formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
@@ -180,7 +180,7 @@ class ApiService {
     gender?: string;
     phone?: string;
   }): Promise<User> {
-    const response = await this.client.post<User>('/register', {
+    const response = await this.client.post<User>('/onboard', {
       email: userData.email,
       password: userData.password,
       name: userData.full_name,

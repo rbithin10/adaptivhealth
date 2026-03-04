@@ -140,7 +140,7 @@ class ApiClient {
             // Try refreshing the token once
             try {
               final refreshResp = await _dio.post(
-                '/refresh',
+                '/access/renew',
                 data: {'refresh_token': _refreshToken},
                 options: Options(extra: {'_retried': true}),
               );
@@ -178,7 +178,7 @@ class ApiClient {
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await _dio.post(
-        '/login',
+        '/access',
         data: {
           'username': email,  // FastAPI OAuth2 uses 'username'
           'password': password,
@@ -252,7 +252,7 @@ class ApiClient {
       if (phone != null && phone.isNotEmpty) data['phone'] = phone;
 
       final response = await _dio.post(
-        '/register',
+        '/onboard',
         data: data,
       );
       return response.data;
