@@ -133,15 +133,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return AiCoachOverlay(
       apiClient: widget.apiClient,
       child: Scaffold(
-        backgroundColor: AdaptivColors.background50,
+        backgroundColor: AdaptivColors.getBackgroundColor(brightness),
         appBar: AppBar(
           title: Text('Activity History', style: AdaptivTypography.screenTitle),
-          backgroundColor: Colors.white,
+          backgroundColor: AdaptivColors.getSurfaceColor(brightness),
+          foregroundColor: AdaptivColors.getTextColor(brightness),
           elevation: 0,
-          automaticallyImplyLeading: false,
         ),
         body: Container(
           decoration: BoxDecoration(
@@ -149,8 +150,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
               image: const AssetImage('assets/images/history_bg.png'),
               fit: BoxFit.cover,
               colorFilter: ColorFilter.mode(
-                Colors.white.withOpacity(0.85),
-                BlendMode.lighten,
+                brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.6)
+                    : Colors.white.withOpacity(0.85),
+                brightness == Brightness.dark
+                    ? BlendMode.darken
+                    : BlendMode.lighten,
               ),
             ),
           ),

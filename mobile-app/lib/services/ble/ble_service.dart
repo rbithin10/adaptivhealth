@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import '../../config/platform_guard.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -30,6 +30,14 @@ class BleService {
   factory BleService() {
     return instance;
   }
+    // Additional health service UUIDs
+  static final Guid pulseOximeterServiceUuid = Guid('1822');
+  static final Guid spo2ContinuousMeasurementUuid = Guid('2A5F');
+  static final Guid bloodPressureServiceUuid = Guid('1810');
+  static final Guid bloodPressureMeasurementUuid = Guid('2A35');
+  static final Guid healthThermometerServiceUuid = Guid('1809');
+  static final Guid temperatureMeasurementUuid = Guid('2A1C');
+
 
   static final Guid heartRateServiceUuid = Guid('180D');
   static final Guid heartRateMeasurementUuid = Guid('2A37');
@@ -46,6 +54,12 @@ class BleService {
       StreamController<BluetoothConnectionState>.broadcast();
   final StreamController<BleHeartRateReading> _heartRateController =
       StreamController<BleHeartRateReading>.broadcast();
+    final StreamController<BlePulseOximeterReading> _spo2Controller =
+      StreamController<BlePulseOximeterReading>.broadcast();
+  final StreamController<BleBloodPressureReading> _bpController =
+      StreamController<BleBloodPressureReading>.broadcast();
+  final StreamController<BleTemperatureReading> _tempController =
+      StreamController<BleTemperatureReading>.broadcast();
 
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
@@ -60,10 +74,20 @@ class BleService {
   String? _lastSavedDeviceId;
   String? _lastSavedDeviceName;
 
+  BluetoothCharacteristic? _spo2Characteristic;
+  BluetoothCharacteristic? _bpCharacteristic;
+  BluetoothCharacteristic? _tempCharacteristic;
+
+
   Stream<List<ScanResult>> get scanResultsStream => _scanResultsController.stream;
   Stream<BluetoothConnectionState> get connectionStateStream =>
       _connectionStateController.stream;
   Stream<BleHeartRateReading> get heartRateStream => _heartRateController.stream;
+
+  Stream<BlePulseOximeterReading> get spo2Stream => _spo2Controller.stream;
+  Stream<BleBloodPressureReading> get bpStream => _bpController.stream;
+  Stream<BleTemperatureReading> get tempStream => _tempController.stream;
+
 
   BluetoothDevice? get connectedDevice => _connectedDevice;
 
@@ -86,7 +110,7 @@ class BleService {
 
   /// Request the OS to enable Bluetooth (Android only; no-op on iOS).
   static Future<void> requestBluetoothOn() async {
-    if (Platform.isAndroid) {
+    if (isAndroid) {
       try {
         await FlutterBluePlus.turnOn();
       } catch (_) {
@@ -95,21 +119,27 @@ class BleService {
     }
   }
 
-  Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
+  Future<void> startScan({
+    Duration timeout = const Duration(seconds: 10),
+    bool discoverAll = false,
+  }) async {
     _updateConnectionStatus(BleConnectionStatus.scanning);
 
-    _scanSubscription ??= FlutterBluePlus.scanResults.listen((results) {
-      final filtered = results.where((result) {
-        return result.advertisementData.serviceUuids
-            .contains(heartRateServiceUuid);
-      }).toList()
-        ..sort((a, b) => b.rssi.compareTo(a.rssi));
-
+    // Cancel any existing subscription so the new filter mode takes effect.
+    await _scanSubscription?.cancel();
+    _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+      final filtered = discoverAll
+          ? results.toList()
+          : results.where((result) {
+              return result.advertisementData.serviceUuids
+                  .contains(heartRateServiceUuid);
+            }).toList();
+      filtered.sort((a, b) => b.rssi.compareTo(a.rssi));
       _scanResultsController.add(filtered);
     });
 
     await FlutterBluePlus.startScan(
-      withServices: [heartRateServiceUuid],
+      withServices: discoverAll ? [] : [heartRateServiceUuid],
       timeout: timeout,
     );
 
@@ -126,7 +156,12 @@ class BleService {
     }
   }
 
-  Future<void> connectToDevice(BluetoothDevice device) async {
+  Future<void> connectToDevice(
+    BluetoothDevice device, {
+    bool subscribeSpO2 = false,
+    bool subscribeBloodPressure = false,
+    bool subscribeTemperature = false,
+  }) async {
     _manualDisconnectRequested = false;
 
     await stopScan();
@@ -140,15 +175,24 @@ class BleService {
 
     await _subscribeToConnectionState(device);
 
-    await _connectAndSubscribe(device, allowAutoConnect: true);
+    await _connectAndSubscribe(
+      device,
+      allowAutoConnect: true,
+      subscribeSpO2: subscribeSpO2,
+      subscribeBloodPressure: subscribeBloodPressure,
+      subscribeTemperature: subscribeTemperature,
+    );
 
     await _persistLastConnectedDevice(device);
     _updateConnectionStatus(BleConnectionStatus.connected);
   }
 
-  Future<void> _connectAndSubscribe(
+    Future<void> _connectAndSubscribe(
     BluetoothDevice device, {
     required bool allowAutoConnect,
+    bool subscribeSpO2 = false,
+    bool subscribeBloodPressure = false,
+    bool subscribeTemperature = false,
   }) async {
     try {
       await device.connect(
@@ -159,9 +203,51 @@ class BleService {
       // Ignore already-connected exceptions and continue service discovery.
     }
 
-    await _discoverHeartRateCharacteristic(device);
-    await _subscribeToHeartRate(device);
+    // Always attempt HR (backward compatibility)
+    try {
+      await _discoverHeartRateCharacteristic(device);
+      await _subscribeToHeartRate(device);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('BLE: Heart Rate service not found or failed to subscribe: $e');
+      }
+      // Continue to try other services even if HR fails
+    }
+
+    // Optional SpO2 subscription
+    if (subscribeSpO2) {
+      try {
+        await _discoverAndSubscribeSpo2(device);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('BLE: SpO2 service not found: $e');
+        }
+      }
+    }
+
+    // Optional Blood Pressure subscription
+    if (subscribeBloodPressure) {
+      try {
+        await _discoverAndSubscribeBp(device);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('BLE: Blood Pressure service not found: $e');
+        }
+      }
+    }
+
+    // Optional Temperature subscription
+    if (subscribeTemperature) {
+      try {
+        await _discoverAndSubscribeTemp(device);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('BLE: Temperature service not found: $e');
+        }
+      }
+    }
   }
+
 
   Future<void> _discoverHeartRateCharacteristic(BluetoothDevice device) async {
     final services = await device.discoverServices();
@@ -206,6 +292,131 @@ class BleService {
 
       if (reading != null) {
         _heartRateController.add(reading);
+      }
+    });
+  }
+    Future<void> _discoverAndSubscribeSpo2(BluetoothDevice device) async {
+    final services = await device.discoverServices();
+    BluetoothCharacteristic? spo2Char;
+
+    for (final service in services) {
+      if (service.uuid != pulseOximeterServiceUuid) {
+        continue;
+      }
+      for (final characteristic in service.characteristics) {
+        if (characteristic.uuid == spo2ContinuousMeasurementUuid) {
+          spo2Char = characteristic;
+          break;
+        }
+      }
+      if (spo2Char != null) {
+        break;
+      }
+    }
+
+    if (spo2Char == null) {
+      throw Exception('SpO2 Continuous Measurement characteristic 0x2A5F not found');
+    }
+
+    _spo2Characteristic = spo2Char;
+
+    await _spo2Characteristic!.setNotifyValue(true);
+
+    _spo2Characteristic!.lastValueStream.listen((data) {
+      if (data.isEmpty) return;
+
+      final reading = BleHealthParser.parsePulseOximeter(
+        data,
+        deviceId: device.remoteId.str,
+        deviceName: _resolveDeviceName(device),
+      );
+
+      if (reading != null) {
+        _spo2Controller.add(reading);
+      }
+    });
+  }
+
+  Future<void> _discoverAndSubscribeBp(BluetoothDevice device) async {
+    final services = await device.discoverServices();
+    BluetoothCharacteristic? bpChar;
+
+    for (final service in services) {
+      if (service.uuid != bloodPressureServiceUuid) {
+        continue;
+      }
+      for (final characteristic in service.characteristics) {
+        if (characteristic.uuid == bloodPressureMeasurementUuid) {
+          bpChar = characteristic;
+          break;
+        }
+      }
+      if (bpChar != null) {
+        break;
+      }
+    }
+
+    if (bpChar == null) {
+      throw Exception('Blood Pressure Measurement characteristic 0x2A35 not found');
+    }
+
+    _bpCharacteristic = bpChar;
+
+    await _bpCharacteristic!.setNotifyValue(true);
+
+    _bpCharacteristic!.lastValueStream.listen((data) {
+      if (data.isEmpty) return;
+
+      final reading = BleHealthParser.parseBloodPressure(
+        data,
+        deviceId: device.remoteId.str,
+        deviceName: _resolveDeviceName(device),
+      );
+
+      if (reading != null) {
+        _bpController.add(reading);
+      }
+    });
+  }
+
+  Future<void> _discoverAndSubscribeTemp(BluetoothDevice device) async {
+    final services = await device.discoverServices();
+    BluetoothCharacteristic? tempChar;
+
+    for (final service in services) {
+      if (service.uuid != healthThermometerServiceUuid) {
+        continue;
+      }
+      for (final characteristic in service.characteristics) {
+        if (characteristic.uuid == temperatureMeasurementUuid) {
+          tempChar = characteristic;
+          break;
+        }
+      }
+      if (tempChar != null) {
+        break;
+      }
+    }
+
+    if (tempChar == null) {
+      throw Exception('Temperature Measurement characteristic 0x2A1C not found');
+    }
+
+    _tempCharacteristic = tempChar;
+
+    await _tempCharacteristic!.setNotifyValue(true);
+
+    _tempCharacteristic!.lastValueStream.listen((data) {
+      if (data.isEmpty) return;
+
+      final reading = BleHealthParser.parseTemperature(
+        data,
+        deviceId: device.remoteId.str,
+        deviceName: _resolveDeviceName(device),
+      );
+
+      if (reading != null) {
+        _tempController.add(reading);
       }
     });
   }
@@ -279,14 +490,38 @@ class BleService {
     await _heartRateSubscription?.cancel();
     _heartRateSubscription = null;
 
+        // Cleanup Heart Rate
     if (_heartRateCharacteristic != null) {
       try {
         await _heartRateCharacteristic!.setNotifyValue(false);
-      } catch (_) {
-        // Best-effort cleanup.
-      }
+      } catch (_) {}
     }
     _heartRateCharacteristic = null;
+
+    // Cleanup SpO2
+    if (_spo2Characteristic != null) {
+      try {
+        await _spo2Characteristic!.setNotifyValue(false);
+      } catch (_) {}
+    }
+    _spo2Characteristic = null;
+
+    // Cleanup Blood Pressure
+    if (_bpCharacteristic != null) {
+      try {
+        await _bpCharacteristic!.setNotifyValue(false);
+      } catch (_) {}
+    }
+    _bpCharacteristic = null;
+
+    // Cleanup Temperature
+    if (_tempCharacteristic != null) {
+      try {
+        await _tempCharacteristic!.setNotifyValue(false);
+      } catch (_) {}
+    }
+    _tempCharacteristic = null;
+
 
     await _connectionSubscription?.cancel();
     _connectionSubscription = null;
@@ -411,6 +646,10 @@ class BleService {
     await _scanResultsController.close();
     await _connectionStateController.close();
     await _heartRateController.close();
+    await _spo2Controller.close();
+    await _bpController.close();
+    await _tempController.close();
+
 
     connectionStatusNotifier.dispose();
   }

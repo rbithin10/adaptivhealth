@@ -712,9 +712,20 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     return Container(
-      color: AdaptivColors.getBackgroundColor(brightness),
+      decoration: BoxDecoration(
+        image: DecorationImage(
+          image: const AssetImage('assets/images/health_bg2.png'),
+          fit: BoxFit.cover,
+          colorFilter: ColorFilter.mode(
+            brightness == Brightness.dark
+                ? Colors.black.withOpacity(0.6)
+                : Colors.white.withOpacity(0.85),
+            brightness == Brightness.dark ? BlendMode.darken : BlendMode.lighten,
+          ),
+        ),
+      ),
       child: Stack(
         children: [
           Column(
@@ -854,10 +865,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildGoalItem('Calories', '${_totalCaloriesToday} / ${_goalCalories} kcal'),
-                _buildGoalItem('Protein', '${_totalProteinToday} / ${_goalProteinGrams}g'),
-                _buildGoalItem('Carbs', '${_totalCarbsToday} / ${_goalCarbsGrams}g'),
-                _buildGoalItem('Fat', '${_totalFatToday} / ${_goalFatGrams}g'),
+                Expanded(child: _buildGoalItem('Calories', '$_totalCaloriesToday / $_goalCalories kcal')),
+                Expanded(child: _buildGoalItem('Protein', '$_totalProteinToday / ${_goalProteinGrams}g')),
+                Expanded(child: _buildGoalItem('Carbs', '$_totalCarbsToday / ${_goalCarbsGrams}g')),
+                Expanded(child: _buildGoalItem('Fat', '$_totalFatToday / ${_goalFatGrams}g')),
               ],
             ),
             const SizedBox(height: 12),
@@ -881,7 +892,13 @@ class _NutritionScreenState extends State<NutritionScreen> {
   Widget _buildGoalItem(String label, String value) {
     return Column(
       children: [
-        Text(value, style: AdaptivTypography.metricValue),
+        Text(
+          value,
+          style: AdaptivTypography.metricValue,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         Text(label, style: AdaptivTypography.caption),
       ],
     );

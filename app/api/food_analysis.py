@@ -92,7 +92,7 @@ async def analyze_food_image(file: UploadFile = File(...)):
 
     try:
         genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
 
         response = model.generate_content(
             [

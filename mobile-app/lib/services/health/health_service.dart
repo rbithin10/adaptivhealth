@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:health/health.dart';
+import '../../config/platform_guard.dart';
 
 /// Singleton wrapper around HealthKit (iOS) and Google Fit / Health Connect (Android).
 class HealthService {
@@ -34,7 +33,7 @@ class HealthService {
 
   /// Requests read authorization for all supported metrics.
   Future<bool> requestAuthorization() async {
-    if (!Platform.isIOS && !Platform.isAndroid) {
+    if (!isMobile) {
       return false;
     }
 
@@ -122,7 +121,7 @@ class HealthService {
     List<HealthDataType> types, {
     required Duration lookback,
   }) async {
-    if (!Platform.isIOS && !Platform.isAndroid) {
+    if (!isMobile) {
       return <HealthDataPoint>[];
     }
 

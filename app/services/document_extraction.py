@@ -178,7 +178,7 @@ async def extract_medical_data(
         import google.generativeai as genai
 
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
 
         prompt = _build_extraction_prompt(document_text)
 

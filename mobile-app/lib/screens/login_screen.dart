@@ -96,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     if (_showForgotPassword) {
       return Scaffold(
         backgroundColor: AdaptivColors.getBackgroundColor(brightness),
@@ -216,16 +216,14 @@ class _LoginScreenState extends State<LoginScreen> {
         // Image backdrop with overlay for login (theme-aware)
         decoration: BoxDecoration(
           color: AdaptivColors.getBackgroundColor(brightness),
-          image: brightness == Brightness.dark
-              ? null
-              : DecorationImage(
-                  image: const AssetImage('assets/images/login_bg.png'),
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.4),
-                    BlendMode.darken,
-                  ),
-                ),
+          image: DecorationImage(
+            image: const AssetImage('assets/images/login_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              Colors.black.withOpacity(brightness == Brightness.dark ? 0.6 : 0.4),
+              BlendMode.darken,
+            ),
+          ),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
@@ -265,16 +263,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: GoogleFonts.dmSans(
                       fontSize: 32,
                       fontWeight: FontWeight.w700,
-                      color: brightness == Brightness.dark ? AdaptivColors.getTextColor(brightness) : Colors.white,
+                      color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Welcome back',
                     style: AdaptivTypography.body.copyWith(
-                      color: brightness == Brightness.dark 
-                          ? AdaptivColors.getSecondaryTextColor(brightness) 
-                          : Colors.white.withOpacity(0.9),
+                      color: Colors.white.withOpacity(0.9),
                       fontSize: 16,
                     ),
                   ),

@@ -103,9 +103,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return Scaffold(
-      backgroundColor: AdaptivColors.white,
-      body: SafeArea(
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/login_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              brightness == Brightness.dark
+                  ? Colors.black.withOpacity(0.6)
+                  : Colors.white.withOpacity(0.85),
+              brightness == Brightness.dark
+                  ? BlendMode.darken
+                  : BlendMode.lighten,
+            ),
+          ),
+        ),
+        child: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -487,6 +503,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

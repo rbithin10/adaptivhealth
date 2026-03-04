@@ -118,7 +118,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
 
     return WillPopScope(
       onWillPop: () async {
@@ -140,7 +140,23 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
             backgroundColor: AdaptivColors.getSurfaceColor(brightness),
             elevation: 0,
           ),
-          body: _buildBody(),
+          body: Container(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: const AssetImage('assets/images/health_bg5.png'),
+                fit: BoxFit.cover,
+                colorFilter: ColorFilter.mode(
+                  brightness == Brightness.dark
+                      ? Colors.black.withOpacity(0.6)
+                      : Colors.white.withOpacity(0.85),
+                  brightness == Brightness.dark
+                      ? BlendMode.darken
+                      : BlendMode.lighten,
+                ),
+              ),
+            ),
+            child: _buildBody(),
+          ),
         ),
       ),
     );

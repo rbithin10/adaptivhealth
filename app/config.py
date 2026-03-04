@@ -123,7 +123,7 @@ class Settings(BaseSettings):
     s3_bucket_name: Optional[str] = None
 
     class Config:
-        env_file = ".env"
+        env_file = [".env", ".env.local"]  # .env.local overrides .env for local dev
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"

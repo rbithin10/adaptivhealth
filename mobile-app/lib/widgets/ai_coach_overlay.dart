@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../services/api_client.dart';
 import 'ai_coach_position_store.dart';
@@ -21,13 +22,53 @@ class AiCoachOverlay extends StatefulWidget {
 class _AiCoachOverlayState extends State<AiCoachOverlay> {
   double _fabX = -1;
   double _fabY = -1;
+  bool _positioned = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final saved = AiCoachPositionStore.position;
+    if (saved != null) {
+      _fabX = saved.dx;
+      _fabY = saved.dy;
+      _positioned = true;
+    }
+  }
+
+  void _initPosition(BoxConstraints constraints) {
+    const double fabSize = 56.0;
+    const double horizontalMargin = 16.0;
+    const double topMargin = 8.0;
+    const double bottomMargin = 16.0;
+
+    final double maxFabX =
+        (constraints.maxWidth - fabSize).clamp(0.0, double.infinity);
+    final double minFabY = topMargin;
+    final double maxFabY = (constraints.maxHeight - fabSize - bottomMargin)
+        .clamp(minFabY, double.infinity);
+
+    final double x = (constraints.maxWidth - fabSize - horizontalMargin)
+        .clamp(0.0, maxFabX);
+    final double y = (constraints.maxHeight - fabSize - bottomMargin)
+        .clamp(minFabY, maxFabY);
+
+    // Schedule state update after this build frame completes.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _fabX = x;
+        _fabY = y;
+        _positioned = true;
+        AiCoachPositionStore.setPosition(Offset(_fabX, _fabY));
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         const double fabSize = 56.0;
-        const double horizontalMargin = 16.0;
         const double topMargin = 8.0;
         const double bottomMargin = 16.0;
 
@@ -38,34 +79,26 @@ class _AiCoachOverlayState extends State<AiCoachOverlay> {
         final double maxFabY = (constraints.maxHeight - fabSize - bottomMargin)
             .clamp(minFabY, double.infinity);
 
-        final sharedPosition = AiCoachPositionStore.position;
-        if (sharedPosition != null) {
-          _fabX = sharedPosition.dx;
-          _fabY = sharedPosition.dy;
+        if (!_positioned) {
+          _initPosition(constraints);
+          // Return child only on the very first frame before position is known.
+          return widget.child;
         }
 
-        if (_fabX < 0 || _fabY < 0) {
-          _fabX = (constraints.maxWidth - fabSize - horizontalMargin)
-              .clamp(minFabX, maxFabX);
-          _fabY = (constraints.maxHeight - fabSize - bottomMargin)
-              .clamp(minFabY, maxFabY);
-        } else {
-          _fabX = _fabX.clamp(minFabX, maxFabX);
-          _fabY = _fabY.clamp(minFabY, maxFabY);
-        }
-
-        AiCoachPositionStore.setPosition(Offset(_fabX, _fabY));
+        // Clamp to current constraints (e.g. after rotation).
+        final double fabX = _fabX.clamp(minFabX, maxFabX);
+        final double fabY = _fabY.clamp(minFabY, maxFabY);
 
         return Stack(
           children: [
             Positioned.fill(child: widget.child),
             Positioned(
-              left: _fabX,
-              top: _fabY,
+              left: fabX,
+              top: fabY,
               child: FloatingChatbot(
                 apiClient: widget.apiClient,
-                posX: _fabX,
-                posY: _fabY,
+                posX: fabX,
+                posY: fabY,
                 onPositionChanged: (offset) {
                   setState(() {
                     _fabX = offset.dx.clamp(minFabX, maxFabX);

@@ -3,6 +3,10 @@
     <!-- Network access (required for API calls and Google Fonts) -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Microphone access for AI Coach voice input (speech-to-text) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+
     <!-- GPS location for emergency alerts (works offline via satellite) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>

@@ -273,9 +273,20 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     return Container(
-      color: AdaptivColors.getBackgroundColor(brightness),
+      decoration: BoxDecoration(
+        image: DecorationImage(
+          image: const AssetImage('assets/images/health_bg3.png'),
+          fit: BoxFit.cover,
+          colorFilter: ColorFilter.mode(
+            brightness == Brightness.dark
+                ? Colors.black.withOpacity(0.6)
+                : Colors.white.withOpacity(0.85),
+            brightness == Brightness.dark ? BlendMode.darken : BlendMode.lighten,
+          ),
+        ),
+      ),
       child: Column(
         children: [
           // Inline header (replaces AppBar for tab embedding)

@@ -176,3 +176,9 @@ node_modules/
 # SSH / Cloud credentials - NEVER commit private keys
 *.pem
 adaptiv-key.pem
+
+# Environment file variants
+.env.local
+.env.production
+.env.*
+

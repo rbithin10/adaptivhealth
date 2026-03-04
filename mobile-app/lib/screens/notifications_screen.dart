@@ -114,7 +114,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     return Scaffold(
       backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       appBar: AppBar(

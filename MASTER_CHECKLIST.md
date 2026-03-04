@@ -36,6 +36,18 @@
 - [x] **P2** Add more Provider classes (AuthProvider, ChatProvider) to reduce StatefulWidget state
 - [x] **P2** **Edge AI runtime stabilization** — syncNow(), lastSyncTime, full state tracking implemented
 - [x] **P2** **Top Navigation Drawer** — Added Notifications, Health Insights (backend-backed only)
+- [x] **P2** Health screen: expandable trend cards with `fl_chart` LineChart (accordion + 7D/30D toggle, real data from `/vitals/history`)
+- [x] **P2** Health screen: History tab — filter chips (All/Vitals/Workouts/Alerts) + merged vitals+activities+alerts timeline grouped by relative date
+- [x] **P2** Health screen: Insights tab — wired to AI Coach (`postNLChat`) with JSON parsing + static fallback + shimmer loading state
+- [x] **P2** Health screen: vital card tap now navigates to Trends tab and expands correct metric card (replaces "coming soon" SnackBar)
+- [x] **P2** Health screen data loading: parallel 6-way `Future.wait` (user + vitals + vitalsHistory + activities + alerts + risk assessment)
+- [x] **P2** Recovery screen entry point from Home quick-actions — already present (verified)
+- [x] **P2** Device Pairing: `kIsWeb` guard hides BLE/HealthKit rows on web, shows mobile-only notice — already present (verified)
+- [x] **P3** Health score derived from ML risk score (`_riskScore`) — no longer hardcoded
+- [x] **P3** Health screen AppBar sync label shows "Just now / Xm ago" instead of hardcoded "+3 this week"
+- [x] **P3** Share/Export button: copies formatted health summary to clipboard via `Clipboard.setData`
+- [x] **P3** Typography brightness helpers (`bodySmallFor`, `captionFor`, `labelFor`) — already present in `typography.dart` (verified)
+- [x] **P3** `_TabBarDelegate` brightness-aware background — uses `getSurfaceColor(brightness)`, correct `shouldRebuild`
 
 ## Web Dashboard
 

@@ -102,7 +102,7 @@ class ApiService {
           const refreshToken = localStorage.getItem('refresh_token');
           if (refreshToken) {
             try {
-              const resp = await this.client.post('/refresh', { refresh_token: refreshToken });
+              const resp = await axios.post(`${API_BASE_URL}/api/v1/refresh`, { refresh_token: refreshToken });
               const newToken = resp.data.access_token;
               localStorage.setItem('token', newToken);
               if (resp.data.refresh_token) {

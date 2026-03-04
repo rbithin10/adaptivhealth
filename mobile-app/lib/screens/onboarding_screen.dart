@@ -316,13 +316,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     final bgColor = AdaptivColors.getBackgroundColor(brightness);
     final textColor = AdaptivColors.getTextColor(brightness);
 
     return Scaffold(
-      backgroundColor: bgColor,
-      body: SafeArea(
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/splash_bg.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              brightness == Brightness.dark
+                  ? Colors.black.withOpacity(0.6)
+                  : Colors.white.withOpacity(0.85),
+              brightness == Brightness.dark
+                  ? BlendMode.darken
+                  : BlendMode.lighten,
+            ),
+          ),
+        ),
+        child: SafeArea(
         child: Column(
           children: [
             // Progress indicator
@@ -350,6 +365,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             // Bottom navigation buttons
             _buildBottomBar(brightness),
           ],
+        ),
         ),
       ),
     );

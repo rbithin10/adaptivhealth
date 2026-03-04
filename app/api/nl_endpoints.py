@@ -708,7 +708,7 @@ async def post_chat_with_image(
         import google.generativeai as genai
 
         genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
 
         image_bytes = await image.read()
         if not image_bytes:

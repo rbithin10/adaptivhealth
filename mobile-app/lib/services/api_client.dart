@@ -36,6 +36,17 @@ class ApiClient {
   // EC2 development server — used by emulator, physical device, and web.
   static const String _ec2BaseUrl = 'https://13.201.126.13/api/v1';
 
+  // Local development server running on this machine.
+  // Flutter Web / Desktop reach it via localhost.
+  // Android emulator reaches the host machine via 10.0.2.2.
+  // Use: flutter run --dart-define=USE_LOCAL=true
+  static const String _useLocal = String.fromEnvironment(
+    'USE_LOCAL',
+    defaultValue: 'false',
+  );
+  static const String _localWebUrl      = 'http://localhost:8080/api/v1';
+  static const String _localAndroidUrl  = 'http://10.0.2.2:8080/api/v1';
+
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
       return _configuredBaseUrl;
@@ -43,7 +54,12 @@ class ApiClient {
     if (_useProduction == 'true') {
       return _productionBaseUrl;
     }
-    // All platforms (emulator, real device, web) point to EC2 during development.
+    if (_useLocal == 'true') {
+      // Web and desktop can reach localhost directly.
+      // Android emulator must use the special 10.0.2.2 alias.
+      return kIsWeb ? _localWebUrl : _localAndroidUrl;
+    }
+    // Default: EC2 development server.
     return _ec2BaseUrl;
   }
 
@@ -83,13 +99,20 @@ class ApiClient {
 
     // In debug builds, trust self-signed certificates on the EC2 dev server.
     // This block is compiled out in release builds.
-    if (kDebugMode && !kIsWeb) {
-      (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-        final client = HttpClient();
-        client.badCertificateCallback = (cert, host, port) => true;
-        return client;
-      };
-    }
+      // In debug builds, trust self-signed certificates on the EC2 dev server.
+      // For convenience during testing it's also possible to enable this in
+      // non-debug builds by passing a compile-time define:
+      //   --dart-define=ALLOW_INVALID_CERTS=true
+      // NOTE: Enabling this for release builds is insecure and should only be
+      // used for local testing against self-signed dev servers.
+      const allowInvalidCerts = bool.fromEnvironment('ALLOW_INVALID_CERTS', defaultValue: false);
+      if (!kIsWeb && (kDebugMode || allowInvalidCerts)) {
+        (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+          final client = HttpClient();
+          client.badCertificateCallback = (cert, host, port) => true;
+          return client;
+        };
+      }
 
     return dio;
   }
@@ -1253,7 +1276,8 @@ class ApiClient {
     } else if (e.type == DioExceptionType.receiveTimeout) {
       return 'Request timeout: Server not responding';
     } else {
-      return 'Error: ${e.message}';
+      final msg = e.message ?? 'no details available';
+      return 'Unexpected network error: $msg';
     }
   }
 

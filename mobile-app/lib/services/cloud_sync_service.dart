@@ -141,6 +141,20 @@ class CloudSyncService {
     await _saveQueue();
     _updateDerivedSyncState();
     _notifyStateChanged();
+
+    // If edge AI flagged high or critical risk, also push immediately to the
+    // cloud so the clinician's SSE dashboard is updated within 1 second
+    // rather than waiting up to 15 minutes for the next batch sync cycle.
+    // The item is already queued above, so no data is lost if this push fails.
+    if (prediction.riskLevel == 'high' || prediction.riskLevel == 'critical') {
+      unawaited(
+        pushCriticalAlertNow(
+          prediction: prediction,
+          vitals: vitals,
+          alerts: alerts,
+        ),
+      );
+    }
   }
 
   /// Queue a GPS emergency for priority sync.
@@ -156,6 +170,55 @@ class CloudSyncService {
     await _saveQueue();
     _updateDerivedSyncState();
     _notifyStateChanged();
+  }
+
+  /// Push a single high or critical-risk reading directly to the cloud,
+  /// bypassing the 15-minute batch queue.
+  ///
+  /// Called automatically by [queuePrediction] when edge AI detects 'high'
+  /// or 'critical' risk. The item is still added to the regular queue so
+  /// the batch-sync retains a copy — this is intentional (no data loss).
+  ///
+  /// Returns true if the push succeeded, false on any network or auth error.
+  Future<bool> pushCriticalAlertNow({
+    required EdgeRiskPrediction prediction,
+    required Map<String, dynamic> vitals,
+    List<Map<String, dynamic>>? alerts,
+  }) async {
+    try {
+      await _dio.post(
+        '/vitals/critical-alert',
+        data: {
+          'timestamp': DateTime.now().toIso8601String(),
+          'vitals': vitals,
+          'prediction': prediction.toJson(),
+          if (alerts != null && alerts.isNotEmpty) 'alerts': alerts,
+        },
+      );
+      _recordQueueEvent(
+        type: 'critical_push_success',
+        message:
+            'Critical ${prediction.riskLevel} alert pushed immediately '
+            '(bypassed 15-min queue).',
+      );
+      return true;
+    } on DioException catch (e) {
+      // Non-blocking failure — the queued copy retries on the next batch cycle.
+      _recordQueueEvent(
+        type: 'critical_push_failed',
+        message:
+            'Immediate critical push failed '
+            '(${e.response?.statusCode ?? "no response"}). '
+            'Reading is queued for next batch sync.',
+      );
+      return false;
+    } catch (_) {
+      _recordQueueEvent(
+        type: 'critical_push_failed',
+        message: 'Immediate critical push failed unexpectedly. Reading is queued.',
+      );
+      return false;
+    }
   }
 
   /// Attempt to sync queued data to cloud.

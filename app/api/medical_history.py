@@ -80,7 +80,7 @@ async def get_medical_extraction_status(
     return MedicalExtractionStatusResponse(
         feature="medical_document_extraction",
         provider="google_gemini",
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         gemini_key_configured=gemini_key_configured,
         gemini_sdk_available=gemini_sdk_available,
         ready=gemini_key_configured and gemini_sdk_available,

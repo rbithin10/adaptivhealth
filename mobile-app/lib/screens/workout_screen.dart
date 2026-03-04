@@ -162,18 +162,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return AiCoachOverlay(
       apiClient: widget.apiClient,
       child: Scaffold(
         appBar: AppBar(
           elevation: 0,
-          backgroundColor: AdaptivColors.white,
+          backgroundColor: AdaptivColors.getSurfaceColor(brightness),
           title: Text(
             'Workout',
             style: GoogleFonts.dmSans(
               fontSize: 20,
               fontWeight: FontWeight.w700,
-              color: AdaptivColors.text900,
+              color: AdaptivColors.getTextColor(brightness),
             ),
           ),
         ),
@@ -183,8 +184,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               image: const AssetImage('assets/images/workout_bg.png'),
               fit: BoxFit.cover,
               colorFilter: ColorFilter.mode(
-                Colors.white.withOpacity(0.9),
-                BlendMode.lighten,
+                brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.6)
+                    : Colors.white.withOpacity(0.9),
+                brightness == Brightness.dark
+                    ? BlendMode.darken
+                    : BlendMode.lighten,
               ),
             ),
           ),

@@ -24,9 +24,9 @@ ThemeData buildAdaptivHealthTheme([Brightness brightness = Brightness.light]) {
           primary: AdaptivColors.primary,
           secondary: AdaptivColors.primary,
           error: AdaptivColors.critical,
-          surface: AdaptivColors.primaryLight,
-          onPrimary: AdaptivColors.primaryLight,
-          onSurface: AdaptivColors.primaryDark,
+          surface: AdaptivColors.white,
+          onPrimary: AdaptivColors.white,
+          onSurface: AdaptivColors.text900,
         );
 
   return ThemeData(
@@ -35,7 +35,7 @@ ThemeData buildAdaptivHealthTheme([Brightness brightness = Brightness.light]) {
     scaffoldBackgroundColor: isDark ? AdaptivColors.background900 : AdaptivColors.primaryUltralight,
     appBarTheme: AppBarTheme(
       backgroundColor: isDark ? AdaptivColors.surface900 : AdaptivColors.primary,
-      foregroundColor: isDark ? AdaptivColors.textDark50 : AdaptivColors.primaryLight,
+      foregroundColor: isDark ? AdaptivColors.textDark50 : AdaptivColors.white,
     ),
   );
 }

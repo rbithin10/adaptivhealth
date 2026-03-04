@@ -11,20 +11,26 @@ This file saves heart data from devices and lets the app read it back.
 #   - check_vitals_for_alerts.......... Line 72  (Background alert checker)
 #   - calculate_vitals_summary......... Line 165 (Stats calculation)
 #
+# BACKGROUND HELPERS
+#   - _run_cloud_ml_on_batch........... (Cloud ML re-analysis on batch-sync payload)
+#   - _detect_batch_anomalies.......... (Trend/anomaly detection on batch-sync payload)
+#
 # ENDPOINTS - PATIENT (own data)
 #   --- SUBMIT VITALS ---
-#   - POST /vitals..................... Line 239 (Submit single reading)
-#   - POST /vitals/batch............... Line 332 (Submit multiple readings)
+#   - POST /vitals..................... (Submit single reading)
+#   - POST /vitals/batch............... (Submit multiple readings)
+#   - POST /vitals/critical-alert...... (Immediate critical push — bypasses 15-min queue)
+#   - POST /vitals/batch-sync.......... (Edge AI periodic batch from mobile)
 #
 #   --- READ VITALS ---
-#   - GET /vitals/latest............... Line 402 (Most recent reading)
-#   - GET /vitals/summary.............. Line 432 (Aggregated stats)
-#   - GET /vitals/history.............. Line 457 (Time-series data)
+#   - GET /vitals/latest............... (Most recent reading)
+#   - GET /vitals/summary.............. (Aggregated stats)
+#   - GET /vitals/history.............. (Time-series data)
 #
 # ENDPOINTS - CLINICIAN (patient data)
-#   - GET /vitals/user/{id}/latest..... Line 510 (Patient's latest)
-#   - GET /vitals/user/{id}/summary.... Line 551 (Patient's stats)
-#   - GET /vitals/user/{id}/history.... Line 586 (Patient's history)
+#   - GET /vitals/user/{id}/latest..... (Patient's latest)
+#   - GET /vitals/user/{id}/summary.... (Patient's stats)
+#   - GET /vitals/user/{id}/history.... (Patient's history)
 #
 # BUSINESS CONTEXT:
 # - Patients sync vitals from wearables (Fitbit, Apple Watch)
@@ -49,11 +55,12 @@ from app.models.risk_assessment import RiskAssessment
 from app.schemas.vital_signs import (
     VitalSignCreate, VitalSignResponse, VitalSignBatchCreate,
     VitalSignsSummary, VitalSignsHistoryResponse, VitalSignsStats,
-    EdgeBatchSyncRequest,
+    EdgeBatchSyncRequest, EdgeBatchItem,
 )
 from app.services.encryption import encryption_service
 from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
 from app.rate_limiter import limiter
+from app.services.ml_prediction import predict_risk, is_model_loaded
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -248,6 +255,333 @@ def _parse_edge_timestamp(value: Optional[str]) -> datetime:
         return datetime.now(timezone.utc)
 
 
+# =============================================
+# _RUN_CLOUD_ML_ON_BATCH - Background task: cloud ML re-analysis of a batch-sync payload
+# Used by: submit_vitals_batch_sync (background task)
+# Returns: None (stores RiskAssessment records + creates alerts in DB)
+# WHY: Edge AI is fast but runs without medical history context.
+#      Cloud ML re-analyzes each batch item with the patient's full profile
+#      so the clinician sees a server-validated risk score alongside the edge result.
+# =============================================
+def _run_cloud_ml_on_batch(user_id: int, batch_items: list) -> None:
+    """
+    Background task: run cloud ML risk prediction on each item in a batch-sync payload.
+
+    Args:
+        user_id: Patient user ID.
+        batch_items: List of EdgeBatchItem objects from EdgeBatchSyncRequest.batch.
+    """
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return
+
+        if not is_model_loaded():
+            logger.warning("Cloud ML batch re-analysis skipped — model not loaded.")
+            return
+
+        # Use patient profile for context; fall back to population averages if not set
+        age = user.age or 40
+        baseline_hr = user.baseline_hr or 70
+        max_safe_hr = user.max_safe_hr or max(160, 220 - age)
+
+        new_assessments = []
+        new_alerts = []
+
+        for item in batch_items:
+            vitals = item.vitals if hasattr(item, "vitals") else (item.get("vitals") or {})
+
+            hr_raw = vitals.get("heart_rate") if isinstance(vitals, dict) else None
+            try:
+                hr = int(hr_raw)
+            except (TypeError, ValueError):
+                continue
+            if hr < 30 or hr > 250:
+                continue
+
+            spo2_raw = vitals.get("spo2") if isinstance(vitals, dict) else None
+            try:
+                spo2_int = int(float(spo2_raw)) if spo2_raw is not None else 98
+            except (TypeError, ValueError):
+                spo2_int = 98
+
+            try:
+                ml_result = predict_risk(
+                    age=age,
+                    baseline_hr=baseline_hr,
+                    max_safe_hr=max_safe_hr,
+                    avg_heart_rate=hr,
+                    peak_heart_rate=hr,
+                    min_heart_rate=hr,
+                    avg_spo2=spo2_int,
+                    duration_minutes=5,
+                    recovery_time_minutes=2,
+                    activity_type="monitoring",
+                )
+            except Exception as exc:
+                logger.warning(f"Cloud ML prediction failed for one batch item (user {user_id}): {exc}")
+                continue
+
+            cloud_level = ml_result.get("risk_level", "low")
+            cloud_score = float(ml_result.get("risk_score", 0.0))
+
+            # Log any edge-vs-cloud disagreement for audit purposes
+            prediction_dict = (
+                item.prediction if hasattr(item, "prediction") else (item.get("prediction") or {})
+            )
+            edge_level = (prediction_dict.get("risk_level") if prediction_dict else None)
+            if edge_level and edge_level != cloud_level:
+                logger.info(
+                    f"Cloud/edge disagreement — user {user_id}: "
+                    f"edge={edge_level}, cloud={cloud_level}, HR={hr}"
+                )
+
+            new_assessments.append(
+                RiskAssessment(
+                    user_id=user_id,
+                    risk_level=cloud_level,
+                    risk_score=cloud_score,
+                    assessment_type="batch_cloud",
+                    generated_by="cloud_ml",
+                    input_heart_rate=hr,
+                    input_spo2=float(spo2_int),
+                    model_name="RandomForest (cloud)",
+                    model_version="1.0",
+                    confidence=ml_result.get("confidence"),
+                    alert_triggered=(cloud_level in {"high", "critical"}),
+                )
+            )
+
+            # Create an alert if cloud ML flags elevated risk
+            if cloud_level in {"high", "critical"}:
+                since = datetime.now(timezone.utc) - timedelta(minutes=30)
+                recent = db.query(Alert).filter(
+                    Alert.user_id == user_id,
+                    Alert.alert_type == AlertType.ABNORMAL_ACTIVITY.value,
+                    Alert.created_at >= since,
+                ).first()
+                if not recent:
+                    severity = (
+                        SeverityLevel.CRITICAL.value
+                        if cloud_level == "critical"
+                        else SeverityLevel.WARNING.value
+                    )
+                    new_alerts.append(
+                        Alert(
+                            user_id=user_id,
+                            alert_type=AlertType.ABNORMAL_ACTIVITY.value,
+                            severity=severity,
+                            title="Elevated Cardiac Risk — Cloud Analysis",
+                            message=(
+                                f"Cloud ML analysis of your recent readings flagged {cloud_level} risk "
+                                f"(score: {cloud_score:.0%}, HR={hr} BPM)."
+                            ),
+                            action_required="Review with your clinician.",
+                            trigger_value=f"{cloud_score:.2f}",
+                            threshold_value="0.50",
+                            acknowledged=False,
+                            is_sent_to_clinician=True,
+                            is_sent_to_user=True,
+                        )
+                    )
+
+        if new_assessments:
+            db.add_all(new_assessments)
+        if new_alerts:
+            db.add_all(new_alerts)
+        if new_assessments or new_alerts:
+            db.commit()
+            logger.info(
+                f"Cloud ML batch analysis — user {user_id}: "
+                f"{len(new_assessments)} assessments, {len(new_alerts)} alert(s) created"
+            )
+
+    except Exception as exc:
+        logger.error(f"_run_cloud_ml_on_batch failed for user {user_id}: {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+# =============================================
+# _DETECT_BATCH_ANOMALIES - Background task: trend and anomaly detection on batch-sync
+# Used by: submit_vitals_batch_sync (background task, runs in parallel with cloud ML)
+# Returns: None (creates trend-alert records in DB)
+# WHY: Fixed threshold alerts miss slow deterioration. Trend checks catch it.
+#      Three checks: (1) avg HR > 20% above personal baseline,
+#                   (2) SpO2 downward trend across the batch,
+#                   (3) 3+ consecutive readings > 160 BPM.
+# =============================================
+def _detect_batch_anomalies(user_id: int, batch_items: list) -> None:
+    """
+    Background task: detect HR/SpO2 anomalies and trends in a synced batch.
+
+    Args:
+        user_id: Patient user ID.
+        batch_items: List of EdgeBatchItem objects from EdgeBatchSyncRequest.batch.
+    """
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Extract valid (HR, SpO2) pairs from the batch
+        readings: List[tuple] = []
+        for item in batch_items:
+            vitals = item.vitals if hasattr(item, "vitals") else (item.get("vitals") or {})
+            if not isinstance(vitals, dict):
+                continue
+            hr_raw = vitals.get("heart_rate")
+            try:
+                hr = int(hr_raw)
+            except (TypeError, ValueError):
+                continue
+            if hr < 30 or hr > 250:
+                continue
+            spo2_raw = vitals.get("spo2")
+            try:
+                spo2 = float(spo2_raw) if spo2_raw is not None else None
+            except (TypeError, ValueError):
+                spo2 = None
+            readings.append((hr, spo2))
+
+        if len(readings) < 2:
+            return  # Not enough data for trend detection
+
+        hrs = [r[0] for r in readings]
+        spo2s = [r[1] for r in readings if r[1] is not None]
+
+        # Compute this patient's personal 7-day HR/SpO2 baseline
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        baseline_rows = (
+            db.query(VitalSignRecord)
+            .filter(
+                VitalSignRecord.user_id == user_id,
+                VitalSignRecord.timestamp >= seven_days_ago,
+                VitalSignRecord.is_valid == True,
+            )
+            .all()
+        )
+        baseline_hrs = [r.heart_rate for r in baseline_rows if r.heart_rate]
+
+        new_alerts = []
+        dedup_window = datetime.now(timezone.utc) - timedelta(minutes=30)
+
+        # ---- Check 1: Batch avg HR > 20% above personal 7-day baseline ----
+        if baseline_hrs:
+            personal_avg_hr = sum(baseline_hrs) / len(baseline_hrs)
+            batch_avg_hr = sum(hrs) / len(hrs)
+            if batch_avg_hr > personal_avg_hr * 1.20:
+                recent = db.query(Alert).filter(
+                    Alert.user_id == user_id,
+                    Alert.alert_type == "elevated_hr_trend",
+                    Alert.created_at >= dedup_window,
+                ).first()
+                if not recent:
+                    new_alerts.append(
+                        Alert(
+                            user_id=user_id,
+                            alert_type="elevated_hr_trend",
+                            severity=SeverityLevel.WARNING.value,
+                            title="Elevated Heart Rate Trend",
+                            message=(
+                                f"Your average heart rate over the last sync period "
+                                f"({batch_avg_hr:.0f} BPM) is more than 20% above your "
+                                f"7-day personal baseline ({personal_avg_hr:.0f} BPM)."
+                            ),
+                            action_required="Monitor for symptoms. Rest if you feel discomfort.",
+                            trigger_value=f"{batch_avg_hr:.0f} BPM",
+                            threshold_value=f"{personal_avg_hr * 1.20:.0f} BPM",
+                            acknowledged=False,
+                            is_sent_to_clinician=True,
+                            is_sent_to_user=True,
+                        )
+                    )
+
+        # ---- Check 2: SpO2 downward trend across the batch ----
+        if len(spo2s) >= 4:
+            mid = len(spo2s) // 2
+            first_half_avg = sum(spo2s[:mid]) / mid
+            second_half_avg = sum(spo2s[mid:]) / (len(spo2s) - mid)
+            if first_half_avg - second_half_avg > 2.0:
+                recent = db.query(Alert).filter(
+                    Alert.user_id == user_id,
+                    Alert.alert_type == "spo2_declining",
+                    Alert.created_at >= dedup_window,
+                ).first()
+                if not recent:
+                    new_alerts.append(
+                        Alert(
+                            user_id=user_id,
+                            alert_type="spo2_declining",
+                            severity=SeverityLevel.WARNING.value,
+                            title="Declining Blood Oxygen Trend",
+                            message=(
+                                f"Blood oxygen saturation appears to be declining across this sync period "
+                                f"({first_half_avg:.1f}% → {second_half_avg:.1f}%). "
+                                "This may indicate early respiratory difficulty."
+                            ),
+                            action_required=(
+                                "Monitor closely. Seek medical attention if SpO2 drops below 94%."
+                            ),
+                            trigger_value=f"{second_half_avg:.1f}%",
+                            threshold_value="2 pp drop",
+                            acknowledged=False,
+                            is_sent_to_clinician=True,
+                            is_sent_to_user=True,
+                        )
+                    )
+
+        # ---- Check 3: 3+ consecutive readings > 160 BPM ----
+        consecutive = 0
+        max_consecutive = 0
+        for hr in hrs:
+            if hr > 160:
+                consecutive += 1
+                max_consecutive = max(max_consecutive, consecutive)
+            else:
+                consecutive = 0
+
+        if max_consecutive >= 3:
+            recent = db.query(Alert).filter(
+                Alert.user_id == user_id,
+                Alert.alert_type == "sustained_high_hr",
+                Alert.created_at >= dedup_window,
+            ).first()
+            if not recent:
+                new_alerts.append(
+                    Alert(
+                        user_id=user_id,
+                        alert_type="sustained_high_hr",
+                        severity=SeverityLevel.WARNING.value,
+                        title="Sustained High Heart Rate",
+                        message=(
+                            f"Heart rate exceeded 160 BPM for {max_consecutive} consecutive "
+                            "readings in this sync period."
+                        ),
+                        action_required="Reduce activity intensity. Rest and monitor.",
+                        trigger_value=f"{max_consecutive} readings > 160 BPM",
+                        threshold_value="3 consecutive",
+                        acknowledged=False,
+                        is_sent_to_clinician=True,
+                        is_sent_to_user=True,
+                    )
+                )
+
+        if new_alerts:
+            db.add_all(new_alerts)
+            db.commit()
+            logger.info(
+                f"Anomaly detection — user {user_id}: {len(new_alerts)} trend alert(s) created"
+            )
+
+    except Exception as exc:
+        logger.error(f"_detect_batch_anomalies failed for user {user_id}: {exc}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 # =============================================================================
 # Vital Signs Endpoints
 # =============================================================================
@@ -424,6 +758,7 @@ async def submit_vitals_batch(
 async def submit_vitals_batch_sync(
     request: Request,
     sync_payload: EdgeBatchSyncRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -536,6 +871,16 @@ async def submit_vitals_batch_sync(
 
     db.commit()
 
+    # Fire cloud ML re-analysis and trend detection as background tasks so the
+    # HTTP response returns immediately while deeper analysis runs in parallel.
+    # Both tasks open their own DB sessions to avoid session-sharing issues.
+    background_tasks.add_task(
+        _run_cloud_ml_on_batch, current_user.user_id, list(sync_payload.batch)
+    )
+    background_tasks.add_task(
+        _detect_batch_anomalies, current_user.user_id, list(sync_payload.batch)
+    )
+
     logger.info(
         f"Edge sync ingested for user {current_user.user_id}: "
         f"records={records_created}, assessments={assessments_created}, skipped={skipped}"
@@ -548,6 +893,189 @@ async def submit_vitals_batch_sync(
         "assessments_created": assessments_created,
         "skipped": skipped,
         "received": len(sync_payload.batch),
+    }
+
+
+# =============================================
+# POST_CRITICAL_ALERT - Immediate critical reading push (bypasses 15-min queue)
+# Used by: Mobile app when edge AI detects high/critical risk
+# Returns: Confirmation + cloud ML result
+# WHY: Normal batch-sync fires every 15 min — too slow for life-threatening events.
+#      This endpoint stores the vital, runs cloud ML and creates the alert inside
+#      the same HTTP request so the SSE stream picks it up within 1 second.
+# =============================================
+@router.post("/vitals/critical-alert")
+@limiter.limit("20/minute")
+async def push_critical_alert(
+    request: Request,
+    payload: EdgeBatchItem,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Immediately store a single critical vital reading and create a cloud alert.
+
+    WHY THIS ENDPOINT EXISTS:
+    - Normal batch sync fires every 15 min — unacceptable for critical events.
+    - When edge AI detects high/critical risk, mobile calls this endpoint directly.
+    - Vital is stored, cloud ML runs, and the alert is written — all before this
+      response returns. The SSE stream (/alerts/stream) picks it up within 1 second.
+    """
+    vitals = payload.vitals or {}
+
+    hr_raw = vitals.get("heart_rate")
+    if hr_raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="heart_rate is required",
+        )
+
+    try:
+        hr = int(hr_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="heart_rate must be a number",
+        )
+
+    if hr < 30 or hr > 250:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="heart_rate out of valid range (30\u2013250 BPM)",
+        )
+
+    spo2_raw = vitals.get("spo2")
+    try:
+        spo2 = float(spo2_raw) if spo2_raw is not None else None
+    except (TypeError, ValueError):
+        spo2 = None
+
+    systolic_raw = vitals.get("blood_pressure_systolic", vitals.get("bp_systolic"))
+    diastolic_raw = vitals.get("blood_pressure_diastolic", vitals.get("bp_diastolic"))
+    try:
+        systolic_bp = int(systolic_raw) if systolic_raw is not None else None
+    except (TypeError, ValueError):
+        systolic_bp = None
+    try:
+        diastolic_bp = int(diastolic_raw) if diastolic_raw is not None else None
+    except (TypeError, ValueError):
+        diastolic_bp = None
+
+    reading_ts = _parse_edge_timestamp(vitals.get("timestamp") or payload.timestamp)
+
+    # 1. Store the vital record immediately
+    new_vital = VitalSignRecord(
+        user_id=current_user.user_id,
+        heart_rate=hr,
+        spo2=spo2,
+        systolic_bp=systolic_bp,
+        diastolic_bp=diastolic_bp,
+        source_device="edge_ai_critical",
+        device_id=vitals.get("device_id", "edge_mobile"),
+        timestamp=reading_ts,
+        is_valid=True,
+        confidence_score=1.0,
+        processed_by_edge_ai=True,
+    )
+    db.add(new_vital)
+
+    # 2. Run cloud ML re-analysis synchronously so the result is in the alert message
+    cloud_level = "unknown"
+    cloud_score: Optional[float] = None
+
+    if is_model_loaded():
+        try:
+            age = current_user.age or 40
+            baseline_hr_val = current_user.baseline_hr or 70
+            max_safe_hr_val = current_user.max_safe_hr or max(160, 220 - age)
+            spo2_int = int(spo2) if spo2 is not None else 98
+
+            ml_result = predict_risk(
+                age=age,
+                baseline_hr=baseline_hr_val,
+                max_safe_hr=max_safe_hr_val,
+                avg_heart_rate=hr,
+                peak_heart_rate=hr,
+                min_heart_rate=hr,
+                avg_spo2=spo2_int,
+                duration_minutes=5,
+                recovery_time_minutes=2,
+                activity_type="monitoring",
+            )
+            cloud_level = ml_result.get("risk_level", "unknown")
+            cloud_score = float(ml_result.get("risk_score", 0.0))
+
+            db.add(
+                RiskAssessment(
+                    user_id=current_user.user_id,
+                    risk_level=cloud_level,
+                    risk_score=cloud_score,
+                    assessment_type="critical_push",
+                    generated_by="cloud_ml",
+                    input_heart_rate=hr,
+                    input_spo2=spo2,
+                    input_blood_pressure_sys=systolic_bp,
+                    input_blood_pressure_dia=diastolic_bp,
+                    model_name="RandomForest (cloud)",
+                    model_version="1.0",
+                    confidence=ml_result.get("confidence"),
+                    alert_triggered=True,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Cloud ML skipped during critical push for user {current_user.user_id}: {exc}"
+            )
+
+    # 3. Create the alert immediately — no dedup window for critical-push events
+    edge_prediction = payload.prediction or {}
+    edge_level = edge_prediction.get("risk_level", "high")
+
+    alert_message = (
+        f"Edge AI detected {edge_level} risk (HR={hr} BPM"
+        + (f", SpO2={spo2:.0f}%" if spo2 is not None else "")
+        + ")"
+        + (
+            f". Cloud ML confirms {cloud_level} risk ({cloud_score:.0%})."
+            if cloud_score is not None
+            else " \u2014 cloud verification pending."
+        )
+    )
+
+    db.add(
+        Alert(
+            user_id=current_user.user_id,
+            alert_type=AlertType.ABNORMAL_ACTIVITY.value,
+            severity=SeverityLevel.CRITICAL.value,
+            title="Critical Risk Reading \u2014 Immediate Review Required",
+            message=alert_message,
+            action_required="Immediate clinician review required.",
+            trigger_value=(
+                f"HR={hr}, edge={edge_level}"
+                + (f", cloud={cloud_level}" if cloud_score is not None else "")
+            ),
+            threshold_value="edge risk_level=high/critical",
+            acknowledged=False,
+            is_sent_to_user=True,
+            is_sent_to_caregiver=True,
+            is_sent_to_clinician=True,
+        )
+    )
+
+    db.commit()
+
+    logger.warning(
+        f"Critical alert pushed \u2014 user {current_user.user_id}, "
+        f"HR={hr}, edge={edge_level}, cloud={cloud_level}"
+    )
+
+    return {
+        "message": "Critical alert stored and flagged for clinician review",
+        "note": "SSE dashboard updated within 1 second",
+        "vital_recorded": True,
+        "edge_risk_level": edge_level,
+        "cloud_risk_level": cloud_level,
+        "cloud_risk_score": cloud_score,
     }
 
 

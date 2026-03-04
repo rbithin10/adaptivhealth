@@ -1,7 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../config/platform_guard.dart';
 
 /// Handles runtime BLE permission requests for Android and iOS.
 ///
@@ -16,7 +15,7 @@ class BlePermissionHandler {
   ///
   /// Returns `true` if all necessary permissions are granted.
   static Future<bool> requestBlePermissions() async {
-    if (Platform.isIOS) {
+    if (isIOS) {
       // On iOS the system shows the Bluetooth permission dialog when we
       // first attempt to use Core Bluetooth. Requesting the permission here
       // triggers the dialog proactively so the user is not surprised.
@@ -24,7 +23,7 @@ class BlePermissionHandler {
       return status.isGranted || status.isLimited;
     }
 
-    if (!Platform.isAndroid) {
+    if (!isAndroid) {
       // Desktop / web — no runtime BLE permissions required.
       return true;
     }
@@ -57,10 +56,10 @@ class BlePermissionHandler {
   /// Returns `true` if BLE permissions have already been granted without
   /// showing a dialog. Useful for checking before auto-reconnect.
   static Future<bool> hasPermissions() async {
-    if (Platform.isIOS) {
+    if (isIOS) {
       return (await Permission.bluetooth.status).isGranted;
     }
-    if (Platform.isAndroid) {
+    if (isAndroid) {
       final scan = await Permission.bluetoothScan.status;
       final connect = await Permission.bluetoothConnect.status;
       return scan.isGranted && connect.isGranted;
@@ -69,7 +68,7 @@ class BlePermissionHandler {
   }
 
   static int? _getAndroidSdkInt() {
-    final version = Platform.operatingSystemVersion;
+    final version = safeOsVersion;
     final match = RegExp(r'SDK\s*(\d+)').firstMatch(version);
     if (match == null) {
       return null;

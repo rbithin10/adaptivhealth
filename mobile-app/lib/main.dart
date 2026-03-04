@@ -30,6 +30,7 @@ import 'services/medication_reminder_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/vitals_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/home_screen.dart';
@@ -198,6 +199,7 @@ class _AdaptivHealthAppState extends State<AdaptivHealthApp> {
       providers: [
         ChangeNotifierProvider<AuthProvider>.value(value: _authProvider),
         ChangeNotifierProvider<ChatProvider>.value(value: _chatProvider),
+        ChangeNotifierProvider<ThemeProvider>(create: (_) => ThemeProvider()),
         if (_edgeAiStore != null)
           ChangeNotifierProvider<EdgeAiStore>.value(value: _edgeAiStore!),
         if (_edgeAiStore != null)
@@ -209,12 +211,15 @@ class _AdaptivHealthAppState extends State<AdaptivHealthApp> {
           ),
         ChangeNotifierProvider<ChatStore>.value(value: _chatStore),
       ],
-      child: MaterialApp(
-        title: 'Adaptiv Health',
-        theme: buildAdaptivHealthTheme(Brightness.light),
-        themeMode: ThemeMode.light,
-        home: content,
-        debugShowCheckedModeBanner: false,
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) => MaterialApp(
+          title: 'Adaptiv Health',
+          theme: buildAdaptivHealthTheme(Brightness.light),
+          darkTheme: buildAdaptivHealthTheme(Brightness.dark),
+          themeMode: themeProvider.themeMode,
+          home: content,
+          debugShowCheckedModeBanner: false,
+        ),
       ),
     );
   }

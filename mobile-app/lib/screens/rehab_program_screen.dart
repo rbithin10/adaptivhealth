@@ -173,6 +173,7 @@ class _RehabProgramScreenState extends State<RehabProgramScreen> {
   // ------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return AiCoachOverlay(
       apiClient: widget.apiClient,
       child: Scaffold(
@@ -186,16 +187,32 @@ class _RehabProgramScreenState extends State<RehabProgramScreen> {
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _errorMessage != null
-                ? _buildError()
-                : _programData == null
-                    ? _buildNoProgram()
-                    : RefreshIndicator(
-                        onRefresh: _loadProgram,
-                        child: _buildProgramContent(),
-                      ),
+        body: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: const AssetImage('assets/images/health_bg6.png'),
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.6)
+                    : Colors.white.withOpacity(0.85),
+                brightness == Brightness.dark
+                    ? BlendMode.darken
+                    : BlendMode.lighten,
+              ),
+            ),
+          ),
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
+                  ? _buildError()
+                  : _programData == null
+                      ? _buildNoProgram()
+                      : RefreshIndicator(
+                          onRefresh: _loadProgram,
+                          child: _buildProgramContent(),
+                        ),
+        ),
       ),
     );
   }

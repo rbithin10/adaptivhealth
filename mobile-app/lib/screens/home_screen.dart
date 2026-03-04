@@ -30,6 +30,7 @@ import 'rehab_program_screen.dart';
 import 'history_screen.dart';
 import 'device_pairing_screen.dart';
 import '../widgets/sos_button.dart';
+import '../providers/theme_provider.dart';
 // Note: ChatbotScreen removed - AI Coach is now a floating widget (FloatingChatbot)
 
 class HomeScreen extends StatefulWidget {
@@ -223,7 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     return Scaffold(
       backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       drawer: Drawer(
@@ -243,6 +244,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+              Consumer<ThemeProvider>(
+                builder: (context, themeProvider, _) => SwitchListTile(
+                  secondary: Icon(
+                    themeProvider.isDark ? Icons.dark_mode : Icons.light_mode,
+                  ),
+                  title: const Text('Dark Mode'),
+                  value: themeProvider.isDark,
+                  onChanged: (_) => themeProvider.toggleTheme(),
+                ),
+              ),
+              const Divider(),
               ListTile(
                 leading: const Icon(Icons.notifications_none),
                 title: const Text('Notifications'),
@@ -313,16 +325,30 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AdaptivColors.getSurfaceColor(brightness),
+        iconTheme: IconThemeData(
+          color: brightness == Brightness.dark
+              ? AdaptivColors.textDark50
+              : AdaptivColors.primaryDark,
+        ),
         flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                AdaptivColors.primaryUltralight,
-              ],
-            ),
+          decoration: BoxDecoration(
+            gradient: brightness == Brightness.dark
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AdaptivColors.surface900,
+                      AdaptivColors.background900.withOpacity(0.95),
+                    ],
+                  )
+                : const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white,
+                      AdaptivColors.primaryUltralight,
+                    ],
+                  ),
           ),
         ),
         title: Row(
@@ -345,7 +371,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: GoogleFonts.dmSans(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
-                color: AdaptivColors.text900,
+                color: AdaptivColors.getTextColor(brightness),
               ),
             ),
           ],
@@ -483,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ][_selectedIndex];
         },
         type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
+        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
         elevation: 8,
       ),
     );
@@ -589,6 +615,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _feedEdgeAi(user, vitals);
         });
 
+        final innerBrightness = Theme.of(context).brightness;
         return Container(
           // Image backdrop for patient dashboard
           decoration: BoxDecoration(
@@ -596,8 +623,12 @@ class _HomeScreenState extends State<HomeScreen> {
               image: const AssetImage('assets/images/home_bg.png'),
               fit: BoxFit.cover,
               colorFilter: ColorFilter.mode(
-                Colors.white.withOpacity(0.85),
-                BlendMode.lighten,
+                innerBrightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.6)
+                    : Colors.white.withOpacity(0.85),
+                innerBrightness == Brightness.dark
+                    ? BlendMode.darken
+                    : BlendMode.lighten,
               ),
             ),
           ),

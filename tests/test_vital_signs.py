@@ -6,6 +6,8 @@ Covers all 10 functions in app/api/vital_signs.py:
 - calculate_vitals_summary (helper)
 - submit_vitals (POST /api/v1/vitals)
 - submit_vitals_batch (POST /api/v1/vitals/batch)
+- submit_vitals_batch_sync (POST /api/v1/vitals/batch-sync)
+- push_critical_alert (POST /api/v1/vitals/critical-alert)
 - get_latest_vitals (GET /api/v1/vitals/latest)
 - get_vitals_summary (GET /api/v1/vitals/summary)
 - get_vitals_history (GET /api/v1/vitals/history)
@@ -877,3 +879,95 @@ class TestBatchSync:
         }
         response = client.post("/api/v1/vitals/batch-sync", json=payload)
         assert response.status_code == 401
+
+
+class TestCriticalAlert:
+    """Test POST /api/v1/vitals/critical-alert — immediate push endpoint."""
+
+    def test_critical_alert_valid(self, db_session):
+        """Valid critical payload stores vital and creates an alert immediately."""
+        user = make_user(db_session, "critical_ok@example.com", "CriticalOk", "patient")
+        token = get_token(client, "critical_ok@example.com")
+
+        payload = {
+            "vitals": {
+                "heart_rate": 192,
+                "spo2": 87,
+                "blood_pressure_systolic": 172,
+                "blood_pressure_diastolic": 104,
+            },
+            "prediction": {
+                "risk_score": 0.92,
+                "risk_level": "critical",
+                "confidence": 0.95,
+                "model_version": "edge-1.0",
+            },
+        }
+        response = client.post(
+            "/api/v1/vitals/critical-alert",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["vital_recorded"] is True
+        assert data["edge_risk_level"] == "critical"
+
+    def test_critical_alert_stores_alert_record(self, db_session):
+        """Endpoint synchronously writes an Alert row (SSE stream can pick it up)."""
+        user = make_user(db_session, "critical_db@example.com", "CriticalDb", "patient")
+        token = get_token(client, "critical_db@example.com")
+
+        payload = {
+            "vitals": {"heart_rate": 185, "spo2": 88},
+            "prediction": {"risk_score": 0.88, "risk_level": "high"},
+        }
+        response = client.post(
+            "/api/v1/vitals/critical-alert",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        # Alert must exist in DB immediately (not deferred to background)
+        alert = (
+            db_session.query(Alert)
+            .filter(Alert.user_id == user.user_id)
+            .order_by(Alert.created_at.desc())
+            .first()
+        )
+        assert alert is not None
+        assert alert.severity == "critical"
+
+    def test_critical_alert_missing_heart_rate_rejected(self, db_session):
+        """Missing heart_rate returns 400."""
+        user = make_user(db_session, "critical_bad@example.com", "CriticalBad", "patient")
+        token = get_token(client, "critical_bad@example.com")
+
+        payload = {"vitals": {"spo2": 88}}
+        response = client.post(
+            "/api/v1/vitals/critical-alert",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
+
+    def test_critical_alert_invalid_heart_rate_rejected(self, db_session):
+        """Out-of-range heart_rate (>250) returns 400."""
+        user = make_user(db_session, "critical_range@example.com", "CriticalRange", "patient")
+        token = get_token(client, "critical_range@example.com")
+
+        payload = {"vitals": {"heart_rate": 300}}
+        response = client.post(
+            "/api/v1/vitals/critical-alert",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
+
+    def test_critical_alert_unauthorized(self):
+        """Unauthenticated request is rejected."""
+        payload = {"vitals": {"heart_rate": 185}}
+        response = client.post("/api/v1/vitals/critical-alert", json=payload)
+        assert response.status_code == 401
+

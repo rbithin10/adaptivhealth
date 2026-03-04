@@ -52,7 +52,7 @@ def generate_ai_risk_summary(
         import google.generativeai as genai
 
         genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
 
         context_lines = [
             f"Risk level: {risk_level}",

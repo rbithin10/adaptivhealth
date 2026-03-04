@@ -408,7 +408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MediaQuery.of(context).platformBrightness;
+    final brightness = Theme.of(context).brightness;
     return Container(
       color: AdaptivColors.getBackgroundColor(brightness),
       child: Column(
@@ -436,8 +436,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   image: const AssetImage('assets/images/profile_bg.png'),
                   fit: BoxFit.cover,
                   colorFilter: ColorFilter.mode(
-                    Colors.white.withOpacity(0.85),
-                    BlendMode.lighten,
+                    brightness == Brightness.dark
+                        ? Colors.black.withOpacity(0.6)
+                        : Colors.white.withOpacity(0.85),
+                    brightness == Brightness.dark
+                        ? BlendMode.darken
+                        : BlendMode.lighten,
                   ),
                 ),
               ),
@@ -855,6 +859,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// Edge AI model info section — shows model version, status, sync count
   Widget _buildEdgeAiSection() {
+    final brightness = Theme.of(context).brightness;
     EdgeAiStore? edgeStore;
     try {
       edgeStore = Provider.of<EdgeAiStore>(context);
@@ -873,9 +878,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AdaptivColors.white,
+        color: AdaptivColors.getSurfaceColor(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AdaptivColors.border300),
+        border: Border.all(color: AdaptivColors.getBorderColor(brightness)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1029,14 +1034,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildMockVitalsSection() {
+    final brightness = Theme.of(context).brightness;
     final hasEdgeStore = _hasEdgeStore();
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AdaptivColors.white,
+        color: AdaptivColors.getSurfaceColor(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AdaptivColors.border300),
+        border: Border.all(color: AdaptivColors.getBorderColor(brightness)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1048,7 +1054,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 6),
           Text(
             'Manual demo control. Does not auto-start on app launch.',
-            style: AdaptivTypography.caption.copyWith(color: AdaptivColors.text600),
+            style: AdaptivTypography.caption.copyWith(color: AdaptivColors.getSecondaryTextColor(brightness)),
           ),
           const SizedBox(height: 10),
           if (!hasEdgeStore)
@@ -1061,6 +1067,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           DropdownButtonFormField<MockScenario>(
             value: _mockMode,
+            isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Simulation Scenario',
               border: OutlineInputBorder(),
@@ -1069,19 +1076,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
             items: const [
               DropdownMenuItem(
                 value: MockScenario.rest,
-                child: Text('Rest — HR ~68, SpO₂ 97-99%, high HRV'),
+                child: Text('Rest — HR ~68, SpO₂ 97-99%, high HRV', overflow: TextOverflow.ellipsis),
               ),
               DropdownMenuItem(
                 value: MockScenario.workout,
-                child: Text('Workout — warmup → peak → cooldown (7 min)'),
+                child: Text('Workout — warmup → peak → cooldown (7 min)', overflow: TextOverflow.ellipsis),
               ),
               DropdownMenuItem(
                 value: MockScenario.sleep,
-                child: Text('Sleep — NREM/REM cycling, bradycardia'),
+                child: Text('Sleep — NREM/REM cycling, bradycardia', overflow: TextOverflow.ellipsis),
               ),
               DropdownMenuItem(
                 value: MockScenario.emergency,
-                child: Text('Emergency — critical HR/SpO₂/BP, all alerts fire'),
+                child: Text('Emergency — critical HR/SpO₂/BP, all alerts fire', overflow: TextOverflow.ellipsis),
               ),
             ],
             onChanged: _mockRunning
@@ -1146,12 +1153,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildDeveloperUtilities() {
+    final brightness = Theme.of(context).brightness;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AdaptivColors.white,
+        color: AdaptivColors.getSurfaceColor(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AdaptivColors.border300),
+        border: Border.all(color: AdaptivColors.getBorderColor(brightness)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1245,12 +1253,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// Medication Reminders section with reminder settings and adherence tracking
   Widget _buildMedicationRemindersSection() {
+    final brightness = Theme.of(context).brightness;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AdaptivColors.white,
+        color: AdaptivColors.getSurfaceColor(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AdaptivColors.border300),
+        border: Border.all(color: AdaptivColors.getBorderColor(brightness)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
