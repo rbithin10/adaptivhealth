@@ -60,6 +60,7 @@ const MessagingPage: React.FC = () => {
         clearInterval(pollingIntervalRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

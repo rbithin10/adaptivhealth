@@ -10,17 +10,7 @@ Shows detailed information about one patient:
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, Radar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Send, AlertOctagon, Info, Bell, Cpu, HardDrive, RefreshCw, Search, ArrowUpRight, ArrowDownRight, Eye } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Send, AlertOctagon, Info, Bell, Cpu, HardDrive, RefreshCw, Eye } from 'lucide-react';
 import { Snackbar, Alert as MuiAlert } from '@mui/material';
 import { api } from '../services/api';
 import {
