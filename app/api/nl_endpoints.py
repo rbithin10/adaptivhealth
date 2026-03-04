@@ -705,10 +705,10 @@ async def post_chat_with_image(
         analysis_key = "general"
 
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
 
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        client = genai.Client(api_key=settings.gemini_api_key)
 
         image_bytes = await image.read()
         if not image_bytes:
@@ -735,12 +735,16 @@ async def post_chat_with_image(
             "Respond in supportive, concise language appropriate for a cardiac rehab patient."
         )
 
-        image_part = {
-            "mime_type": image.content_type or "image/jpeg",
-            "data": image_bytes,
-        }
-
-        response = model.generate_content([prompt, image_part])
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_text(text=prompt),
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=image.content_type or "image/jpeg",
+                ),
+            ],
+        )
         text = (response.text or "").strip()
         if not text:
             text = "I couldn't analyze the image clearly. Please try a clearer photo or provide more details."

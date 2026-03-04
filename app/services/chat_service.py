@@ -485,13 +485,10 @@ async def _call_gemini(
     Returns the generated response text, or None on failure.
     """
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
 
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel(
-            "gemini-2.5-flash",
-            system_instruction=SYSTEM_PROMPT,
-        )
+        client = genai.Client(api_key=gemini_api_key)
 
         # Build conversation context (last 5 exchanges)
         history_text = ""
@@ -511,9 +508,11 @@ async def _call_gemini(
     {screen_line}
 {f"RECENT CONVERSATION:{chr(10)}{history_text}{chr(10)}{chr(10)}" if history_text else ""}Patient says: {user_message}"""
 
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
                 temperature=0.4,
                 max_output_tokens=300,
             ),

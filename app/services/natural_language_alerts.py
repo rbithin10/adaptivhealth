@@ -49,10 +49,10 @@ def generate_ai_risk_summary(
         raise RuntimeError("Gemini API key is not configured")
 
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
 
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        client = genai.Client(api_key=settings.gemini_api_key)
 
         context_lines = [
             f"Risk level: {risk_level}",
@@ -77,9 +77,10 @@ def generate_ai_risk_summary(
             + "\n".join(context_lines)
         )
 
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 temperature=0.3,
                 max_output_tokens=220,
             ),

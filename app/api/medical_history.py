@@ -72,7 +72,7 @@ async def get_medical_extraction_status(
     gemini_key_configured = bool(settings.gemini_api_key)
 
     try:
-        import google.generativeai as genai  # noqa: F401
+        from google import genai  # noqa: F401
         gemini_sdk_available = True
     except Exception:
         gemini_sdk_available = False

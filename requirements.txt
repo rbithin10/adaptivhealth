@@ -42,7 +42,7 @@ websockets>=12.0
 scikit-learn>=1.6.0,<1.7
 
 # Document Extraction (Gemini LLM + PDF parsing)
-google-generativeai>=0.8.0
+google-genai>=1.0.0
 PyPDF2>=3.0
 
 # Testing

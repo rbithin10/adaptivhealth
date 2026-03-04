@@ -13,7 +13,8 @@ import logging
 import re
 from typing import Any, Dict, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
@@ -91,17 +92,17 @@ async def analyze_food_image(file: UploadFile = File(...)):
     )
 
     try:
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        client = genai.Client(api_key=settings.gemini_api_key)
 
-        response = model.generate_content(
-            [
-                prompt,
-                {
-                    "mime_type": file.content_type or "image/jpeg",
-                    "data": image_bytes,
-                },
-            ]
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_text(text=prompt),
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=file.content_type or "image/jpeg",
+                ),
+            ],
         )
 
         payload = _extract_json_payload(response.text or "")
