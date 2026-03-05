@@ -180,7 +180,7 @@ class ApiService {
     gender?: string;
     phone?: string;
   }): Promise<User> {
-    const response = await this.client.post<User>('/onboard', {
+    const response = await this.client.post<User>('/register', {
       email: userData.email,
       password: userData.password,
       name: userData.full_name,
