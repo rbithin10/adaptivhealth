@@ -147,7 +147,7 @@ class ApiService {
     formData.append('username', email);
     formData.append('password', password);
 
-    const response = await this.client.post<TokenResponse>('/access', formData, {
+    const response = await this.client.post<TokenResponse>('/login', formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
