@@ -17,7 +17,7 @@ import { typography } from '../theme/typography';
 import StatusBadge, { riskToStatus } from '../components/common/StatusBadge';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 
 type PatientRiskLevel = 'low' | 'moderate' | 'high' | 'critical';
 

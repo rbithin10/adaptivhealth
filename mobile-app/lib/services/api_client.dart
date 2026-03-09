@@ -24,10 +24,10 @@ class ApiClient {
     defaultValue: '',
   );
 
-  // AWS ALB production endpoint.
+  // Production endpoint.
   // Use: flutter run --dart-define=USE_PRODUCTION=true
   static const String _productionBaseUrl =
-      'https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com/api/v1';
+      'https://api.back-adaptivhealthuowd.xyz/api/v1';
 
   static const String _useProduction = String.fromEnvironment(
     'USE_PRODUCTION',
@@ -35,7 +35,7 @@ class ApiClient {
   );
 
   // EC2 development server — used by emulator, physical device, and web.
-  static const String _ec2BaseUrl = 'https://api.back-adaptivhealth.xyz/api/v1';
+  static const String _ec2BaseUrl = 'https://api.back-adaptivhealthuowd.xyz/api/v1';
 
   // Local development server running on this machine.
   // Flutter Web / Desktop reach it via localhost.

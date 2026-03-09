@@ -5,7 +5,7 @@
         In production with a proper CA-signed certificate, remove this domain-config.
     -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">13.201.126.13</domain>
+        <domain includeSubdomains="true">api.back-adaptivhealthuowd.xyz</domain>
         <trust-anchors>
             <!-- Trust the system CAs -->
             <certificates src="system"/>

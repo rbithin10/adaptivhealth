@@ -57,7 +57,7 @@ import {
 
 // AWS ALB production endpoint. Override with REACT_APP_API_URL for local dev.
 // Local: REACT_APP_API_URL=http://localhost:8080 in .env.development
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 
 const normalizeUser = (
   data: Partial<User> & { id?: number; name?: string; role?: string }

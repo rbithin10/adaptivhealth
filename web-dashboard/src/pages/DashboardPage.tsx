@@ -36,7 +36,7 @@ import { typography } from '../theme/typography';
 import StatCard from '../components/cards/StatCard';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://adaptivhealth-alb-1498103672.me-central-1.elb.amazonaws.com';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 const ENABLE_ALERT_PUSH = process.env.REACT_APP_ENABLE_ALERT_PUSH === 'true';
 
 interface Stats {
