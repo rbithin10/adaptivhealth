@@ -181,4 +181,5 @@ adaptiv-key.pem
 .env.local
 .env.production
 .env.*
+!.env.example
 
