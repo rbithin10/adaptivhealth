@@ -38,6 +38,7 @@ import 'screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiClient.initialize();
   await NotificationService.instance.initialize();
 
   runApp(const AdaptivHealthApp(initialToken: null));

@@ -78,7 +78,7 @@ class User(Base):
     max_safe_hr = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     phone = Column(String(20), nullable=True)
-    role = Column(Enum(UserRole), default=UserRole.PATIENT, nullable=True)
+    role = Column(Enum(UserRole), default=UserRole.PATIENT, server_default="patient", nullable=True)
 
     # Account status
     is_active = Column(Boolean, default=True, nullable=True)

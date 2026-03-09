@@ -20,6 +20,7 @@ from app.models.medical_history import (
     ConditionType, ConditionStatus, DrugClass, MedicationStatus, DocumentStatus,
 )
 from app.models.medication_adherence import MedicationAdherence
+from app.models.token_blocklist import TokenBlocklist
 
 # Export all models for easy importing
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "User",
     "UserRole",
     "AuthCredential",
+    "TokenBlocklist",
 
     # Vital Signs
     "VitalSignRecord",

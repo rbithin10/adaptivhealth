@@ -27,6 +27,7 @@ This file handles password hashing and token creation.
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import jwt
+import uuid
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
@@ -57,13 +58,13 @@ pwd_context = CryptContext(
 
 # Read login tokens from the Authorization header.
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login",
+    tokenUrl="/api/v1/access",
     auto_error=True
 )
 
 # Optional token reader (no error if missing).
 oauth2_scheme_optional = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login",
+    tokenUrl="/api/v1/access",
     auto_error=False
 )
 
@@ -151,7 +152,7 @@ class AuthService:
                 minutes=settings.access_token_expire_minutes
             )
         
-        # Add standard fields (don't override type if already provided)
+        # Add standard fields (don't override type or jti if already provided)
         to_encode.update({
             "exp": expire,  # Expiration time (unix timestamp)
             "iat": datetime.now(timezone.utc),  # Issued-at time
@@ -160,6 +161,10 @@ class AuthService:
         # Set type to "access" only if not already specified
         if "type" not in to_encode:
             to_encode["type"] = "access"
+        
+        # Unique token ID — used for server-side revocation
+        if "jti" not in to_encode:
+            to_encode["jti"] = str(uuid.uuid4())
         
         # Encode the token with the app's secret key.
         encoded_jwt = jwt.encode(
@@ -193,7 +198,8 @@ class AuthService:
         to_encode.update({
             "exp": expire,
             "iat": datetime.now(timezone.utc),
-            "type": "refresh"  # Mark as refresh token (not reusable as access token)
+            "type": "refresh",  # Mark as refresh token (not reusable as access token)
+            "jti": str(uuid.uuid4()),  # Unique token ID for revocation
         })
         
         # Encode and return the token.

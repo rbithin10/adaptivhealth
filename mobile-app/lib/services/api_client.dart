@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiClient {
   // Server address. Change this for your own backend.
@@ -34,7 +35,7 @@ class ApiClient {
   );
 
   // EC2 development server — used by emulator, physical device, and web.
-  static const String _ec2BaseUrl = 'https://13.201.126.13/api/v1';
+  static const String _ec2BaseUrl = 'https://api.back-adaptivhealth.xyz/api/v1';
 
   // Local development server running on this machine.
   // Flutter Web / Desktop reach it via localhost.
@@ -65,11 +66,45 @@ class ApiClient {
 
   // One HTTP client shared by the whole app.
   final Dio _dio;
-  
-  // Login token saved in memory.
-  // Note: This will reset if the app restarts.
+
+  // Secure storage for auth tokens — persists across app restarts.
+  static const _storage = FlutterSecureStorage();
+
+  // In-memory token cache (loaded from storage at startup).
   static String? _authToken;
   static String? _refreshToken;
+
+  // Guard against concurrent refresh calls that could cause a loop.
+  static bool _isRefreshing = false;
+
+  /// Load previously saved tokens from secure device storage.
+  /// Must be called once from main() before runApp() so the app starts
+  /// in an authenticated state when a valid session already exists.
+  static Future<void> initialize() async {
+    _authToken = await _storage.read(key: 'auth_token');
+    _refreshToken = await _storage.read(key: 'refresh_token');
+  }
+
+  /// Persist new tokens both in memory and in secure storage.
+  static Future<void> _saveTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    _authToken = accessToken;
+    await _storage.write(key: 'auth_token', value: accessToken);
+    if (refreshToken != null) {
+      _refreshToken = refreshToken;
+      await _storage.write(key: 'refresh_token', value: refreshToken);
+    }
+  }
+
+  /// Wipe tokens from memory and from secure storage.
+  static Future<void> _clearStoredTokens() async {
+    _authToken = null;
+    _refreshToken = null;
+    await _storage.delete(key: 'auth_token');
+    await _storage.delete(key: 'refresh_token');
+  }
 
   ApiClient({
     Dio? dio,
@@ -134,34 +169,36 @@ class ApiClient {
         // Handle errors returned by the server.
         onError: (error, handler) async {
           // 401 means the token is not valid anymore.
+          // Guard with _isRefreshing to prevent concurrent refresh attempts
+          // (multiple simultaneous 401s would otherwise each try to refresh,
+          // potentially creating a feedback loop).
           if (error.response?.statusCode == 401 &&
               _refreshToken != null &&
+              !_isRefreshing &&
               !(error.requestOptions.extra['_retried'] ?? false)) {
-            // Try refreshing the token once
+            _isRefreshing = true;
             try {
               final refreshResp = await _dio.post(
-                '/access/renew',
+                '/auth/token/refresh',
                 data: {'refresh_token': _refreshToken},
                 options: Options(extra: {'_retried': true}),
               );
-              final newToken = refreshResp.data['access_token'];
-              _authToken = newToken;
-              if (refreshResp.data['refresh_token'] != null) {
-                _refreshToken = refreshResp.data['refresh_token'];
-              }
-              // Retry the original request with new token
+              final newToken = refreshResp.data['access_token'] as String;
+              final newRefresh = refreshResp.data['refresh_token'] as String?;
+              await _saveTokens(accessToken: newToken, refreshToken: newRefresh);
+              // Retry the original request with the new access token.
               error.requestOptions.headers['Authorization'] = 'Bearer $newToken';
               error.requestOptions.extra['_retried'] = true;
               final retryResponse = await _dio.fetch(error.requestOptions);
               return handler.resolve(retryResponse);
             } catch (_) {
-              // Refresh failed — clear tokens
-              _authToken = null;
-              _refreshToken = null;
+              // Refresh failed — force logout and surface the original 401.
+              await _clearStoredTokens();
+            } finally {
+              _isRefreshing = false;
             }
           } else if (error.response?.statusCode == 401) {
-            _authToken = null;
-            _refreshToken = null;
+            await _clearStoredTokens();
           }
           return handler.next(error);
         },
@@ -178,7 +215,7 @@ class ApiClient {
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await _dio.post(
-        '/access',
+        '/auth/signin',
         data: {
           'username': email,  // FastAPI OAuth2 uses 'username'
           'password': password,
@@ -189,14 +226,10 @@ class ApiClient {
         ),
       );
       
-      // Save the token so future requests are authenticated.
-      final accessToken = response.data['access_token'];
-      _authToken = accessToken;
-      
-      // Store refresh token if provided
-      if (response.data['refresh_token'] != null) {
-        _refreshToken = response.data['refresh_token'];
-      }
+      // Persist the tokens so the session survives app restarts.
+      final accessToken = response.data['access_token'] as String;
+      final refreshToken = response.data['refresh_token'] as String?;
+      await _saveTokens(accessToken: accessToken, refreshToken: refreshToken);
       
       return response.data;
     } on DioException catch (e) {
@@ -252,7 +285,7 @@ class ApiClient {
       if (phone != null && phone.isNotEmpty) data['phone'] = phone;
 
       final response = await _dio.post(
-        '/onboard',
+        '/auth/create',
         data: data,
       );
       return response.data;
@@ -261,10 +294,19 @@ class ApiClient {
     }
   }
 
-  /// Logout by clearing the local tokens.
+  /// Logout: revoke the access token on the server and clear local storage.
+  /// Safe to call even when already logged out.
   Future<void> logout() async {
-    _authToken = null;
-    _refreshToken = null;
+    try {
+      // Tell the server to revoke this token so it cannot be reused.
+      if (_authToken != null) {
+        await _dio.post('/logout');
+      }
+    } catch (_) {
+      // Ignore server errors during logout — always clear local state.
+    } finally {
+      await _clearStoredTokens();
+    }
   }
 
   // ===================================

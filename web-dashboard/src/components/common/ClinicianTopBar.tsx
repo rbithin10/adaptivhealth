@@ -42,8 +42,8 @@ const ClinicianTopBar: React.FC = () => {
     };
   }, []);
 
-  const handleLogout = () => {
-    api.logout();
+  const handleLogout = async () => {
+    await api.logout();
     navigate('/login');
   };
 

@@ -7,7 +7,7 @@ environment variables. Makes the app work in different places
 """
 
 from functools import lru_cache
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
@@ -21,7 +21,6 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------------
     # Application Info
     # ---------------------------------------------------------------------
-    app_name: str = Field(default="Adaptiv Health API")
     app_version: str = Field(default="1.0.0")
     environment: str = Field(default="development")
     debug: bool = Field(default=False)
@@ -94,33 +93,6 @@ class Settings(BaseSettings):
         default=False,
         description="Explicit dev-only flag to log reset tokens when SMTP is unavailable"
     )
-
-    # ---------------------------------------------------------------------
-    # CORS Configuration
-    # ---------------------------------------------------------------------
-    allowed_origins: List[str] = Field(
-        default=[
-            "http://localhost:3000",   # React dashboard
-            "http://localhost:5173",   # Vite dev server
-            "http://localhost:5000",   # Flutter web
-        ]
-    )
-
-    # ---------------------------------------------------------------------
-    # Rate Limiting / Session Security
-    # ---------------------------------------------------------------------
-    rate_limit_per_minute: int = Field(default=60)
-    session_timeout_minutes: int = Field(default=30)
-    max_login_attempts: int = Field(default=3)
-    lockout_duration_minutes: int = Field(default=5)
-
-    # ---------------------------------------------------------------------
-    # AWS (Optional – Production)
-    # ---------------------------------------------------------------------
-    aws_access_key_id: Optional[str] = None
-    aws_secret_access_key: Optional[str] = None
-    aws_region: str = Field(default="me-central-1")
-    s3_bucket_name: Optional[str] = None
 
     class Config:
         env_file = [".env", ".env.local"]  # .env.local overrides .env for local dev

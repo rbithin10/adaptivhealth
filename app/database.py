@@ -26,7 +26,14 @@ logger = logging.getLogger(__name__)
 # pool_size: Number of persistent connections in the pool
 # max_overflow: Additional connections allowed during high load
 # pool_recycle: Recycle connections after this many seconds (prevents timeouts)
-# PostgreSQL with connection pooling for AWS RDS
+# PostgreSQL with connection pooling
+# SSL is required for production (AWS RDS); disabled for local development
+_is_production = settings.environment == "production"
+_connect_args: dict = {"options": "-c timezone=utc"}
+if _is_production:
+    _connect_args["sslmode"] = "require"
+    _connect_args["sslrootcert"] = "/etc/ssl/certs/rds-ca.pem"
+
 engine = create_engine(
     settings.database_url,
     poolclass=QueuePool,
@@ -35,7 +42,7 @@ engine = create_engine(
     max_overflow=20,
     pool_recycle=3600,
     echo=settings.debug,
-    connect_args={"options": "-c timezone=utc"}
+    connect_args=_connect_args,
 )
 
 # =============================================================================
@@ -118,7 +125,8 @@ def init_db() -> None:
         alert,
         recommendation,
         nutrition,
-        message
+        message,
+        token_blocklist,
     )
     
     logger.info("Creating database tables...")
@@ -163,7 +171,8 @@ def check_db_connection() -> bool:
         return False
 
 
-# =============================================================================
+# ==============================
+# ===============================================
 # Event Listeners (Audit Logging for HIPAA)
 # =============================================================================
 

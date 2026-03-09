@@ -66,7 +66,7 @@ router = APIRouter()
 
 # Auth service instance
 auth_service = AuthService()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/access")
 
 
 
@@ -192,6 +192,17 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"}
         )
     
+    # Check if this specific token has been revoked (e.g. after logout)
+    jti = payload.get("jti")
+    if jti:
+        from app.models.token_blocklist import TokenBlocklist
+        if db.query(TokenBlocklist).filter(TokenBlocklist.jti == jti).first():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+    
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(
@@ -211,6 +222,15 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated"
+        )
+    
+    # Null role is a data-integrity error — fail loudly rather than silently
+    # defaulting a clinician to PATIENT permissions
+    if user.role is None:
+        logger.error(f"User {user.user_id} has no assigned role — account misconfigured")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account configuration error: role not assigned. Contact support."
         )
     
     return user
@@ -343,7 +363,9 @@ def get_current_admin_or_doctor_user(current_user: User = Depends(get_current_us
 # Returns: UserResponse with new user details
 # Roles: PUBLIC (anyone can register as PATIENT)
 # =============================================
-@router.post("/register", response_model=UserResponse)
+@router.post("/onboard", response_model=UserResponse)       # canonical backend name
+@router.post("/auth/create", response_model=UserResponse)   # mobile alias
+@router.post("/users/enroll", response_model=UserResponse)  # dashboard alias
 @limiter.limit("3/minute")
 async def register(
     request: Request,
@@ -522,7 +544,9 @@ async def register_user_admin(
 # Returns: JWT access_token + refresh_token
 # Roles: ALL (patient, clinician, admin)
 # =============================================
-@router.post("/login", response_model=TokenResponse)
+@router.post("/access", response_model=TokenResponse)         # canonical backend name
+@router.post("/auth/signin", response_model=TokenResponse)    # mobile alias
+@router.post("/session/start", response_model=TokenResponse)  # dashboard alias
 @limiter.limit("5/minute")
 async def login(
     request: Request,
@@ -562,8 +586,12 @@ async def login(
 # Returns: New JWT access_token + refresh_token
 # Roles: ALL (must have valid refresh token)
 # =============================================
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/access/renew", response_model=TokenResponse)         # canonical backend name
+@router.post("/auth/token/refresh", response_model=TokenResponse)   # mobile alias
+@router.post("/session/extend", response_model=TokenResponse)       # dashboard alias
+@limiter.limit("10/minute")
 async def refresh_token(
+    request: Request,
     token_data: RefreshTokenRequest,
     db: Session = Depends(get_db)
 ):
@@ -579,6 +607,16 @@ async def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token"
         )
+    
+    # Check if this refresh token has been revoked
+    jti = payload.get("jti")
+    if jti:
+        from app.models.token_blocklist import TokenBlocklist
+        if db.query(TokenBlocklist).filter(TokenBlocklist.jti == jti).first():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has been revoked"
+            )
     
     user_id = payload.get("sub")
     user = db.query(User).filter(User.user_id == int(user_id)).first()
@@ -650,8 +688,9 @@ async def request_password_reset(
     
     if user:
         # Generate reset token with 1-hour expiration
+        # WHY: Use "sub" key (same as access/refresh tokens) for consistency
         reset_token = auth_service.create_access_token(
-            data={"user_id": user.user_id, "type": "password_reset"},
+            data={"sub": str(user.user_id), "type": "password_reset"},
             expires_delta=timedelta(hours=1)
         )
 
@@ -711,7 +750,9 @@ async def request_password_reset(
 # Roles: PUBLIC (token validates user)
 # =============================================
 @router.post("/reset-password/confirm")
+@limiter.limit("5/15minutes")
 async def confirm_password_reset(
+    request: Request,
     reset_data: PasswordResetConfirm,
     db: Session = Depends(get_db)
 ):
@@ -739,8 +780,8 @@ async def confirm_password_reset(
             detail="Invalid token type"
         )
     
-    # Get user ID from token
-    user_id = payload.get("user_id")
+    # Get user ID from token ("sub" key — consistent with access/refresh tokens)
+    user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -748,7 +789,7 @@ async def confirm_password_reset(
         )
     
     # Get the user
-    user = db.query(User).filter(User.user_id == user_id).first()
+    user = db.query(User).filter(User.user_id == int(user_id)).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -777,3 +818,44 @@ async def confirm_password_reset(
     return {
         "message": "Password reset successful. You can now log in with your new password."
     }
+
+
+# --- ENDPOINT: LOGOUT / TOKEN REVOCATION ---
+
+# =============================================
+# LOGOUT - Revoke the caller's access token
+# Used by: Mobile app logout, Dashboard logout
+# Returns: Success message
+# Roles: ALL (authenticated users)
+# =============================================
+@router.post("/logout")
+@router.post("/auth/signout")    # mobile alias
+@router.post("/session/end")     # dashboard alias
+async def logout(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Revoke the current access token.
+
+    Adds the token's jti to the server-side blocklist so it is rejected
+    on all subsequent requests even before its natural expiry.
+    The client must also discard any stored refresh tokens.
+    """
+    from app.models.token_blocklist import TokenBlocklist
+
+    payload = auth_service.decode_token(token)
+    if payload:
+        jti = payload.get("jti")
+        if jti:
+            expires_at = datetime.fromtimestamp(
+                payload.get("exp", 0), tz=timezone.utc
+            )
+            existing = db.query(TokenBlocklist).filter(TokenBlocklist.jti == jti).first()
+            if not existing:
+                db.add(TokenBlocklist(jti=jti, expires_at=expires_at))
+                db.commit()
+
+    logger.info(f"User logged out: {current_user.user_id}")
+    return {"message": "Logged out successfully"}

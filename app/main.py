@@ -66,6 +66,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"ML model loading skipped due to error: {e}")
     
+    # Prune expired token blocklist entries to prevent unbounded table growth
+    try:
+        from datetime import datetime, timezone
+        from app.database import SessionLocal
+        from app.models.token_blocklist import TokenBlocklist
+        with SessionLocal() as db:
+            deleted = db.query(TokenBlocklist).filter(
+                TokenBlocklist.expires_at < datetime.now(timezone.utc)
+            ).delete(synchronize_session=False)
+            db.commit()
+        if deleted:
+            logger.info(f"Pruned {deleted} expired token blocklist entries")
+    except Exception as e:
+        logger.warning(f"Token blocklist pruning skipped: {e}")
+
     logger.info("Adaptive Health API started successfully")
     
     yield
@@ -78,14 +93,16 @@ async def lifespan(app: FastAPI):
 # FastAPI Application
 # =============================================================================
 
+_is_production = settings.environment == "production"
+
 app = FastAPI(
     title="Adaptive Health API",
     description="HIPAA-compliant cardiovascular monitoring and AI-driven health platform",
     version=settings.app_version,
     lifespan=lifespan,
-    docs_url="/docs",  # Swagger UI
-    redoc_url="/redoc",  # ReDoc
-    openapi_url="/openapi.json"
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # SlowAPI rate limiter
