@@ -544,8 +544,11 @@ async def _call_gemini(
             return text
         return None
 
+    except ImportError:
+        logger.error("google-genai package not installed — run: pip install google-genai")
+        return None
     except Exception as e:
-        logger.error(f"Gemini chat call failed: {e}")
+        logger.error(f"Gemini chat call failed: {type(e).__name__}: {e}")
         return None
 
 
@@ -622,6 +625,10 @@ async def generate_chat_response(
             response_with_disclaimer = gemini_response + DISCLAIMER_SUFFIX
             logger.info(f"Chat response via Gemini (intent={intent}) for user {user_id}")
             return {"response": response_with_disclaimer, "source": "gemini"}
+        else:
+            logger.warning(f"Gemini returned empty response for user {user_id}, falling back")
+    else:
+        logger.warning("GEMINI_API_KEY not set — all chat responses will use template fallback")
 
     # Step 2: Gemini unavailable or failed — fall back to raw template
     if structured_data:

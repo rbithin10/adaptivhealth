@@ -53,7 +53,7 @@ from app.schemas.user import (
     UserCreate, UserResponse, LoginRequest, TokenResponse,
     RefreshTokenRequest, PasswordResetRequest, PasswordResetConfirm
 )
-from app.services.auth_service import AuthService
+from app.services.auth_service import AuthService, pwd_context
 from app.services.email_service import email_service
 from app.config import settings
 from app.rate_limiter import limiter
@@ -155,6 +155,11 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
     auth_cred.failed_login_attempts = 0
     auth_cred.locked_until = None
     auth_cred.last_login = datetime.now(timezone.utc)
+
+    # Rehash to Argon2id if still using old PBKDF2
+    if pwd_context.needs_update(auth_cred.hashed_password):
+        auth_cred.hashed_password = auth_service.hash_password(password)
+
     db.commit()
     
     return user

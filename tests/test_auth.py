@@ -267,7 +267,7 @@ class TestRequestPasswordReset:
 
         assert response.status_code == 200
         assert "token" not in response.json()
-        assert "Reset token (DEV ONLY):" in caplog.text
+        assert "Dev mode - reset token:" in caplog.text
 
     def test_smtp_send_failure_still_returns_safe_response(self, db_session):
         """Test SMTP send failure does not leak details and returns safe response."""
@@ -394,6 +394,16 @@ class TestConfirmPasswordReset:
 class TestRegistration:
     """Test admin-led user registration."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_rate_limiter_storage(self):
+        """Reset limiter storage so tests do not share request quotas."""
+        storage = getattr(limiter, "_storage", None)
+        if storage and hasattr(storage, "reset"):
+            storage.reset()
+        yield
+        if storage and hasattr(storage, "reset"):
+            storage.reset()
+
     def test_register_success(self, db_session):
         admin = make_user(db_session, "admin_register@example.com", "Admin Register", "admin")
         admin_token = get_access_token(admin.email)
@@ -491,9 +501,9 @@ def test_hash_is_not_plain_text():
     assert AuthService.hash_password(plain) != plain
 
 
-def test_hash_uses_pbkdf2_format():
+def test_hash_uses_argon2_format():
     hashed = AuthService.hash_password("TestPassword123!")
-    assert hashed.startswith("$pbkdf2-sha256$")
+    assert hashed.startswith("$argon2id$")
 
 
 def test_verify_correct_password_returns_true():

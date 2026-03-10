@@ -11,14 +11,15 @@ This file handles password hashing and token creation.
 # OAUTH2 SCHEME....................... Line 45
 #
 # CLASS: AuthService
-#   - hash_password().................. Line 68  (PBKDF2 hash)
+#   - hash_password().................. Line 68  (Argon2id hash)
 #   - verify_password()................ Line 83  (Check password match)
 #   - create_access_token()............ Line 106 (JWT access token)
 #   - create_refresh_token()........... Line 153 (JWT refresh token)
 #   - decode_token()................... Line 186 (JWT validation)
 #
 # BUSINESS CONTEXT:
-# - PBKDF2 with 200k rounds (OWASP recommended)
+# - Argon2id hashing (OWASP recommended, memory-hard)
+# - Transparent migration from legacy PBKDF2 hashes
 # - JWT tokens for stateless auth
 # - Account locking after failed attempts (HIPAA)
 # =============================================================================
@@ -45,11 +46,11 @@ logger = logging.getLogger(__name__)
 # Password Hashing Configuration
 # =============================================================================
 
-# Use PBKDF2 for password hashing (safe and compatible).
+# Use Argon2id for new hashes (memory-hard, OWASP recommended).
+# Old PBKDF2 hashes still verify and get re-hashed on next login.
 pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256"],
-    deprecated="auto",
-    pbkdf2_sha256__default_rounds=200000  # OWASP recommended minimum
+    schemes=["argon2", "pbkdf2_sha256"],
+    deprecated=["pbkdf2_sha256"],
 )
 
 # =============================================================================
@@ -90,8 +91,8 @@ class AuthService:
     def hash_password(password: str) -> str:
         """
         Hash a password so it is safe to store.
-        
-        We use PBKDF2 with many rounds to make guessing very slow.
+
+        We use Argon2id (memory-hard) to make guessing very slow.
         
         Args:
             password: Plain text password to hash
