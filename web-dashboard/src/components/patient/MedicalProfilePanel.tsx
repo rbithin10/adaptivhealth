@@ -1,9 +1,14 @@
+/* MedicalProfilePanel — A collapsible panel showing the patient's medical profile.
+   Displays badge counts for active conditions and medications. */
+
 import React from 'react';
+// Icons: expand/collapse arrows and a document icon
 import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import { MedicalProfile } from '../../types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: the medical profile data, expand/collapse state, and child content
 interface MedicalProfilePanelProps {
   patientId: number;
   medicalProfile: MedicalProfile | null;
@@ -12,6 +17,7 @@ interface MedicalProfilePanelProps {
   children: React.ReactNode;
 }
 
+// The collapsible medical profile panel component
 const MedicalProfilePanel: React.FC<MedicalProfilePanelProps> = ({
   medicalProfile,
   expanded,

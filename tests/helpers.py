@@ -112,7 +112,7 @@ def get_token(
     password: str = "TestPass123"
 ) -> str:
     """
-    POST to /api/v1/login and return access_token.
+    POST to /api/v1/access and return access_token.
     
     Args:
         client: FastAPI TestClient
@@ -130,7 +130,7 @@ def get_token(
     # logic so tests don't repeat client.post + assertions.
     """
     response = client.post(
-        "/api/v1/login",
+        "/api/v1/access",
         data={"username": email, "password": password}
     )
     assert response.status_code == 200, f"Login failed: {response.json()}"

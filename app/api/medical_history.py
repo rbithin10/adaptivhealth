@@ -59,7 +59,7 @@ router = APIRouter()
 
 def _build_document_view_url(user_id: int, document_id: int) -> str:
     """Build relative API URL for authenticated document viewing."""
-    return f"/api/v1/patients/{user_id}/documents/{document_id}/view"
+    return f"/api/v1/patients/{user_id}/documents/{document_id}/view"  # URL clinicians use to view an uploaded file
 
 
 @router.get("/medical-extraction/status", response_model=MedicalExtractionStatusResponse)
@@ -69,13 +69,13 @@ async def get_medical_extraction_status(
     """Return document extraction readiness status for clinicians/admins."""
     del clinician  # endpoint requires role check only
 
-    gemini_key_configured = bool(settings.gemini_api_key)
+    gemini_key_configured = bool(settings.gemini_api_key)  # Check if the AI key is set in config
 
     try:
         from google import genai  # noqa: F401
-        gemini_sdk_available = True
+        gemini_sdk_available = True  # The Google AI library is installed
     except Exception:
-        gemini_sdk_available = False
+        gemini_sdk_available = False  # The library is missing — extraction won't work
 
     return MedicalExtractionStatusResponse(
         feature="medical_document_extraction",
@@ -98,6 +98,7 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
     Queries conditions and medications, then computes boolean flags
     used by risk scoring and exercise recommendations.
     """
+    # Load all medical conditions for this patient, newest first
     conditions = (
         db.query(PatientMedicalHistory)
         .filter(PatientMedicalHistory.user_id == user_id)
@@ -105,6 +106,7 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
         .all()
     )
 
+    # Load all medications for this patient, newest first
     medications = (
         db.query(PatientMedication)
         .filter(PatientMedication.user_id == user_id)
@@ -112,6 +114,7 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
         .all()
     )
 
+    # Load any uploaded clinical documents
     uploaded_documents = (
         db.query(UploadedDocument)
         .filter(UploadedDocument.user_id == user_id)
@@ -119,33 +122,33 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
         .all()
     )
 
-    # Compute AI flags from conditions
+    # Filter to only active conditions and meds for AI flag computation
     active_conditions = [c for c in conditions if c.status == "active"]
     active_meds = [m for m in medications if m.status == "active"]
 
-    has_prior_mi = any(c.condition_type == "prior_mi" for c in active_conditions)
-    has_heart_failure = any(c.condition_type == "heart_failure" for c in active_conditions)
+    has_prior_mi = any(c.condition_type == "prior_mi" for c in active_conditions)  # Had a previous heart attack?
+    has_heart_failure = any(c.condition_type == "heart_failure" for c in active_conditions)  # Has heart failure?
 
-    # Extract NYHA class from condition_detail (e.g., "NYHA Class II" → "II")
+    # Try to determine the NYHA class (severity I-IV) from the condition details
     heart_failure_class = None
     for c in active_conditions:
         if c.condition_type == "heart_failure" and c.condition_detail:
             detail = c.condition_detail.upper()
-            for cls in ["IV", "III", "II", "I"]:
+            for cls in ["IV", "III", "II", "I"]:  # Check highest class first
                 if cls in detail:
                     heart_failure_class = cls
                     break
 
-    # Compute AI flags from medications
-    is_on_beta_blocker = any(m.drug_class == "beta_blocker" for m in active_meds)
-    is_on_anticoagulant = any(m.is_anticoagulant for m in active_meds)
-    is_on_antiplatelet = any(m.drug_class == "antiplatelet" for m in active_meds)
+    # Check what types of cardiac medications the patient takes
+    is_on_beta_blocker = any(m.drug_class == "beta_blocker" for m in active_meds)  # Slows heart rate
+    is_on_anticoagulant = any(m.is_anticoagulant for m in active_meds)  # Blood thinner
+    is_on_antiplatelet = any(m.drug_class == "antiplatelet" for m in active_meds)  # Prevents blood clots
 
-    # Build response objects (decrypt notes for authorized viewers)
+    # Build response objects — decrypt encrypted clinical notes for authorised viewers
     from app.services.encryption import decrypt_phi
 
     condition_responses = []
-    for c in conditions:
+    for c in conditions:  # Convert each database record to a safe response object
         resp = MedicalHistoryResponse(
             history_id=c.history_id,
             user_id=c.user_id,
@@ -160,7 +163,7 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
         condition_responses.append(resp)
 
     medication_responses = []
-    for m in medications:
+    for m in medications:  # Convert each medication record, decrypting any encrypted notes
         resp = MedicationResponse(
             medication_id=m.medication_id,
             user_id=m.user_id,
@@ -181,7 +184,7 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
         medication_responses.append(resp)
 
     document_responses = []
-    for doc in uploaded_documents:
+    for doc in uploaded_documents:  # Check each uploaded file still exists on disk
         is_available = Path(doc.file_path).is_file()
         document_responses.append(
             {
@@ -195,9 +198,9 @@ def build_medical_profile(user_id: int, db: Session) -> MedicalProfileResponse:
             }
         )
 
-    first_available = next((d for d in document_responses if d.get("file_available")), None)
+    first_available = next((d for d in document_responses if d.get("file_available")), None)  # Find the first document that's still on disk
     latest_document_url = first_available["view_url"] if first_available else None
-    missing_document_count = sum(1 for d in document_responses if not d.get("file_available", False))
+    missing_document_count = sum(1 for d in document_responses if not d.get("file_available", False))  # Count files that are missing from storage
 
     return MedicalProfileResponse(
         user_id=user_id,
@@ -440,8 +443,8 @@ async def add_patient_medication(
     from app.services.encryption import encrypt_phi
 
     # Auto-set clinical flags based on drug class
-    is_hr_blunting = data.drug_class.value in ("beta_blocker",)
-    is_anticoagulant = data.drug_class.value in ("anticoagulant",)
+    is_hr_blunting = data.drug_class.value in ("beta_blocker",)  # Beta blockers slow the heart rate
+    is_anticoagulant = data.drug_class.value in ("anticoagulant",)  # Anticoagulants thin the blood
 
     try:
         medication = PatientMedication(
@@ -700,9 +703,9 @@ async def get_my_medical_profile(
 # =============================================================================
 
 # Upload directory (project root / uploads / {user_id} /)
-UPLOAD_BASE_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
-MAX_FILE_SIZE_MB = 5
-ALLOWED_EXTENSIONS = {"pdf", "txt"}
+UPLOAD_BASE_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"  # Where uploaded files are stored on disk
+MAX_FILE_SIZE_MB = 5  # Maximum allowed file size in megabytes
+ALLOWED_EXTENSIONS = {"pdf", "txt"}  # Only these file types can be uploaded
 
 
 @router.post("/patients/{patient_id}/upload-document", response_model=DocumentUploadResponse)
@@ -725,34 +728,34 @@ async def upload_patient_document(
     # Validate file extension
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in ALLOWED_EXTENSIONS:
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""  # Get the file type from the name
+    if ext not in ALLOWED_EXTENSIONS:  # Reject unsupported file types
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
     # Read file contents and check size
-    contents = await file.read()
-    file_size_kb = len(contents) // 1024
-    if file_size_kb > MAX_FILE_SIZE_MB * 1024:
+    contents = await file.read()  # Load the uploaded file into memory
+    file_size_kb = len(contents) // 1024  # Convert bytes to kilobytes
+    if file_size_kb > MAX_FILE_SIZE_MB * 1024:  # Reject files that are too large
         raise HTTPException(
             status_code=400,
             detail=f"File too large ({file_size_kb}KB). Maximum: {MAX_FILE_SIZE_MB}MB"
         )
 
     # Save to disk: uploads/{user_id}/{uuid}_{filename}
-    user_dir = UPLOAD_BASE_DIR / str(patient_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
-    safe_filename = f"{uuid.uuid4().hex[:8]}_{file.filename}"
+    user_dir = UPLOAD_BASE_DIR / str(patient_id)  # Each patient gets their own upload folder
+    user_dir.mkdir(parents=True, exist_ok=True)  # Create the folder if it doesn't exist
+    safe_filename = f"{uuid.uuid4().hex[:8]}_{file.filename}"  # Add a random prefix to avoid name collisions
     file_path = user_dir / safe_filename
-    with open(file_path, "wb") as f:
+    with open(file_path, "wb") as f:  # Write the file to disk
         f.write(contents)
 
     logger.info(f"Document saved: {file_path} ({file_size_kb}KB) by clinician {clinician.user_id}")
 
     # Save document record
-    doc = UploadedDocument(
+    doc = UploadedDocument(  # Create a database record tracking this uploaded file
         user_id=patient_id,
         filename=file.filename,
         file_path=str(file_path),
@@ -766,11 +769,11 @@ async def upload_patient_document(
     db.refresh(doc)
 
     # Call Gemini extraction
-    from app.services.document_extraction import extract_medical_data
+    from app.services.document_extraction import extract_medical_data  # AI-powered text extraction
     from app.config import get_settings
     settings = get_settings()
 
-    extraction_result = await extract_medical_data(
+    extraction_result = await extract_medical_data(  # Send the document to Gemini AI for analysis
         file_path=str(file_path),
         file_type=ext,
         gemini_api_key=settings.gemini_api_key,
@@ -778,12 +781,12 @@ async def upload_patient_document(
 
     # Store raw extraction result
     import json
-    doc.extracted_json = json.dumps(extraction_result)
-    doc.status = "extracted" if not extraction_result.get("error") else "failed"
+    doc.extracted_json = json.dumps(extraction_result)  # Save the AI's raw output for reference
+    doc.status = "extracted" if not extraction_result.get("error") else "failed"  # Mark success or failure
     db.commit()
 
     # Convert raw dicts to validated Pydantic schemas (best-effort)
-    extracted_conditions = []
+    extracted_conditions = []  # Conditions the AI found in the document
     for c in extraction_result.get("conditions", []):
         try:
             extracted_conditions.append(MedicalHistoryCreate(
@@ -794,7 +797,7 @@ async def upload_patient_document(
         except (ValidationError, ValueError, KeyError, TypeError):
             logger.warning(f"Skipping invalid extracted condition: {c}")
 
-    extracted_medications = []
+    extracted_medications = []  # Medications the AI found in the document
     for m in extraction_result.get("medications", []):
         try:
             extracted_medications.append(MedicationCreate(

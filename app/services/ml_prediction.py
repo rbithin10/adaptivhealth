@@ -213,14 +213,14 @@ def engineer_features(
 
     Returns dict of feature_name -> value.
     """
-    # Build the feature values the model expects.
-    hr_pct_of_max = peak_heart_rate / max_safe_hr if max_safe_hr > 0 else 0
-    hr_elevation = avg_heart_rate - baseline_hr
-    hr_range = peak_heart_rate - min_heart_rate
-    duration_intensity = duration_minutes * hr_pct_of_max
-    recovery_efficiency = recovery_time_minutes / duration_minutes if duration_minutes > 0 else 0
-    spo2_deviation = 98 - avg_spo2
-    age_risk_factor = age / 70
+    # Calculate derived features that help the model understand the patient's condition
+    hr_pct_of_max = peak_heart_rate / max_safe_hr if max_safe_hr > 0 else 0  # How close peak HR was to the maximum safe limit
+    hr_elevation = avg_heart_rate - baseline_hr  # How much higher than resting HR during exercise
+    hr_range = peak_heart_rate - min_heart_rate  # Spread between highest and lowest HR during session
+    duration_intensity = duration_minutes * hr_pct_of_max  # Combined measure of how long and how hard they exercised
+    recovery_efficiency = recovery_time_minutes / duration_minutes if duration_minutes > 0 else 0  # How long recovery took relative to exercise
+    spo2_deviation = 98 - avg_spo2  # How far blood oxygen was from the normal 98% (higher = worse)
+    age_risk_factor = age / 70  # Age relative to 70 years (higher = higher risk)
 
     # Activity type encoding (same mapping as train_model.py)
     activity_mapping = {
@@ -282,17 +282,17 @@ def predict_risk(
 
     # Step 2: put features in the exact order the model expects.
     import numpy as np
-    feature_array = np.array([[features[col] for col in feature_columns]])
+    feature_array = np.array([[features[col] for col in feature_columns]])  # Create a row of numbers for the model
 
-    # Step 3: scale values if needed.
+    # Step 3: scale values so they're in the range the model was trained on.
     feature_scaled = scaler.transform(feature_array)
 
     # Step 4: ask the model for a prediction.
-    prediction = model.predict(feature_scaled)[0]  # 0 or 1
-    probabilities = model.predict_proba(feature_scaled)[0]  # [prob_low, prob_high]
+    prediction = model.predict(feature_scaled)[0]  # Binary result: 0 (low risk) or 1 (high risk)
+    probabilities = model.predict_proba(feature_scaled)[0]  # Probability for each class [low_prob, high_prob]
 
-    # Step 5: turn the score into a simple risk label.
-    risk_score = float(probabilities[1])  # probability of high risk class
+    # Step 5: turn the probability into a human-friendly risk label.
+    risk_score = float(probabilities[1])  # Probability of being high risk (0.0 to 1.0)
 
     if risk_score >= 0.80:
         # High risk.

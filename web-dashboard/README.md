@@ -27,11 +27,21 @@ The dashboard will open at http://localhost:3000
 ## 📁 Project Structure
 
 ```
+public/                        # Static files served directly (HTML shell, manifest)
 src/
-├── components/        # Reusable UI components
-├── pages/            # Page components (Login, Dashboard, etc.)
-├── services/         # API service layer
-└── App.tsx           # Main application component
+├── components/                # Reusable UI building blocks
+│   ├── cards/                 # Stat display cards (e.g. "Total Patients: 42")
+│   ├── common/                # Shared components (top nav bar, status badges)
+│   └── patient/               # Patient health panels (vitals, risk, alerts, ML)
+├── pages/                     # Full-page views (Login, Dashboard, Admin, etc.)
+├── services/                  # Backend communication (API client)
+├── theme/                     # Visual styling (colours, fonts, MUI theme)
+├── types/                     # Data shape definitions (TypeScript interfaces)
+├── App.tsx                    # Main app — routing and role-based access control
+├── index.tsx                  # Entry point — mounts the app in the browser
+├── App.css                    # Global app container styles
+├── index.css                  # Base page styles (fonts, buttons, scrollbars)
+└── setupTests.ts              # Test configuration
 ```
 
 ## 🔧 Available Scripts

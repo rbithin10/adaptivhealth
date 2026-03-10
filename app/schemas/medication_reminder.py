@@ -26,11 +26,11 @@ class ReminderSettingUpdate(BaseModel):
     reminder_time: Optional[str] = Field(
         None,
         description="Time for daily reminder in HH:MM format (e.g., '08:00', '20:00')"
-    )
+    )  # What time to remind the patient to take their medication
     reminder_enabled: Optional[bool] = Field(
         None,
         description="Whether reminder notifications are enabled"
-    )
+    )  # Should we send reminders? True = yes, False = no
 
     @field_validator("reminder_time")
     @classmethod
@@ -71,12 +71,12 @@ class ReminderCreate(BaseModel):
 
 class ReminderResponse(BaseModel):
     """Schema for medication with reminder info."""
-    medication_id: int = Field(..., description="Unique medication ID")
-    drug_name: str = Field(..., description="Name of the medication")
-    dose: Optional[str] = Field(None, description="Dosage (e.g., '25mg')")
-    frequency: str = Field(..., description="Frequency (e.g., 'daily')")
-    reminder_time: Optional[str] = Field(None, description="Reminder time in HH:MM format")
-    reminder_enabled: bool = Field(False, description="Whether reminder is enabled")
+    medication_id: int = Field(..., description="Unique medication ID")  # Which medication this is about
+    drug_name: str = Field(..., description="Name of the medication")  # The medicine's name
+    dose: Optional[str] = Field(None, description="Dosage (e.g., '25mg')")  # How much to take
+    frequency: str = Field(..., description="Frequency (e.g., 'daily')")  # How often to take it
+    reminder_time: Optional[str] = Field(None, description="Reminder time in HH:MM format")  # When the reminder goes off
+    reminder_enabled: bool = Field(False, description="Whether reminder is enabled")  # Are reminders turned on?
 
     class Config:
         from_attributes = True
@@ -84,9 +84,9 @@ class ReminderResponse(BaseModel):
 
 class AdherenceCreate(BaseModel):
     """Schema for logging medication adherence."""
-    medication_id: int = Field(..., description="ID of the medication")
-    date: str = Field(..., description="Date in YYYY-MM-DD format")
-    taken: bool = Field(..., description="True if taken, False if skipped")
+    medication_id: int = Field(..., description="ID of the medication")  # Which medication was this for
+    date: str = Field(..., description="Date in YYYY-MM-DD format")  # Which day was the medication scheduled
+    taken: bool = Field(..., description="True if taken, False if skipped")  # Did they take it (True) or skip it (False)?
 
     @field_validator("date")
     @classmethod
@@ -101,12 +101,12 @@ class AdherenceCreate(BaseModel):
 
 class AdherenceResponse(BaseModel):
     """Schema for a single adherence record."""
-    adherence_id: int = Field(..., description="Unique adherence record ID")
-    medication_id: int = Field(..., description="ID of the medication")
-    drug_name: str = Field(..., description="Name of the medication")
-    scheduled_date: date = Field(..., description="Date the medication was scheduled")
-    taken: Optional[bool] = Field(None, description="True=taken, False=skipped, None=no response")
-    responded_at: Optional[datetime] = Field(None, description="When the response was recorded")
+    adherence_id: int = Field(..., description="Unique adherence record ID")  # Unique ID for this tracking record
+    medication_id: int = Field(..., description="ID of the medication")  # Which medication
+    drug_name: str = Field(..., description="Name of the medication")  # Medicine name
+    scheduled_date: date = Field(..., description="Date the medication was scheduled")  # When they were supposed to take it
+    taken: Optional[bool] = Field(None, description="True=taken, False=skipped, None=no response")  # Did they take it?
+    responded_at: Optional[datetime] = Field(None, description="When the response was recorded")  # When the patient confirmed or skipped
 
     class Config:
         from_attributes = True
@@ -114,10 +114,10 @@ class AdherenceResponse(BaseModel):
 
 class AdherenceHistoryResponse(BaseModel):
     """Schema for aggregated adherence history."""
-    entries: List[AdherenceResponse] = Field(default_factory=list, description="List of adherence records")
-    total_scheduled: int = Field(..., description="Total doses scheduled in period")
-    total_taken: int = Field(..., description="Total doses taken in period")
-    adherence_percent: float = Field(..., description="Percentage of doses taken (0-100)")
+    entries: List[AdherenceResponse] = Field(default_factory=list, description="List of adherence records")  # All the adherence records for this period
+    total_scheduled: int = Field(..., description="Total doses scheduled in period")  # How many doses were due
+    total_taken: int = Field(..., description="Total doses taken in period")  # How many they actually took
+    adherence_percent: float = Field(..., description="Percentage of doses taken (0-100)")  # Score: percentage of doses taken
 
     class Config:
         from_attributes = True

@@ -8,30 +8,44 @@ horizontal side on release. Chat history is maintained in ChatStore
 within the same app session.
 */
 
+// Flutter's UI toolkit
 import 'package:flutter/material.dart';
+// Text-to-speech — reads AI responses aloud
 import 'package:flutter_tts/flutter_tts.dart';
+// Opens the phone camera to take pictures
 import 'package:image_picker/image_picker.dart';
+// Beautiful line-style icons
 import 'package:lucide_icons/lucide_icons.dart';
+// State management — lets widgets share data
 import 'package:provider/provider.dart';
+// Handles phone permissions (microphone, camera, etc.)
 import 'package:permission_handler/permission_handler.dart';
+// Speech-to-text — converts voice to typed text
 import 'package:speech_to_text/speech_to_text.dart';
+// File I/O for sending camera images
 import 'dart:io';
+// Our custom brand colors
 import '../theme/colors.dart';
+// Our custom text styles
 import '../theme/typography.dart';
+// HTTP client for talking to the backend server
 import '../services/api_client.dart';
+// Stores chat message history in memory
 import '../services/chat_store.dart';
 
-/// Button diameter used for the draggable AI coach FAB.
+// The size of the floating round button (56 pixels diameter)
 const double _kFabSize = 56.0;
 
+// The draggable floating button that opens the AI chat
 class FloatingChatbot extends StatefulWidget {
+  // The HTTP client used to send messages to the AI backend
   final ApiClient apiClient;
 
-  /// Current position managed by the parent (HomeScreen).
+  // Current X and Y position on screen (managed by the parent)
   final double posX;
   final double posY;
 
-  /// Called when the user drags or the snap animation updates position.
+  // Called whenever the button moves (drag or snap animation)
   final ValueChanged<Offset> onPositionChanged;
 
   const FloatingChatbot({
@@ -48,13 +62,15 @@ class FloatingChatbot extends StatefulWidget {
 
 class _FloatingChatbotState extends State<FloatingChatbot>
     with SingleTickerProviderStateMixin {
+  // Controls the smooth animation when the button snaps to a screen edge
   AnimationController? _snapController;
+  // The animation that moves the button from its current spot to the edge
   Animation<Offset>? _snapAnimation;
 
+  // Open the chat panel as a bottom sheet
   void _openChat(BuildContext context) {
-    // Capture ChatStore from the outer context (where the Provider lives)
-    // before opening the modal, because the modal's builder context sits
-    // outside the Provider widget tree.
+    // Grab the ChatStore before opening the sheet (the sheet's context
+    // is outside the Provider tree, so we need to capture it here)
     final chatStore = Provider.of<ChatStore>(context, listen: false);
     showModalBottomSheet(
       context: context,
@@ -68,14 +84,15 @@ class _FloatingChatbotState extends State<FloatingChatbot>
     );
   }
 
-  /// Animate the button to the nearest horizontal edge after a drag ends.
+  // After the user stops dragging, smoothly animate the button to the nearest screen edge
   void _snapToEdge(Size screenSize) {
+    // Figure out which side is closer (left or right)
     final double centreX = widget.posX + _kFabSize / 2;
     final double targetX = centreX < screenSize.width / 2
         ? 16.0
         : screenSize.width - _kFabSize - 16.0;
 
-    // Clamp vertical position within screen bounds.
+    // Keep the button within the screen's safe area
     final double targetY = widget.posY.clamp(
       MediaQuery.of(context).padding.top + 8.0,
       screenSize.height - _kFabSize - 90.0,
@@ -112,7 +129,9 @@ class _FloatingChatbotState extends State<FloatingChatbot>
 
   @override
   Widget build(BuildContext context) {
+    // The draggable + tappable floating button
     return GestureDetector(
+      // User is dragging the button — move it with their finger
       onPanUpdate: (details) {
         final size = MediaQuery.of(context).size;
         final padding = MediaQuery.of(context).padding;
@@ -126,8 +145,11 @@ class _FloatingChatbotState extends State<FloatingChatbot>
         );
         widget.onPositionChanged(Offset(newX, newY));
       },
+      // User stopped dragging — snap to the nearest edge
       onPanEnd: (_) => _snapToEdge(MediaQuery.of(context).size),
+      // User tapped the button — open the chat
       onTap: () => _openChat(context),
+      // The round floating button with the robot icon
       child: Material(
         elevation: 4,
         shape: const CircleBorder(),
@@ -148,8 +170,9 @@ class _FloatingChatbotState extends State<FloatingChatbot>
   }
 }
 
-// Bottom sheet chat interface
+// The chat panel that slides up from the bottom of the screen
 class ChatBottomSheet extends StatefulWidget {
+  // The HTTP client for sending messages to the AI
   final ApiClient apiClient;
 
   const ChatBottomSheet({super.key, required this.apiClient});
@@ -160,30 +183,37 @@ class ChatBottomSheet extends StatefulWidget {
 
 class _ChatBottomSheetState extends State<ChatBottomSheet>
     with SingleTickerProviderStateMixin {
+  // The text field where the user types their message
   final TextEditingController _controller = TextEditingController();
+  // Speech-to-text engine that listens to the user's voice
   late final SpeechToText _speech;
+  // Text-to-speech engine that reads AI responses aloud
   late final FlutterTts _tts;
+  // Whether the microphone is currently listening
   bool _isListening = false;
+  // Whether speech recognition is available on this device
   bool _speechAvailable = false;
+  // Whether the AI is currently speaking aloud
   bool _isSpeaking = false;
+  // Whether text-to-speech was set up successfully
   bool _ttsReady = false;
 
-  // Pulsing ring shown around the mic button while recording.
+  // Animation for the pulsing ring around the mic button while recording
   late final AnimationController _pulseController;
   late final Animation<double> _pulseScale;
 
-  // Convenience accessor — avoids repeating Provider.of everywhere.
+  // Quick way to access the chat message store
   ChatStore get _chatStore => Provider.of<ChatStore>(context, listen: false);
 
   @override
   void initState() {
     super.initState();
 
-    // ── Speech-to-text ───────────────────────────────────────────────────────
+    // Set up voice recognition (microphone → text)
     _speech = SpeechToText();
     _initializeSpeech();
 
-    // ── Mic pulse animation ──────────────────────────────────────────────────
+    // Set up the pulsing animation for the mic button
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -192,20 +222,21 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // ── Text-to-speech ───────────────────────────────────────────────────────
+    // Set up text-to-speech (AI reads responses aloud)
     _tts = FlutterTts();
     _initializeTts();
 
-    // ── Greeting ─────────────────────────────────────────────────────────────
-    // Seed after first frame so notifyListeners() does not fire during layout.
+    // Show a greeting message when the chat opens for the first time
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _chatStore.ensureGreeting();
     });
   }
 
+  // Set up the text-to-speech engine with language, speed, and volume
   Future<void> _initializeTts() async {
     try {
+      // Wait for each speech to finish before starting the next
       await _tts.awaitSpeakCompletion(true);
       await _tts.setQueueMode(1);
       await _tts.setSharedInstance(true);
@@ -231,8 +262,9 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     }
   }
 
-  /// Speaks the AI reply aloud, stripping markdown symbols first.
+  // Read an AI response aloud, stripping any markdown formatting first
   Future<void> _speakResponse(String text) async {
+    // Remove markdown symbols like *, _, `, #, etc.
     final clean = text
         .replaceAll(RegExp(r'[*_`#>\[\]]'), '')
         .replaceAll(RegExp(r'\s{2,}'), ' ')
@@ -246,19 +278,21 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     await _tts.speak(clean);
   }
 
+  // Stop any speech that's currently playing
   Future<void> _stopSpeaking() async {
     await _tts.stop();
     if (mounted) setState(() => _isSpeaking = false);
   }
 
+  // Set up the speech-to-text engine (voice recognition)
   Future<void> _initializeSpeech() async {
-    // Request RECORD_AUDIO permission first; without it speech_to_text
-    // silently returns available=false and the mic button stays disabled.
+    // First, ask the user for microphone permission
     final micStatus = await Permission.microphone.request();
     if (!micStatus.isGranted) {
-      // Permission denied — mic stays disabled, no crash.
+      // No mic permission — voice input stays disabled
       return;
     }
+    // Initialize the speech recognition engine
     final available = await _speech.initialize(
       onStatus: (status) {
         if (status == 'done' || status == 'notListening') {
@@ -285,24 +319,28 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     });
   }
 
+  // Show a brief message at the bottom of the screen
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // Send the user's typed message to the AI and show the response
   void _sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
+    // Add the user's message to the chat
     _chatStore.addMessage(ChatMessage(
       text: text,
       isUser: true,
       timestamp: DateTime.now(),
     ));
     _controller.clear();
+    // Show the "typing..." indicator
     _chatStore.setTyping(true);
 
-    // Get AI response from backend
+    // Send the message to the AI backend and get a response
     _getAIResponse(text).then((response) {
       if (mounted) {
         _chatStore.setTyping(false);
@@ -328,6 +366,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     });
   }
 
+  // Toggle the microphone on/off for voice input
   Future<void> _toggleVoiceInput() async {
     if (!_speechAvailable) {
       await _initializeSpeech();
@@ -382,6 +421,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     }
   }
 
+  // Show options for what to photograph (food or pill)
   void _showCameraOptions() {
     showModalBottomSheet(
       context: context,
@@ -407,9 +447,12 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     );
   }
 
+  // Take a photo and send it to the AI for analysis (food or pill identification)
   Future<void> _captureAndAnalyze(String type) async {
+    // Close the camera options menu
     Navigator.pop(context);
 
+    // Open the phone camera to take a picture
     final image = await ImagePicker().pickImage(source: ImageSource.camera);
     if (image == null) return;
 
@@ -467,10 +510,9 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
     }
   }
 
+  // Send the user's message to the AI backend and return its response
   Future<String> _getAIResponse(String userMessage) async {
-    // Build conversation history from chat store (last 10 messages = ~5 exchanges)
-    // Backend handles keyword routing for known topics (fast templates)
-    // and falls back to Gemini LLM for complex/open-ended questions.
+    // Build the conversation history (last 10 messages for context)
     final recentMessages = _chatStore.messages;
     final history = recentMessages
         .where((m) => m.text.isNotEmpty)
@@ -505,27 +547,28 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
 
   @override
   Widget build(BuildContext context) {
-    // Rebuild whenever ChatStore notifies (new messages, typing state)
+    // Rebuild the chat UI whenever new messages arrive or typing state changes
     return Consumer<ChatStore>(
       builder: (context, store, _) {
         final messages = store.messages;
         final isTyping = store.isTyping;
         final mediaQuery = MediaQuery.of(context);
+        // How much space the keyboard takes up
         final keyboardInset = mediaQuery.viewInsets.bottom;
         final screenHeight = mediaQuery.size.height;
         final safeTop = mediaQuery.padding.top;
 
-        // Base target height when keyboard is hidden.
+        // The chat sheet takes 75% of the screen height
         const baseFactor = 0.75;
         double targetHeight = screenHeight * baseFactor;
 
-        // Available visible height when keyboard is open.
+        // How much room is left when the keyboard is open
         final availableHeight = screenHeight - keyboardInset - safeTop - 8;
         if (targetHeight > availableHeight) {
           targetHeight = availableHeight;
         }
 
-        // Keep a minimum functional size but never overflow available area.
+        // Make sure the chat sheet doesn't get too small to use
         if (targetHeight < 260) {
           targetHeight = availableHeight > 260 ? 260 : availableHeight;
         }
@@ -549,7 +592,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
               height: targetHeight,
               child: Column(
             children: [
-              // Handle bar
+              // The small drag handle bar at the top of the sheet
               Container(
                 margin: const EdgeInsets.symmetric(vertical: 12),
                 width: 40,
@@ -560,7 +603,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                 ),
               ),
 
-              // Header
+              // Chat header with AI icon, name, and online status
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
@@ -631,7 +674,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
 
               const Divider(height: 24),
 
-              // Messages list
+              // Scrollable list of chat messages
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -696,7 +739,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                 ),
               ),
 
-              // Input field
+              // Bottom input area with camera, mic, text field, and send button
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -712,11 +755,12 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                 child: SafeArea(
                   child: Row(
                     children: [
+                      // Camera button for food/pill scanning
                       IconButton(
                         icon: const Icon(LucideIcons.camera),
                         onPressed: isTyping ? null : _showCameraOptions,
                       ),
-                      // Mic button with pulsing ring when recording.
+                      // Microphone button with pulsing ring while recording
                       SizedBox(
                         width: 48,
                         height: 48,
@@ -752,6 +796,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                           ],
                         ),
                       ),
+                      // The text input where the user types their message
                       Expanded(
                         child: TextField(
                           controller: _controller,

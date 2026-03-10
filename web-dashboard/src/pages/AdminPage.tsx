@@ -27,17 +27,18 @@ import { typography } from '../theme/typography';
 
 const AdminPage: React.FC = () => {
   const navigate = useNavigate();
+  // Full list of users and loading state
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // Clinician assignment
+  // Fields for assigning a clinician to a patient
   const [clinicians, setClinicians] = useState<User[]>([]);
   const [assigningPatient, setAssigningPatient] = useState<number | null>(null);
   const [selectedClinician, setSelectedClinician] = useState<number | null>(null);
   const [assignMessage, setAssignMessage] = useState('');
 
-  // Create user form
+  // Fields for the "Create New User" form
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -45,19 +46,21 @@ const AdminPage: React.FC = () => {
   const [newRole, setNewRole] = useState('patient');
   const [createMessage, setCreateMessage] = useState('');
 
-  // Reset password form
+  // Fields for the "Reset Password" form
   const [resetUserId, setResetUserId] = useState<number | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetMessage, setResetMessage] = useState('');
 
-  // Edit user form
+  // Fields for the "Edit User" form
   const [editUserId, setEditUserId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [editAge, setEditAge] = useState<number | undefined>(undefined);
   const [editGender, setEditGender] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editMessage, setEditMessage] = useState('');
+  // Prevents double-clicks on submit buttons
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Toast notification state
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
@@ -81,15 +84,18 @@ const AdminPage: React.FC = () => {
     return err instanceof Error ? err.message : fallback;
   };
 
+  // Figure out what role a user has (handles different API field names)
   const getUserRole = (user: Partial<User> & { role?: string; user_role?: string }): string => {
     return ((user.user_role || user.role || '') as string).toLowerCase();
   };
 
+  // Fetch user list and current admin profile when the page loads
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load all users; redirect away if the current user isn't an admin
   const loadData = async () => {
     try {
       const [user, usersList] = await Promise.all([
@@ -117,11 +123,13 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  // Sign out and return to login
   const handleLogout = async () => {
     await api.logout();
     navigate('/login');
   };
 
+  // Submit the "Create New User" form
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateMessage('');
@@ -146,6 +154,7 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  // Submit the "Reset Password" form
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setResetMessage('');
@@ -163,6 +172,7 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  // Deactivate a user account (with confirmation prompt)
   const handleDeactivate = async (userId: number) => {
     if (!window.confirm('Are you sure you want to deactivate this user?')) return;
     setIsSubmitting(true);
@@ -176,6 +186,7 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  // Populate the edit form with a user's current details
   const handleEditUser = (user: User) => {
     setEditUserId(user.user_id);
     setEditName(user.full_name || '');
@@ -185,6 +196,7 @@ const AdminPage: React.FC = () => {
     setEditMessage('');
   };
 
+  // Save changes from the "Edit User" form
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setEditMessage('');
@@ -207,6 +219,7 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  // Assign a clinician to a patient so they show up in that clinician's list
   const handleAssignClinician = async (patientId: number, clinicianId: number) => {
     setAssignMessage('');
     setIsSubmitting(true);

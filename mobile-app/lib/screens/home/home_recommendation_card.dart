@@ -41,6 +41,7 @@ class HomeRecommendationCard extends StatelessWidget {
         FutureBuilder<Map<String, dynamic>>(
           future: recommendationFuture,
           builder: (context, snapshot) {
+            // Show a placeholder while the recommendation loads from the server
             if (snapshot.connectionState == ConnectionState.waiting) {
               return _loadingPlaceholder();
             }
@@ -48,6 +49,7 @@ class HomeRecommendationCard extends StatelessWidget {
             final hasError = snapshot.hasError || snapshot.data == null;
 
             if (hasError) {
+              // If we can't reach the server, show a safe offline suggestion based on risk
               final isHighRisk = riskLevel.toLowerCase() == 'high';
               return CompactRecommendationCard(
                 activityType: isHighRisk ? ActivityType.meditation : ActivityType.walking,
@@ -58,6 +60,7 @@ class HomeRecommendationCard extends StatelessWidget {
               );
             }
 
+            // We got a recommendation from the server — display it
             final rec             = snapshot.data!;
             final activityType    = _mapActivityType(
               rec['suggested_activity'] ?? rec['activity_type'],
@@ -77,8 +80,9 @@ class HomeRecommendationCard extends StatelessWidget {
     );
   }
 
-  // ─── helpers ─────────────────────────────────────────────────────────────
+  // ─── helpers ── convert server values into the app's enum types
 
+  // Loading state placeholder
   Widget _loadingPlaceholder() {
     return Container(
       width: double.infinity,
@@ -95,6 +99,7 @@ class HomeRecommendationCard extends StatelessWidget {
     );
   }
 
+  // Map a text activity name from the server to our app's ActivityType enum
   static ActivityType _mapActivityType(dynamic rawValue) {
     final value = (rawValue ?? '').toString().toLowerCase();
     if (value.contains('walk'))    return ActivityType.walking;
@@ -111,6 +116,7 @@ class HomeRecommendationCard extends StatelessWidget {
     return ActivityType.walking;
   }
 
+  // Map an intensity label from the server to our app's heart rate zone enum
   static HRZone _mapIntensityToHRZone(dynamic rawValue) {
     final value = (rawValue ?? '').toString().toLowerCase();
     switch (value) {
@@ -130,6 +136,7 @@ class HomeRecommendationCard extends StatelessWidget {
     }
   }
 
+  // Safely convert any value to an integer (handles strings, doubles, and nulls)
   static int _safeToInt(dynamic value, int fallback) {
     if (value == null) return fallback;
     if (value is int)    return value;

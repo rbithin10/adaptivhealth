@@ -35,21 +35,24 @@ def compute_feature_importance(
     """
     Compute feature importance for a single prediction.
     """
-    global_importances: Dict[str, float] = {}
+    global_importances: Dict[str, float] = {}  # Will hold how important each feature is overall
     if model is not None and hasattr(model, "feature_importances_"):
-        importances = model.feature_importances_
+        importances = model.feature_importances_  # Get the importance scores from the trained model
         for i, col in enumerate(feature_columns):
             if i < len(importances):
-                global_importances[col] = round(float(importances[i]), 4)
+                global_importances[col] = round(float(importances[i]), 4)  # Store each feature's importance
 
+    # Calculate how much each feature contributed to this specific prediction
     contributions = _estimate_contributions(features_used, feature_columns, global_importances)
 
+    # Sort by biggest impact first (regardless of direction)
     sorted_contributions = sorted(
         contributions.items(),
         key=lambda x: abs(x[1]["contribution"]),
         reverse=True,
     )
 
+    # Pick the top 5 most impactful features to show the user
     top_features = []
     for feat_name, info in sorted_contributions[:5]:
         top_features.append(

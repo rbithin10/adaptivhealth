@@ -1,13 +1,13 @@
-// StatCard Component
-// Displays a metric (Total Patients, Stable, Attention, Critical)
-// Part of Overview/Dashboard page
-// Reference: Design Guide Part 4.3
+/* StatCard — A small card that shows a single number/stat on the dashboard
+   (e.g. "Total Patients: 42" or "Critical: 3") with a coloured accent */
 
+// React library for building the component
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// The data this card needs: an icon, a label, a number, and a colour theme
 interface StatCardProps {
   icon: LucideIcon;
   label: string;
@@ -16,6 +16,7 @@ interface StatCardProps {
   onClick?: () => void;
 }
 
+// Colour schemes for each card type (primary=blue, stable=green, warning=amber, critical=red)
 const colorConfig = {
   primary: {
     borderColor: colors.primary.default,
@@ -43,6 +44,7 @@ const colorConfig = {
   },
 };
 
+// The StatCard component — renders the card with an icon, label, and big number
 export default function StatCard({
   icon: Icon,
   label,
@@ -53,6 +55,7 @@ export default function StatCard({
   const config = colorConfig[color];
 
   return (
+    {/* The card container — white box with a subtle shadow */}
     <div
       onClick={onClick}
       style={{
@@ -66,6 +69,7 @@ export default function StatCard({
         position: 'relative',
         overflow: 'hidden',
       }}
+      // When hovering: make the shadow bigger and tint the background
       onMouseEnter={(e) => {
         if (onClick) {
           (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.12)';

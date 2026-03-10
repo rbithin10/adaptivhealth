@@ -62,7 +62,8 @@ class HomeVitalsGrid extends StatelessWidget {
           ),
         ),
 
-        // Compact horizontal scroll of VitalCards.
+        // Scrollable row of three vital-sign cards (SpO2, BP, HRV)
+        // Each card changes colour based on whether the value is safe, warning, or critical
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(

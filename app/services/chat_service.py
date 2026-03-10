@@ -1,9 +1,13 @@
 """
-Hybrid Chat Service — Template + Gemini LLM.
+Hybrid Chat Service — Gemini-First with Template Enrichment.
 
-Routes patient messages to fast template responses for known topics,
-or to Gemini for complex/open-ended questions. All patient data is
-de-identified before being sent to the external LLM.
+Routes ALL patient messages through Gemini when available. For known
+health topics (vitals, workouts, alerts, progress), structured template
+data is fetched and injected into the Gemini prompt so the LLM can
+craft a natural, personalized response grounded in real patient data.
+When Gemini is unavailable, falls back to raw templates or a generic
+response. All patient data is de-identified before being sent to the
+external LLM.
 
 # =============================================================================
 # FILE MAP - QUICK NAVIGATION
@@ -19,10 +23,11 @@ de-identified before being sent to the external LLM.
 #   - generate_chat_response()........ Line 290 (Main entry point)
 #
 # BUSINESS CONTEXT:
-# - Hybrid approach: templates for known topics, Gemini for the long tail
+# - Gemini-first: LLM handles ALL messages when available (natural conversation)
+# - Intent classification enriches Gemini context with structured health data
+# - Templates serve as fallback when Gemini is unavailable
 # - De-identifies all patient data before sending to external LLM
-# - Fallback chain: Template → Gemini → Generic response
-# - Uses same Gemini 2.0 Flash free tier as document extraction
+# - Fallback chain: Gemini (enriched) → Template → Generic response
 # =============================================================================
 """
 
@@ -469,7 +474,10 @@ RULES:
 - Never reveal or reference the patient's name, ID, or other identifying information.
 - Never make up vital signs, test results, or medical data that isn't in the context.
 - Focus on education, motivation, and emotional support.
-- If the patient asks about stopping or changing medication, firmly advise them to consult their doctor."""
+- If the patient asks about stopping or changing medication, firmly advise them to consult their doctor.
+- If RELEVANT HEALTH DATA is provided, weave it naturally into your reply — do not repeat it verbatim or in a bullet-point/template style. Summarize and personalize it conversationally.
+- For general greetings, small talk, or non-health questions, respond naturally and warmly. You can chat casually while gently steering toward health topics when appropriate.
+- You can answer general health and wellness questions (e.g. "what is cholesterol?", "how does stress affect the heart?") with accurate, simple explanations."""
 
 
 async def _call_gemini(
@@ -478,9 +486,15 @@ async def _call_gemini(
     conversation_history: list[dict],
     gemini_api_key: str,
     screen_context: Optional[str] = None,
+    structured_data: Optional[str] = None,
 ) -> Optional[str]:
     """
     Call Gemini 2.0 Flash with de-identified patient context.
+
+    Args:
+        structured_data: Optional pre-built template text for the detected
+            health intent (e.g. risk summary, workout plan). Injected into
+            the prompt so Gemini can use real data in its response.
 
     Returns the generated response text, or None on failure.
     """
@@ -502,11 +516,17 @@ async def _call_gemini(
 
         screen_line = f"The patient is currently viewing the {screen_context} screen.\n\n" if screen_context else ""
 
+        structured_line = ""
+        if structured_data:
+            structured_line = (
+                f"RELEVANT HEALTH DATA (use this to ground your response):\n"
+                f"{structured_data}\n\n"
+            )
+
         prompt = f"""PATIENT CONTEXT:
 {patient_context}
 
-    {screen_line}
-{f"RECENT CONVERSATION:{chr(10)}{history_text}{chr(10)}{chr(10)}" if history_text else ""}Patient says: {user_message}"""
+    {screen_line}{structured_line}{f"RECENT CONVERSATION:{chr(10)}{history_text}{chr(10)}{chr(10)}" if history_text else ""}Patient says: {user_message}"""
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -541,18 +561,24 @@ async def generate_chat_response(
     screen_context: Optional[str] = None,
 ) -> dict:
     """
-    Generate a chat response using the hybrid template + Gemini approach.
+    Generate a chat response using a Gemini-first approach.
 
-    Fallback chain: Template → Gemini → Generic response.
+    Gemini is the primary responder for ALL messages. When a known health
+    intent is detected, structured template data is fetched and injected
+    into the Gemini prompt so the LLM can produce a natural, data-grounded
+    response. Templates and a generic fallback serve as safety nets.
+
+    Fallback chain: Gemini (enriched) → Template → Generic response.
 
     Args:
         user_message: The patient's message text.
         user_id: Authenticated patient's user ID.
         db: Database session.
         conversation_history: Optional list of recent messages for context.
+        screen_context: Optional screen the patient is currently viewing.
 
     Returns:
-        Dict with 'response' (str) and 'source' ("template"|"gemini"|"fallback").
+        Dict with 'response' (str) and 'source' ("gemini"|"template"|"fallback").
     """
     conversation_history = conversation_history or []
 
@@ -566,19 +592,19 @@ async def generate_chat_response(
                 screen_context = extracted
             user_message = user_message[closing_bracket + 1:].strip()
 
-    # Step 1: Try keyword-based intent classification
+    # Classify intent — used to enrich Gemini context with structured data
     intent = _classify_intent(user_message)
 
+    # Fetch structured template data for the detected intent (if any).
+    # This data will be injected into the Gemini prompt as grounding context.
+    structured_data: Optional[str] = None
     if intent in _TEMPLATE_HANDLERS:
         try:
-            template_text = _get_template_response(intent, user_id, db, user_message)
-            logger.info(f"Chat response via template (intent={intent}) for user {user_id}")
-            return {"response": template_text, "source": "template"}
+            structured_data = _get_template_response(intent, user_id, db, user_message)
         except Exception as e:
-            logger.warning(f"Template response failed for intent={intent}: {e}")
-            # Fall through to Gemini
+            logger.warning(f"Template data fetch failed for intent={intent}: {e}")
 
-    # Step 2: Try Gemini for unmatched or complex questions
+    # Step 1: Try Gemini as the PRIMARY responder
     from app.config import get_settings
     settings = get_settings()
 
@@ -590,14 +616,17 @@ async def generate_chat_response(
             conversation_history=conversation_history,
             gemini_api_key=settings.gemini_api_key,
             screen_context=screen_context,
+            structured_data=structured_data,
         )
         if gemini_response:
-            # Add safety disclaimer for Gemini responses
             response_with_disclaimer = gemini_response + DISCLAIMER_SUFFIX
-            logger.info(f"Chat response via Gemini for user {user_id}")
+            logger.info(f"Chat response via Gemini (intent={intent}) for user {user_id}")
             return {"response": response_with_disclaimer, "source": "gemini"}
-    else:
-        logger.debug("Gemini API key not configured, skipping LLM fallback")
+
+    # Step 2: Gemini unavailable or failed — fall back to raw template
+    if structured_data:
+        logger.info(f"Chat response via template fallback (intent={intent}) for user {user_id}")
+        return {"response": structured_data, "source": "template"}
 
     # Step 3: Generic fallback
     logger.info(f"Chat response via fallback for user {user_id}")

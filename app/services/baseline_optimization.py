@@ -46,6 +46,7 @@ def compute_optimized_baseline(
             "readings_used": len(resting_readings) if resting_readings else 0,
         }
 
+    # Collect only heart rate values in a healthy resting range (40-120 BPM)
     hr_values = [
         r["heart_rate"]
         for r in resting_readings
@@ -62,31 +63,34 @@ def compute_optimized_baseline(
             "readings_used": len(hr_values),
         }
 
-    mean_hr = sum(hr_values) / len(hr_values)
-    std_hr = _std(hr_values)
+    mean_hr = sum(hr_values) / len(hr_values)  # Calculate the average resting heart rate
+    std_hr = _std(hr_values)  # How spread out the readings are
 
+    # Remove outlier readings that are too far from the average (more than 1.5 standard deviations)
     if std_hr > 0:
         filtered = [v for v in hr_values if abs(v - mean_hr) <= 1.5 * std_hr]
     else:
-        filtered = hr_values
+        filtered = hr_values  # If all values are the same, keep them all
 
     if len(filtered) < 3:
-        filtered = hr_values
+        filtered = hr_values  # If too many got filtered out, use all of them
 
-    filtered_mean = sum(filtered) / len(filtered)
+    filtered_mean = sum(filtered) / len(filtered)  # Average after removing outliers
 
+    # Blend the old baseline with the new average (gradual adjustment, not sudden)
     if current_baseline is not None:
         new_baseline = int(
             round(current_baseline * (1 - smoothing_factor) + filtered_mean * smoothing_factor)
         )
     else:
-        new_baseline = int(round(filtered_mean))
+        new_baseline = int(round(filtered_mean))  # First time? Just use the average
 
-    new_baseline = max(40, min(120, new_baseline))
+    new_baseline = max(40, min(120, new_baseline))  # Keep within safe resting HR bounds
 
-    adjustment = new_baseline - (current_baseline or new_baseline)
-    adjusted = abs(adjustment) >= 1
+    adjustment = new_baseline - (current_baseline or new_baseline)  # How much did the baseline change?
+    adjusted = abs(adjustment) >= 1  # Did it change by at least 1 BPM?
 
+    # Confidence score: higher with more readings and less variability
     confidence = min(1.0, len(filtered) / 20.0) * max(0.3, 1.0 - (std_hr / 20.0))
 
     return {

@@ -65,31 +65,34 @@ class RiskAssessment(Base):
         index=True
     )
 
-    # Risk classification (ML output)
-    risk_level = Column(String(20), nullable=False)  # low, moderate, high
-    risk_score = Column(Float, nullable=False)  # 0.0 to 1.0
+    # The AI's overall risk classification: low, moderate, or high
+    risk_level = Column(String(20), nullable=False)
+    # Numeric risk score from 0.0 (no risk) to 1.0 (highest risk)
+    risk_score = Column(Float, nullable=False)
 
-    # Assessment metadata
+    # How the assessment was done: "realtime" (live) or "batch" (bulk processing)
     assessment_type = Column(String(20), default="realtime")
+    # Where the prediction came from: "cloud_ai" (server) or "edge_ai" (mobile app)
     generated_by = Column(String(20), default="cloud_ai")
 
-    # Input values (what the AI analyzed)
-    input_heart_rate = Column(Integer, nullable=True)
-    input_spo2 = Column(Float, nullable=True)
-    input_hrv = Column(Float, nullable=True)
-    input_blood_pressure_sys = Column(Integer, nullable=True)
-    input_blood_pressure_dia = Column(Integer, nullable=True)
+    # The vital sign values the AI used to make its prediction
+    input_heart_rate = Column(Integer, nullable=True)         # Heart rate in BPM
+    input_spo2 = Column(Float, nullable=True)                 # Blood oxygen percentage
+    input_hrv = Column(Float, nullable=True)                  # Heart rate variability
+    input_blood_pressure_sys = Column(Integer, nullable=True) # Systolic blood pressure (top number)
+    input_blood_pressure_dia = Column(Integer, nullable=True) # Diastolic blood pressure (bottom number)
 
-    # Model info
-    model_name = Column(String(100), nullable=True)
-    model_version = Column(String(50), nullable=True)
-    confidence = Column(Float, nullable=True)
-    inference_time_ms = Column(Float, nullable=True)
-    primary_concern = Column(String(100), nullable=True)
-    risk_factors_json = Column(Text, nullable=True)
+    # Information about which AI model version made the prediction
+    model_name = Column(String(100), nullable=True)           # Name of the ML model used
+    model_version = Column(String(50), nullable=True)         # Version number of the model
+    confidence = Column(Float, nullable=True)                 # How confident the AI is in its prediction (0.0 to 1.0)
+    inference_time_ms = Column(Float, nullable=True)          # How many milliseconds the prediction took
+    primary_concern = Column(String(100), nullable=True)      # The main health issue identified (e.g. "elevated_hr")
+    risk_factors_json = Column(Text, nullable=True)           # Detailed breakdown of all risk factors as JSON
 
-    # Action tracking
+    # Whether this assessment automatically triggered a health alert
     alert_triggered = Column(Boolean, default=False)
+    # Which workout session this assessment was generated during (if any)
     activity_session_id = Column(Integer, nullable=True)
 
     # Timestamps

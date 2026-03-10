@@ -5,18 +5,28 @@ This shows the latest heart data, a risk label, and a short tip.
 If the server is slow or down, we show safe demo values instead of a blank screen.
 */
 
+// The core Flutter toolkit for building visual interfaces
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+// Beautiful custom fonts for a polished look
 import 'package:google_fonts/google_fonts.dart';
+// Library for drawing interactive charts and sparklines
 import 'package:fl_chart/fl_chart.dart';
+// Provider lets different parts of the app share data easily
 import 'package:provider/provider.dart';
+// Timers and stream subscriptions for live data updates
 import 'dart:async';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
+// The connection to the server for fetching and sending data
 import '../services/api_client.dart';
+// Manages AI chat messages and conversation history
 import '../services/chat_store.dart';
+// On-device AI that runs risk predictions without needing the internet
 import '../services/edge_ai_store.dart';
-import '../services/mock_vitals_service.dart';
+// Provides live vital readings from any connected source (BLE, mock, etc.)
+import '../providers/vitals_provider.dart';
+// Remembers where the floating AI coach button is positioned
 import '../widgets/ai_coach_position_store.dart';
 import '../widgets/widgets.dart';
 import 'fitness_plans_screen.dart';
@@ -40,8 +50,11 @@ import 'home/home_vitals_grid.dart';
 import '../providers/theme_provider.dart';
 // Note: ChatbotScreen removed - AI Coach is now a floating widget (FloatingChatbot)
 
+// The main hub of the app — the first screen patients see after logging in
 class HomeScreen extends StatefulWidget {
+  // The connection to the server for all data operations
   final ApiClient apiClient;
+  // Called when the user logs out to return to the login screen
   final VoidCallback? onLogout;
 
   const HomeScreen({
@@ -55,6 +68,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Future objects that hold pending server responses for each data type
   late Future<Map<String, dynamic>> _vitalsFuture;
   late Future<Map<String, dynamic>> _riskFuture;
   late Future<Map<String, dynamic>> _userFuture;
@@ -62,56 +76,52 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<List<dynamic>> _activitiesFuture;
   late Future<List<dynamic>> _vitalHistoryFuture;
 
-  // Stable combined future — set once in _loadData(), never recreated.
-  // Prevents FutureBuilder from resetting to ConnectionState.waiting every
-  // time the mock-vitals stream calls setState.
+  // All API calls combined into one future so the screen doesn't flicker
   late Future<Map<String, dynamic>> _combinedFuture;
 
+  // Which bottom tab is currently selected (Home, Fitness, Nutrition, etc.)
   int _selectedIndex = 0;
 
-  // Draggable AI Coach button position (bottom-right default).
+  // Position of the floating AI coach button on screen
   double _fabX = -1;
   double _fabY = -1;
 
-  MockVitalsService? _mockVitalsService;
-  StreamSubscription<VitalReading>? _mockVitalsRefreshSub;
+  // Listens for live vital readings from VitalsProvider
+  StreamSubscription<VitalsReading>? _vitalsStreamSub;
 
-  // ValueNotifiers for live vitals — updates without triggering full rebuilds.
-  final ValueNotifier<VitalReading?> _liveVitalsNotifier = ValueNotifier(null);
-  final ValueNotifier<List<VitalReading>> _vitalsHistoryNotifier =
+  // Holds the latest live vital reading without rebuilding the whole screen
+  final ValueNotifier<VitalsReading?> _liveVitalsNotifier = ValueNotifier(null);
+  // Keeps a rolling history of live readings for sparkline charts
+  final ValueNotifier<List<VitalsReading>> _vitalsHistoryNotifier =
       ValueNotifier([]);
 
   @override
   void initState() {
     super.initState();
+    // Start fetching all data from the server
     _loadData();
 
-    // Initialize simulator service after first frame so Provider context is ready.
+    // Subscribe to live vitals after the screen is fully loaded
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeMockVitalsServiceIfPossible();
+      _subscribeToLiveVitals();
     });
   }
 
   @override
   void dispose() {
-    _mockVitalsRefreshSub?.cancel();
-    _mockVitalsService?.dispose();
+    _vitalsStreamSub?.cancel();
     _liveVitalsNotifier.dispose();
     _vitalsHistoryNotifier.dispose();
     super.dispose();
   }
 
-  void _initializeMockVitalsServiceIfPossible() {
-    if (_mockVitalsService != null || !mounted) return;
+  // Subscribe to VitalsProvider for live vitals from any source (BLE, mock, etc.)
+  void _subscribeToLiveVitals() {
+    if (_vitalsStreamSub != null || !mounted) return;
 
     try {
-      final edgeStore = Provider.of<EdgeAiStore>(context, listen: false);
-      _mockVitalsService = MockVitalsService(
-        apiClient: widget.apiClient,
-        edgeAiStore: edgeStore,
-      );
-
-      _mockVitalsRefreshSub = _mockVitalsService!.stream.listen((reading) {
+      final vitalsProvider = Provider.of<VitalsProvider>(context, listen: false);
+      _vitalsStreamSub = vitalsProvider.vitalsStream.listen((reading) {
         if (!mounted) return;
         // Update ValueNotifiers directly — no setState, so no full-screen rebuild.
         _liveVitalsNotifier.value = reading;
@@ -120,12 +130,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _vitalsHistoryNotifier.value = updated;
       });
     } catch (_) {
-      // EdgeAiStore may not be available yet; profile will still show guidance.
+      // VitalsProvider may not be available yet; API data still shows.
     }
   }
 
-  /// Feed loaded vitals into edge AI for on-device risk prediction.
-  /// Called after vitals + user data load successfully.
+  // Send the patient's vitals to the on-device AI for risk analysis
   void _feedEdgeAi(Map<String, dynamic> user, Map<String, dynamic> vitals) {
     // Safely get EdgeAiStore from provider tree (may not exist yet)
     try {
@@ -162,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Kick off all the API calls to fetch the patient's data
   void _loadData() {
     _userFuture = widget.apiClient.getCurrentUser().catchError(
       (e) => {
@@ -209,15 +219,15 @@ class _HomeScreenState extends State<HomeScreen> {
             });
   }
 
+  // Give the patient a simple label based on their heart rate
   String _getRiskZoneLabel(int heartRate) {
-    // Simple labels so non-medical users can understand quickly.
     if (heartRate < 60) return 'Resting';
     if (heartRate < 100) return 'Active';
     return 'Recovery';
   }
 
+  // Convert technical risk levels into easy-to-read words
   String _getRiskStatus(String riskLevel) {
-    // Turn technical risk levels into plain words.
     switch (riskLevel.toLowerCase()) {
       case 'high':
         return 'Elevated Risk';
@@ -373,12 +383,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            Text(
-              'Adaptiv Health',
-              style: GoogleFonts.dmSans(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: AdaptivColors.getTextColor(brightness),
+            Expanded(
+              child: Text(
+                'Adaptiv Health',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.dmSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: AdaptivColors.getTextColor(brightness),
+                ),
               ),
             ),
           ],
@@ -522,11 +536,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Returns the screen widget for each bottom nav tab
-  // New 5-tab structure: Home, Fitness, Nutrition, Messages, Profile
-  // AI Chatbot is now a floating button (always accessible)
-  // Recovery is accessible from Fitness screen
-  // Health metrics are shown on Home dashboard
+  // Pick which screen to show based on the selected bottom navigation tab
   Widget _getSelectedScreen() {
     switch (_selectedIndex) {
       case 0:
@@ -540,7 +550,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 4:
         return ProfileScreen(
           apiClient: widget.apiClient,
-          mockVitalsService: _mockVitalsService,
+          mockVitalsService: null,
           onLogout: widget.onLogout,
         );
       default:
@@ -548,7 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Navigate to Recovery screen (accessible from Fitness or quick actions)
+  // Open the recovery screen from anywhere in the app
   void _navigateToRecovery() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -557,7 +567,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Navigate to Health screen (accessible from Home or quick actions)
+  // Open the detailed health insights screen
   void _navigateToHealth() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -566,6 +576,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build the main home dashboard with all the health cards and widgets
   Widget _buildHomeTab() {
     return FutureBuilder<Map<String, dynamic>>(
       future: _combinedFuture,
@@ -708,11 +719,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 // HERO HEART RATE RING + EDGE AI RISK (merged).
                 // ValueListenableBuilder updates live vitals; edge AI risk
                 // is read from EdgeAiStore via Provider inside the builder.
-                ValueListenableBuilder<VitalReading?>(
+                ValueListenableBuilder<VitalsReading?>(
                   valueListenable: _liveVitalsNotifier,
                   builder: (context, liveReading, _) {
-                    final heartRate = liveReading?.heartRate ?? apiHeartRate;
-                    final spo2      = liveReading?.spo2      ?? apiSpo2;
+                    final heartRate = liveReading?.heartRate.round() ?? apiHeartRate;
+                    final spo2      = liveReading?.spo2?.round()     ?? apiSpo2;
+                    final hrv       = liveReading?.hrv?.round()      ?? apiHrv;
 
                     // Read edge AI prediction (may be null if model not loaded yet)
                     EdgeAiStore? edgeStore;
@@ -858,18 +870,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           spo2: spo2,
                           systolicBp: systolicBp,
                           diastolicBp: diastolicBp,
-                          hrv: apiHrv,
+                          hrv: hrv,
                           spo2Trend: _sparklinesFrom(
-                            extractor: (r) => r.spo2.toDouble(),
+                            extractor: (r) => r.spo2 ?? 0.0,
                             current: spo2.toDouble(),
                           ),
                           bpTrend: _sparklinesFrom(
-                            extractor: (r) => r.bloodPressureSystolic.toDouble(),
+                            extractor: (r) => r.systolicBp ?? 0.0,
                             current: systolicBp.toDouble(),
                           ),
                           hrvTrend: _sparklinesFrom(
                             extractor: (r) => r.hrv ?? 0.0,
-                            current: apiHrv.toDouble(),
+                            current: hrv.toDouble(),
                           ),
                           onViewAll: _navigateToHealth,
                         ),
@@ -963,7 +975,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Helper method for status badges
+  // A small coloured badge showing a status label with an icon
   Widget _buildStatusBadge(String label, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -989,6 +1001,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build the heart rate ring visualization (legacy fallback, usually uses HomeHeartRateRing)
   Widget _buildHeartRateRing({
     required int heartRate,
     required String riskLevel,
@@ -1106,10 +1119,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Extract the most-recent [points] values for [extractor] from the live
-  /// readings history, left-padding with [current] when fewer exist.
+  // Extract recent readings to draw a mini trend line for a specific vital
   List<double> _sparklinesFrom({
-    required double Function(VitalReading) extractor,
+    required double Function(VitalsReading) extractor,
     required double current,
     int points = 6,
   }) {
@@ -1126,6 +1138,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return [...taken, current];
   }
 
+  // Build the secondary vitals grid (SpO2, BP, HRV)
   Widget _buildVitalsGrid({
     required int spo2,
     required int systolicBp,
@@ -1133,11 +1146,11 @@ class _HomeScreenState extends State<HomeScreen> {
     required int hrv,
   }) {
     final spo2Trend = _sparklinesFrom(
-      extractor: (r) => r.spo2.toDouble(),
+      extractor: (r) => r.spo2 ?? 0.0,
       current: spo2.toDouble(),
     );
     final bpTrend = _sparklinesFrom(
-      extractor: (r) => r.bloodPressureSystolic.toDouble(),
+      extractor: (r) => r.systolicBp ?? 0.0,
       current: systolicBp.toDouble(),
     );
     final hrvTrend = _sparklinesFrom(
@@ -1238,6 +1251,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
+  // Build the grid of shortcut buttons (Workout, Recovery, Health, AI Coach)
   Widget _buildQuickActions() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1302,6 +1316,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build a single quick action button with icon, label, and tap handler
   Widget _buildQuickActionButton({
     required IconData icon,
     required String label,
@@ -1337,7 +1352,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Map activity_type string to an icon + color for the list.
+  // Pick the right icon for each type of exercise
   IconData _activityIcon(String? type) {
     switch (type?.toLowerCase()) {
       case 'running':
@@ -1358,6 +1373,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Pick the right colour for each type of exercise
   Color _activityColor(String? type) {
     switch (type?.toLowerCase()) {
       case 'running':
@@ -1377,6 +1393,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Get the matching illustration image for each exercise type
   String? _activityImage(String? type) {
     switch (type?.toLowerCase()) {
       case 'walking':
@@ -1399,7 +1416,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Format a datetime string into a relative label like "2h ago" or "Yesterday".
+  // Show how long ago an activity happened (e.g. "2h ago" or "Yesterday")
   String _relativeTime(String? isoString) {
     if (isoString == null || isoString.isEmpty) return '';
     try {
@@ -1417,7 +1434,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Build a subtitle string from duration + peak heart rate.
+  // Build a short description of an activity (e.g. "30 min • Peak 142 BPM")
   String _activitySubtitle(Map<String, dynamic> a) {
     final parts = <String>[];
     final dur = a['duration_minutes'];
@@ -1434,6 +1451,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ------------------------------------------------------------------
   // Rehab Program card — only visible when user.rehab_phase != 'not_in_rehab'
   // ------------------------------------------------------------------
+  // Show the patient's rehab program card (only if they're in a rehab programme)
   Widget _buildRehabCard(Map<String, dynamic> user) {
     final rehabPhase = user['rehab_phase'] as String? ?? 'not_in_rehab';
     if (rehabPhase == 'not_in_rehab') return const SizedBox.shrink();
@@ -1533,6 +1551,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build the recent activity list showing the patient's latest workouts
   Widget _buildRecentActivity() {
     return FutureBuilder<List<dynamic>>(
       future: _activitiesFuture,
@@ -1613,6 +1632,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build a single row showing one recent workout or activity
   Widget _buildActivityItem({
     String? imagePath,
     required IconData icon,
@@ -1680,6 +1700,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build the heart rate sparkline chart section for today's readings
   Widget _buildHeartRateSparkline() {
     return FutureBuilder<List<dynamic>>(
       future: _vitalHistoryFuture,
@@ -1725,9 +1746,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // ValueListenableBuilder re-renders the chart when new mock
+                // ValueListenableBuilder re-renders the chart when new
                 // readings arrive, without rebuilding the whole page.
-                ValueListenableBuilder<List<VitalReading>>(
+                ValueListenableBuilder<List<VitalsReading>>(
                   valueListenable: _vitalsHistoryNotifier,
                   builder: (context, _, __) => SizedBox(
                     height: 100,
@@ -1744,6 +1765,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Decide what to show in the sparkline area (loading, no data, or the actual chart)
   Widget _buildSparklineContent(AsyncSnapshot<List<dynamic>> snapshot) {
     if (snapshot.connectionState == ConnectionState.waiting) {
       return Container(
@@ -1878,6 +1900,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return _buildSparklineChart(reversedPoints);
   }
 
+  // Draw the actual heart rate sparkline chart using the given data points
   Widget _buildSparklineChart(List<FlSpot> points) {
     final hrValues = points.map((p) => p.y).toList();
     final minHR = hrValues.reduce((a, b) => a < b ? a : b);
@@ -1947,34 +1970,55 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build the time labels under the sparkline chart
   Widget _buildSparklineTimeLabels(AsyncSnapshot<List<dynamic>> snapshot) {
     if (!snapshot.hasData || snapshot.data!.isEmpty) {
       if (_vitalsHistoryNotifier.value.isNotEmpty) {
         return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Sim start', style: AdaptivTypography.caption),
-            Text('Live', style: AdaptivTypography.caption),
-            Text(
-              'Now',
-              style: AdaptivTypography.caption.copyWith(
-                fontWeight: FontWeight.w600,
-                color: AdaptivColors.primary,
+            Expanded(
+              child: Text('Sim start', style: AdaptivTypography.caption),
+            ),
+            Expanded(
+              child: Text(
+                'Live',
+                textAlign: TextAlign.center,
+                style: AdaptivTypography.caption,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                'Now',
+                textAlign: TextAlign.right,
+                style: AdaptivTypography.caption.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AdaptivColors.primary,
+                ),
               ),
             ),
           ],
         );
       }
       return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('24h ago', style: AdaptivTypography.caption),
-          Text('12h ago', style: AdaptivTypography.caption),
-          Text(
-            'Now',
-            style: AdaptivTypography.caption.copyWith(
-              fontWeight: FontWeight.w600,
-              color: AdaptivColors.primary,
+          Expanded(
+            child: Text('24h ago', style: AdaptivTypography.caption),
+          ),
+          Expanded(
+            child: Text(
+              '12h ago',
+              textAlign: TextAlign.center,
+              style: AdaptivTypography.caption,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Now',
+              textAlign: TextAlign.right,
+              style: AdaptivTypography.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AdaptivColors.primary,
+              ),
             ),
           ),
         ],
@@ -1984,15 +2028,25 @@ class _HomeScreenState extends State<HomeScreen> {
     final vitals = snapshot.data!;
     if (vitals.isEmpty) {
       return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('24h ago', style: AdaptivTypography.caption),
-          Text('12h ago', style: AdaptivTypography.caption),
-          Text(
-            'Now',
-            style: AdaptivTypography.caption.copyWith(
-              fontWeight: FontWeight.w600,
-              color: AdaptivColors.primary,
+          Expanded(
+            child: Text('24h ago', style: AdaptivTypography.caption),
+          ),
+          Expanded(
+            child: Text(
+              '12h ago',
+              textAlign: TextAlign.center,
+              style: AdaptivTypography.caption,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Now',
+              textAlign: TextAlign.right,
+              style: AdaptivTypography.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AdaptivColors.primary,
+              ),
             ),
           ),
         ],
@@ -2024,21 +2078,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(oldestLabel, style: AdaptivTypography.caption),
-        Text('', style: AdaptivTypography.caption), // Middle spacer
-        Text(
-          'Now',
-          style: AdaptivTypography.caption.copyWith(
-            fontWeight: FontWeight.w600,
-            color: AdaptivColors.primary,
+        Expanded(
+          child: Text(oldestLabel, style: AdaptivTypography.caption),
+        ),
+        const Expanded(child: SizedBox.shrink()),
+        Expanded(
+          child: Text(
+            'Now',
+            textAlign: TextAlign.right,
+            style: AdaptivTypography.caption.copyWith(
+              fontWeight: FontWeight.w600,
+              color: AdaptivColors.primary,
+            ),
           ),
         ),
       ],
     );
   }
 
+  // Build the AI recommendation card suggesting an activity for today
   Widget _buildRecommendationCard(String riskLevel) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2078,7 +2137,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
             if (hasError) {
               final isHighRisk = riskLevel.toLowerCase() == 'high';
-              final isSimulatorRunning = _mockVitalsService?.isRunning ?? false;
+              final isSimulatorRunning =
+                  Provider.of<VitalsProvider>(context, listen: false)
+                      .isMockRunning;
               return CompactRecommendationCard(
                 activityType: isHighRisk ? ActivityType.meditation : ActivityType.walking,
                 title: isHighRisk ? 'Rest & Recovery' : 'Steady Movement',
@@ -2118,7 +2179,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
-  //parsing helpers so Home screen can safely read numbers from the backend response without crashing.
+  // Safely convert any value to an integer without crashing
   int _safeToInt(dynamic value, int fallback) {
     if (value == null) return fallback;
     if (value is int) return value;
@@ -2130,6 +2191,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return fallback;
   }
 
+  // Safely read a blood pressure number from the server response
   int _safeBloodPressure(dynamic bpObject, String key, int fallback) {
     if (bpObject == null) return fallback;
     if (bpObject is Map<String, dynamic>) {
@@ -2138,6 +2200,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return fallback;
   }
 
+  // Safely convert any value to a decimal number without crashing
   double _safeToDouble(dynamic value, double fallback) {
     if (value == null) return fallback;
     if (value is double) return value;
@@ -2149,6 +2212,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return fallback;
   }
 
+  // Convert an activity name from the server into the app's activity type
   ActivityType _mapActivityType(dynamic rawValue) {
     final value = (rawValue ?? '').toString().toLowerCase();
     if (value.contains('walk')) return ActivityType.walking;
@@ -2165,6 +2229,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return ActivityType.walking;
   }
 
+  // Convert an intensity label from the server into a heart rate zone
   HRZone _mapIntensityToHRZone(dynamic rawValue) {
     final value = (rawValue ?? '').toString().toLowerCase();
     switch (value) {

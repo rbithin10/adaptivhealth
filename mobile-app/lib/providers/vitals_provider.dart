@@ -1,7 +1,19 @@
+/*
+Vitals Provider.
+
+The central hub for all health data coming into the app. Connects to
+Bluetooth devices, the phone's health system, Fitbit, and a mock simulator
+for testing. Picks the best available source and streams live vital signs
+(heart rate, SpO2, blood pressure) to every screen that needs them.
+Also feeds readings into the on-device AI for real-time risk predictions.
+*/
+
 import 'dart:async';
+import 'dart:math' show sqrt;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+// Gives us access to Health Connect / Apple HealthKit data
 import 'package:health/health.dart';
 
 import '../services/api_client.dart';
@@ -26,6 +38,7 @@ class VitalsReading {
   final double? spo2;
   final double? systolicBp;
   final double? diastolicBp;
+  final double? hrv;
   final DateTime timestamp;
   final VitalsSource source;
 
@@ -36,6 +49,7 @@ class VitalsReading {
     this.spo2,
     this.systolicBp,
     this.diastolicBp,
+    this.hrv,
   });
 }
 
@@ -49,9 +63,11 @@ class VitalsProvider extends ChangeNotifier {
   MockVitalsService? _mockVitalsService;
   Timer? _fitbitPollTimer;
 
+  // One shared channel that broadcasts every new reading to all listeners
   final StreamController<VitalsReading> _vitalsController =
       StreamController<VitalsReading>.broadcast();
 
+  // Subscriptions we hold so we can cancel them when switching sources
   StreamSubscription<BleHeartRateReading>? _bleReadingSubscription;
   StreamSubscription<BluetoothConnectionState>? _bleConnectionSubscription;
   StreamSubscription<VitalReading>? _mockSubscription;
@@ -59,8 +75,10 @@ class VitalsProvider extends ChangeNotifier {
   Timer? _healthPollTimer;
   DateTime? _lastHealthReadingAt;
 
+  // Which data source is currently feeding us readings (defaults to demo simulator)
   VitalsSource _activeSource = VitalsSource.mock;
 
+  // Patient info used by the AI model to personalize risk predictions
   int? _cachedAge;
   int? _cachedBaselineHr;
   int? _cachedMaxSafeHr;
@@ -79,6 +97,7 @@ class VitalsProvider extends ChangeNotifier {
         _edgeAiStore = edgeAiStore,
         _bleService = bleService ?? BleService.instance,
         _healthService = healthService ?? HealthService.instance {
+    // On startup: watch for Bluetooth disconnects, load user profile, and resume Fitbit if possible
     _listenToBleConnectionState();
     _loadPatientContext();
     _tryRestoreFitbitSource();
@@ -100,18 +119,33 @@ class VitalsProvider extends ChangeNotifier {
   /// True when the demo simulator is actively generating readings.
   bool get isMockRunning => _mockVitalsService?.isRunning ?? false;
 
+  // Pair with a Bluetooth heart-rate monitor and start receiving live data
   Future<void> connectBle(BluetoothDevice device) async {
     await _stopMockSource();
 
     await _bleService.connectToDevice(device);
 
+    // Listen for each heartbeat and wrap it into our standard format
     _bleReadingSubscription?.cancel();
     _bleReadingSubscription = _bleService.heartRateStream.listen((reading) {
+      // Compute RMSSD-based HRV from beat-to-beat RR intervals if available
+      double? computedHrv;
+      final rr = reading.rrIntervalsMs;
+      if (rr.length >= 2) {
+        double sumSqDiff = 0;
+        for (int i = 1; i < rr.length; i++) {
+          final diff = rr[i] - rr[i - 1];
+          sumSqDiff += diff * diff;
+        }
+        computedHrv = sqrt(sumSqDiff / (rr.length - 1));
+      }
+
       final unified = VitalsReading(
         heartRate: reading.heartRate.toDouble(),
         spo2: null,
         systolicBp: null,
         diastolicBp: null,
+        hrv: computedHrv,
         timestamp: reading.timestamp,
         source: VitalsSource.ble,
       );
@@ -152,6 +186,7 @@ class VitalsProvider extends ChangeNotifier {
   }
 
   /// On startup, resume Fitbit polling if valid tokens are already stored.
+  // If the user previously logged into Fitbit, pick up where we left off
   Future<void> _tryRestoreFitbitSource() async {
     final connected = await _fitbit.isConnected;
     if (!connected) return;
@@ -184,6 +219,7 @@ class VitalsProvider extends ChangeNotifier {
         spo2: vitals.spo2,
         systolicBp: vitals.systolicBp,
         diastolicBp: vitals.diastolicBp,
+        hrv: null,
         timestamp: vitals.timestamp,
         source: VitalsSource.fitbit,
       );
@@ -191,11 +227,11 @@ class VitalsProvider extends ChangeNotifier {
       _emitReading(reading);
       _sendToEdgeAi(reading);
     } on FitbitAuthException catch (_) {
-      // Tokens expired and refresh failed — fall back to mock.
+      // Login expired and couldn't refresh — switch to the demo simulator
       _stopFitbitPolling();
       fallbackToMock();
     } catch (_) {
-      // Network error — leave timer running for next interval.
+      // Network hiccup — we'll try again on the next timer tick
     }
   }
 
@@ -206,6 +242,7 @@ class VitalsProvider extends ChangeNotifier {
 
   // ── Health Connect source ─────────────────────────────────────────────────
 
+  // Ask for permission to read the phone's health data, then start polling
   Future<void> enableHealthKit() async {
     final authorized = await _healthService.requestAuthorization();
     if (!authorized) {
@@ -230,6 +267,7 @@ class VitalsProvider extends ChangeNotifier {
     _activateMockSource();
   }
 
+  // If the Bluetooth device disconnects, try the phone's health data; if that fails, use the simulator
   void _listenToBleConnectionState() {
     _bleConnectionSubscription?.cancel();
     _bleConnectionSubscription =
@@ -265,6 +303,7 @@ class VitalsProvider extends ChangeNotifier {
     return true;
   }
 
+  // Grab the latest heart rate, SpO2, and blood pressure from the phone's health store
   Future<void> _pollHealthAndEmit() async {
     if (_activeSource != VitalsSource.health) {
       return;
@@ -293,8 +332,12 @@ class VitalsProvider extends ChangeNotifier {
     final diastolicPoints = await _healthService.getBloodPressureDiastolic(
       lookback: const Duration(minutes: 30),
     );
+    final hrvPoints = await _healthService.getHrv(
+      lookback: const Duration(hours: 24),
+    );
 
     final timestamp = latestHeartRatePoint.dateTo;
+    // Skip if we already processed this exact timestamp
     if (_lastHealthReadingAt != null &&
         !timestamp.isAfter(_lastHealthReadingAt!)) {
       return;
@@ -302,6 +345,7 @@ class VitalsProvider extends ChangeNotifier {
 
     _lastHealthReadingAt = timestamp;
 
+    // Some devices report SpO2 as a decimal (0.97) instead of a percentage (97)
     var spo2 = _latestValue(spo2Points);
     if (spo2 != null && spo2 <= 1.0) {
       spo2 = spo2 * 100.0;
@@ -312,6 +356,7 @@ class VitalsProvider extends ChangeNotifier {
       spo2: spo2,
       systolicBp: _latestValue(systolicPoints),
       diastolicBp: _latestValue(diastolicPoints),
+      hrv: _latestValue(hrvPoints),
       timestamp: timestamp,
       source: VitalsSource.health,
     );
@@ -343,6 +388,7 @@ class VitalsProvider extends ChangeNotifier {
 
   // ── Internal mock source ───────────────────────────────────────────────────
 
+  // Spin up the demo simulator to generate fake vitals for testing
   Future<void> _activateMockSource({
     MockScenario scenario = MockScenario.rest,
     Duration interval = const Duration(seconds: 5),
@@ -362,6 +408,7 @@ class VitalsProvider extends ChangeNotifier {
         spo2: reading.spo2.toDouble(),
         systolicBp: reading.bloodPressureSystolic.toDouble(),
         diastolicBp: reading.bloodPressureDiastolic.toDouble(),
+        hrv: reading.hrv,
         timestamp: reading.timestamp,
         source: VitalsSource.mock,
       );
@@ -404,6 +451,7 @@ class VitalsProvider extends ChangeNotifier {
     }
   }
 
+  // Save the reading and push it out to every screen that's listening
   void _emitReading(VitalsReading reading) {
     _latestReading = reading;
     if (!_vitalsController.isClosed) {
@@ -412,6 +460,7 @@ class VitalsProvider extends ChangeNotifier {
     if (!_isDisposed) notifyListeners();
   }
 
+  // Fetch the user's age and resting heart rate so the AI model can make better predictions
   Future<void> _loadPatientContext() async {
     try {
       final user = await _apiClient.getCurrentUser();
@@ -420,14 +469,17 @@ class VitalsProvider extends ChangeNotifier {
 
       _cachedAge = age != null && age > 0 ? age : 35;
       _cachedBaselineHr = baseline != null && baseline > 0 ? baseline : 72;
+      // Standard formula: max safe heart rate = 220 minus your age
       _cachedMaxSafeHr = 220 - (_cachedAge ?? 35);
     } catch (_) {
+      // If the server is unreachable, use safe default values
       _cachedAge = 35;
       _cachedBaselineHr = 72;
       _cachedMaxSafeHr = 185;
     }
   }
 
+  // Hand the reading to the on-device AI so it can check for health risks
   void _sendToEdgeAi(VitalsReading reading) {
     _edgeAiStore.processVitals(
       heartRate: reading.heartRate.round(),
@@ -441,6 +493,7 @@ class VitalsProvider extends ChangeNotifier {
     );
   }
 
+  // Tell the AI what kind of activity produced this reading
   String _mapSourceToActivity(VitalsSource source) {
     switch (source) {
       case VitalsSource.ble:
@@ -467,6 +520,7 @@ class VitalsProvider extends ChangeNotifier {
     return _valueToDouble(latest.value);
   }
 
+  // Health data can arrive in many formats — try every trick to get a number out of it
   double? _valueToDouble(dynamic value) {
     if (value == null) {
       return null;
@@ -501,6 +555,7 @@ class VitalsProvider extends ChangeNotifier {
     return null;
   }
 
+  // Clean up all connections, timers, and streams when this provider is destroyed
   @override
   void dispose() {
     _isDisposed = true;

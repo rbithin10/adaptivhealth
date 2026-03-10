@@ -10,19 +10,21 @@ Usage:
     python scripts/apply_migrations.py
 """
 
-import hashlib
+import hashlib          # Used to create a unique fingerprint of each migration file
 import sys
-from pathlib import Path
+from pathlib import Path  # Makes working with file paths easier
 
-from sqlalchemy import text
+from sqlalchemy import text  # Lets us run raw SQL commands
 
-from app.database import engine
+from app.database import engine  # Our database connection
 
+# Name of the table that keeps track of which migrations have already been run
 TRACKER_TABLE = "_applied_migrations"
 
 
 def _ensure_tracker_table(conn) -> None:
     """Create the migration tracking table if it doesn't exist."""
+    # Build a table to remember which migrations we already ran
     conn.execute(text(f"""
         CREATE TABLE IF NOT EXISTS {TRACKER_TABLE} (
             id SERIAL PRIMARY KEY,
@@ -35,12 +37,14 @@ def _ensure_tracker_table(conn) -> None:
 
 def _get_applied(conn) -> set:
     """Return set of already-applied migration names."""
+    # Ask the database which migrations it already knows about
     rows = conn.execute(text(f"SELECT migration_name FROM {TRACKER_TABLE}"))
-    return {row[0] for row in rows}
+    return {row[0] for row in rows}  # Return them as a quick-lookup set
 
 
 def _file_checksum(path: Path) -> str:
     """SHA-256 checksum of a migration file."""
+    # Create a unique fingerprint so we can detect if a file was changed
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -54,21 +58,25 @@ def run_migrations() -> bool:
     Returns:
         True if all migrations applied (or already applied), False on error.
     """
+    # Find the migrations folder one level up from this script
     migrations_dir = Path(__file__).resolve().parent.parent / "migrations"
     if not migrations_dir.exists():
         print(f"Migrations folder not found: {migrations_dir}")
         return False
 
+    # Get all .sql files sorted alphabetically so they run in order
     migration_files = sorted(migrations_dir.glob("*.sql"))
 
     if not migration_files:
         print("No migration files found.")
         return True
 
+    # Check which migrations we already ran before
     with engine.begin() as conn:
         _ensure_tracker_table(conn)
         already_applied = _get_applied(conn)
 
+    # Only keep the ones we haven't applied yet
     pending = [f for f in migration_files if f.stem not in already_applied]
 
     print(f"Found {len(migration_files)} migration(s), {len(pending)} pending:")
@@ -81,21 +89,24 @@ def run_migrations() -> bool:
         print("Nothing to apply — database is up to date.")
         return True
 
-    applied_count = 0
+    applied_count = 0  # Track how many we successfully apply
 
     for migration_file in pending:
-        migration_name = migration_file.stem
+        migration_name = migration_file.stem  # File name without .sql extension
         print(f"Applying {migration_file.name}...")
 
         try:
+            # Read the SQL file and split it into individual statements
             sql_content = migration_file.read_text(encoding="utf-8")
             statements = [s.strip() for s in sql_content.split(";") if s.strip()]
-            checksum = _file_checksum(migration_file)
+            checksum = _file_checksum(migration_file)  # Fingerprint the file
 
+            # Run each SQL statement and record that we applied this migration
             with engine.begin() as conn:
                 for statement in statements:
                     conn.execute(text(statement))
 
+                # Mark this migration as done so we don't run it again
                 conn.execute(text(
                     f"INSERT INTO {TRACKER_TABLE} (migration_name, checksum) "
                     f"VALUES (:name, :checksum) ON CONFLICT (migration_name) DO NOTHING"
@@ -106,6 +117,7 @@ def run_migrations() -> bool:
 
         except Exception as exc:
             err_msg = str(exc).lower()
+            # If the table/column already exists, just mark it as done and move on
             if "already exists" in err_msg or "duplicate column" in err_msg:
                 print(f"  Already applied: {migration_file.name}")
                 with engine.begin() as conn:
@@ -115,6 +127,7 @@ def run_migrations() -> bool:
                     ), {"name": migration_name, "checksum": _file_checksum(migration_file)})
                 applied_count += 1
             else:
+                # A real error occurred — stop and report it
                 print(f"  Error in {migration_file.name}: {exc}")
                 return False
 

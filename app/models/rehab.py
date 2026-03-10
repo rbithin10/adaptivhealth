@@ -50,23 +50,23 @@ class RehabProgram(Base):
 
     __tablename__ = "rehab_programs"
 
-    program_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    program_id = Column(Integer, primary_key=True, index=True, autoincrement=True)  # Unique ID for this rehab program
 
-    user_id = Column(
+    user_id = Column(  # Which patient is enrolled in this program
         Integer,
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
-        unique=True,
+        unique=True,  # Each patient can only have one active program
         index=True,
     )
 
-    program_type = Column(String(50), nullable=False)  # "phase_2_light" or "phase_3_maintenance"
-    current_week = Column(Integer, nullable=False, default=1)
-    current_session_in_week = Column(Integer, nullable=False, default=0)
-    status = Column(String(20), nullable=False, default="active")  # active / completed / paused
+    program_type = Column(String(50), nullable=False)  # Which program template: "phase_2_light" (early rehab) or "phase_3_maintenance" (long-term)
+    current_week = Column(Integer, nullable=False, default=1)  # Which week of the program the patient is on
+    current_session_in_week = Column(Integer, nullable=False, default=0)  # How many exercise sessions completed this week
+    status = Column(String(20), nullable=False, default="active")  # Program state: active, completed, or paused
 
-    started_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    started_at = Column(DateTime(timezone=True), server_default=func.now())  # When the patient started this program
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # When progress was last updated
 
     # Relationships
     user = relationship("User", backref="rehab_program", uselist=False)
@@ -99,29 +99,29 @@ class RehabSessionLog(Base):
 
     __tablename__ = "rehab_session_logs"
 
-    log_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    log_id = Column(Integer, primary_key=True, index=True, autoincrement=True)  # Unique ID for this session log
 
-    program_id = Column(
+    program_id = Column(  # Which rehab program this session belongs to
         Integer,
         ForeignKey("rehab_programs.program_id", ondelete="CASCADE"),
         nullable=False,
     )
-    user_id = Column(
+    user_id = Column(  # Which patient completed this session
         Integer,
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
     )
 
-    week_number = Column(Integer, nullable=False)
-    session_number = Column(Integer, nullable=False)
-    activity_type = Column(String(50), nullable=False)  # walking, stretching, cycling, yoga
-    target_duration_minutes = Column(Integer, nullable=False)
-    actual_duration_minutes = Column(Integer, nullable=False)
-    avg_heart_rate = Column(Integer, nullable=True)
-    peak_heart_rate = Column(Integer, nullable=True)
-    vitals_in_safe_range = Column(Boolean, nullable=False, default=True)
+    week_number = Column(Integer, nullable=False)  # Which week of the program this session was in
+    session_number = Column(Integer, nullable=False)  # Session number within the week (e.g. 1st, 2nd, 3rd)
+    activity_type = Column(String(50), nullable=False)  # What exercise was done: walking, stretching, cycling, yoga
+    target_duration_minutes = Column(Integer, nullable=False)  # How long the session was supposed to last
+    actual_duration_minutes = Column(Integer, nullable=False)  # How long the patient actually exercised
+    avg_heart_rate = Column(Integer, nullable=True)  # Patient's average heart rate during the session
+    peak_heart_rate = Column(Integer, nullable=True)  # Highest heart rate reached during the session
+    vitals_in_safe_range = Column(Boolean, nullable=False, default=True)  # Were the patient's vitals safe throughout?
 
-    completed_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), server_default=func.now())  # When the session was finished
 
     # Relationships
     program = relationship("RehabProgram", back_populates="session_logs")

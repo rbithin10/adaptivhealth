@@ -6,13 +6,14 @@ If login works, we switch to the Home screen.
 If login fails, we show a simple error message.
 */
 
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
-import '../services/api_client.dart';
-import '../providers/auth_provider.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:google_fonts/google_fonts.dart'; // Custom font support
+import 'package:provider/provider.dart'; // State management
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../services/api_client.dart'; // Talks to our backend server
+import '../providers/auth_provider.dart'; // Manages login/logout state
+import '../utils/validators.dart'; // Shared input validation helpers
 
 class LoginScreen extends StatefulWidget {
   // The API client used to talk to the server.
@@ -51,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _resetEmailController = TextEditingController();
   String? _resetMessage;
 
+  // Clean up text controllers when this screen is removed
   @override
   void dispose() {
     _emailController.dispose();
@@ -59,6 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // Validate the form, send credentials to the server, and navigate on success
   void _handleLogin() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -94,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // Build the login form (or forgot-password view depending on state)
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -166,8 +170,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : () async {
                         final email = _resetEmailController.text.trim();
-                        if (email.isEmpty || !RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email)) {
-                          setState(() => _errorMessage = 'Please enter a valid email');
+                        final emailError = Validators.email(email);
+                        if (emailError != null) {
+                          setState(() => _errorMessage = emailError);
                           return;
                         }
                         setState(() { _isLoading = true; _errorMessage = null; _resetMessage = null; });
@@ -348,15 +353,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           keyboardType: TextInputType.emailAddress,
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Email is required';
-                            }
-                            if (!value.contains('@')) {
-                              return 'Please enter a valid email';
-                            }
-                            return null;
-                          },
+                          validator: Validators.email,
                         ),
                         const SizedBox(height: 16),
 
@@ -395,15 +392,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           obscureText: !_showPassword,
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Password is required';
-                            }
-                            if (value.length < 6) {
-                              return 'Password must be at least 6 characters';
-                            }
-                            return null;
-                          },
+                          validator: Validators.password,
                         ),
                         const SizedBox(height: 12),
 

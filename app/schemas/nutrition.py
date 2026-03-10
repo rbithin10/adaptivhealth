@@ -36,12 +36,12 @@ class MealType(str, Enum):
 
 class NutritionEntryBase(BaseModel):
     """Base schema for nutrition entries."""
-    meal_type: str = Field(..., description="Type of meal")
-    description: Optional[str] = Field(None, max_length=500, description="Optional meal description")
-    calories: int = Field(..., ge=0, le=10000, description="Total calories")
-    protein_grams: Optional[int] = Field(None, ge=0, le=500, description="Protein in grams")
-    carbs_grams: Optional[int] = Field(None, ge=0, le=1000, description="Carbohydrates in grams")
-    fat_grams: Optional[int] = Field(None, ge=0, le=500, description="Fat in grams")
+    meal_type: str = Field(..., description="Type of meal")  # What kind of meal: breakfast, lunch, dinner, snack, or other
+    description: Optional[str] = Field(None, max_length=500, description="Optional meal description")  # What the patient ate (free text)
+    calories: int = Field(..., ge=0, le=10000, description="Total calories")  # Total calories in this meal
+    protein_grams: Optional[int] = Field(None, ge=0, le=500, description="Protein in grams")  # Grams of protein
+    carbs_grams: Optional[int] = Field(None, ge=0, le=1000, description="Carbohydrates in grams")  # Grams of carbohydrates
+    fat_grams: Optional[int] = Field(None, ge=0, le=500, description="Fat in grams")  # Grams of fat
 
     @field_validator('meal_type')
     @classmethod

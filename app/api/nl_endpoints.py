@@ -94,10 +94,10 @@ async def get_risk_summary(
     user_id = current_user.user_id
     logger.info(f"Generating risk summary for user {user_id}, window={time_window_hours}h")
 
-    window_start = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
+    window_start = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)  # How far back to look for vitals and alerts
 
     # Latest risk assessment for this user
-    latest_risk = (
+    latest_risk = (  # Find the most recent risk evaluation on file
         db.query(RiskAssessment)
         .filter(RiskAssessment.user_id == user_id)
         .order_by(RiskAssessment.assessment_date.desc())
@@ -112,7 +112,7 @@ async def get_risk_summary(
         risk_score = 0.0
 
     # Aggregate vitals within the time window
-    vitals_agg = (
+    vitals_agg = (  # Calculate averages and maximums from recent vital signs
         db.query(
             sa_func.avg(VitalSignRecord.heart_rate).label("avg_hr"),
             sa_func.max(VitalSignRecord.heart_rate).label("max_hr"),
@@ -125,12 +125,12 @@ async def get_risk_summary(
         .first()
     )
 
-    avg_heart_rate = int(round(vitals_agg.avg_hr)) if vitals_agg and vitals_agg.avg_hr else 72
+    avg_heart_rate = int(round(vitals_agg.avg_hr)) if vitals_agg and vitals_agg.avg_hr else 72  # Default 72 if no data
     max_heart_rate = int(vitals_agg.max_hr) if vitals_agg and vitals_agg.max_hr else avg_heart_rate
-    avg_spo2 = int(round(vitals_agg.avg_spo2)) if vitals_agg and vitals_agg.avg_spo2 else 98
+    avg_spo2 = int(round(vitals_agg.avg_spo2)) if vitals_agg and vitals_agg.avg_spo2 else 98  # Default 98% if no data
 
     # Count alerts in the time window
-    alert_count = (
+    alert_count = (  # How many alerts were triggered in this period
         db.query(sa_func.count(Alert.alert_id))
         .filter(
             Alert.user_id == user_id,
@@ -140,11 +140,11 @@ async def get_risk_summary(
     ) or 0
 
     # Derive safety status from risk level
-    safety_map = {"LOW": "SAFE", "MODERATE": "CAUTION", "HIGH": "UNSAFE", "CRITICAL": "UNSAFE"}
+    safety_map = {"LOW": "SAFE", "MODERATE": "CAUTION", "HIGH": "UNSAFE", "CRITICAL": "UNSAFE"}  # Map risk to patient-friendly safety label
     safety_status = safety_map.get(risk_level, "SAFE")
 
     # Build NL summary
-    nl_summary = build_risk_summary_text(
+    nl_summary = build_risk_summary_text(  # Generate plain-English health summary for the patient
         risk_level=risk_level,
         risk_score=risk_score,
         time_window_hours=time_window_hours,
@@ -201,11 +201,10 @@ async def get_todays_workout(
     user_id = current_user.user_id
     logger.info(f"Generating workout plan for user {user_id}, date={target_date}")
 
-    # Convert target date to a timezone-aware datetime for comparison
-    target_dt = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+    target_dt = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)  # Convert to timezone-aware datetime
 
     # 1. Try to find a recommendation valid for the target date
-    recommendation = (
+    recommendation = (  # Look for a recommendation that covers today's date
         db.query(ExerciseRecommendation)
         .filter(
             ExerciseRecommendation.user_id == user_id,
@@ -217,7 +216,7 @@ async def get_todays_workout(
     )
 
     # 2. Fall back to the most recent recommendation for this user
-    if recommendation is None:
+    if recommendation is None:  # No date-specific recommendation — get the latest one instead
         recommendation = (
             db.query(ExerciseRecommendation)
             .filter(ExerciseRecommendation.user_id == user_id)
@@ -226,7 +225,7 @@ async def get_todays_workout(
         )
 
     # 3. Look up the user's latest risk level for context
-    latest_risk = (
+    latest_risk = (  # Get the most recent risk assessment to tailor the workout
         db.query(RiskAssessment)
         .filter(RiskAssessment.user_id == user_id)
         .order_by(RiskAssessment.assessment_date.desc())
@@ -235,7 +234,7 @@ async def get_todays_workout(
     risk_level = (latest_risk.risk_level.upper() if latest_risk else "LOW")
 
     # 4. Use DB recommendation or generate a safe default
-    if recommendation:
+    if recommendation:  # Use the real recommendation from the database
         activity_type = (recommendation.suggested_activity or "WALKING").upper()
         intensity_level = (recommendation.intensity_level or "low").upper()
         duration_minutes = recommendation.duration_minutes or 20
@@ -355,13 +354,13 @@ async def get_alert_explanation(
         )
         .first()
     )
-    during_activity = session is not None
+    during_activity = session is not None  # Was the user exercising when the alert fired?
     activity_type = session.activity_type if session else None
 
     # ------------------------------------------------------------------
     # 4. Get the nearest vital-sign reading at or before the alert
     # ------------------------------------------------------------------
-    vital = (
+    vital = (  # Find the closest vital reading to when the alert happened
         db.query(VitalSignRecord)
         .filter(
             VitalSignRecord.user_id == user_id,
@@ -370,13 +369,13 @@ async def get_alert_explanation(
         .order_by(VitalSignRecord.timestamp.desc())
         .first()
     )
-    heart_rate = vital.heart_rate if vital else None
-    spo2 = int(vital.spo2) if vital and vital.spo2 is not None else None
+    heart_rate = vital.heart_rate if vital else None  # Heart rate at the time of the alert
+    spo2 = int(vital.spo2) if vital and vital.spo2 is not None else None  # Blood oxygen at the time
 
     # ------------------------------------------------------------------
     # 5. Map severity to recommended action
     # ------------------------------------------------------------------
-    severity_action_map = {
+    severity_action_map = {  # What should the patient do based on how serious the alert is?
         "LOW": "CONTINUE",
         "INFO": "CONTINUE",
         "MEDIUM": "SLOW_DOWN",
@@ -590,23 +589,23 @@ from app.schemas.nl import ChatRequest, ChatResponse
 import time
 from collections import defaultdict
 
-_chat_rate: dict[int, list[float]] = defaultdict(list)
-_CHAT_MAX_REQUESTS = 10  # max requests per window
-_CHAT_WINDOW_SECONDS = 60  # rolling window
+_chat_rate: dict[int, list[float]] = defaultdict(list)  # Track timestamps of recent messages per user
+_CHAT_MAX_REQUESTS = 10  # Maximum messages allowed per time window
+_CHAT_WINDOW_SECONDS = 60  # How wide the rolling window is (1 minute)
 
 
 def _check_chat_rate_limit(user_id: int) -> None:
     """Raise 429 if user exceeds chat rate limit."""
     now = time.monotonic()
     timestamps = _chat_rate[user_id]
-    # Prune expired entries
+    # Remove timestamps that are too old (outside the rolling window)
     _chat_rate[user_id] = [t for t in timestamps if now - t < _CHAT_WINDOW_SECONDS]
-    if len(_chat_rate[user_id]) >= _CHAT_MAX_REQUESTS:
+    if len(_chat_rate[user_id]) >= _CHAT_MAX_REQUESTS:  # Too many messages too quickly
         raise HTTPException(
             status_code=429,
             detail=f"Too many messages. Please wait before sending another (limit: {_CHAT_MAX_REQUESTS} per minute).",
         )
-    _chat_rate[user_id].append(now)
+    _chat_rate[user_id].append(now)  # Record this message's timestamp for future rate checks
 
 
 @router.post("/chat", response_model=ChatResponse)

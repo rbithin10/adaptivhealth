@@ -1,10 +1,11 @@
-"""
-Tests for message endpoints.
+"""Messaging tests.
 
-Verifies patient-clinician messaging via REST polling.
+Verifies patient-clinician messaging via the primary and compatibility
+REST endpoints.
 """
 
 import os
+from datetime import datetime
 import pytest
 from fastapi.testclient import TestClient
 
@@ -51,7 +52,7 @@ def create_admin_user(db_session) -> None:
 def admin_token(client, db_session):
     create_admin_user(db_session)
     resp = client.post(
-        "/api/v1/login",
+        "/api/v1/access",
         data={"username": "admin@test.com", "password": "Admin1234"}
     )
     assert resp.status_code == 200, f"Admin login failed: {resp.json()}"
@@ -59,19 +60,23 @@ def admin_token(client, db_session):
 
 
 def register_user(client, email, password, name, admin_token, role=None):
-    payload = {"email": email, "password": password, "name": name}
-    if role:
-        payload["role"] = role
+    payload = {
+        "email": email,
+        "password": password,
+        "name": name,
+        "role": role or UserRole.PATIENT.value,
+    }
     resp = client.post(
-        "/api/v1/register",
+        "/api/v1/admin/register",
         json=payload,
         headers={"Authorization": f"Bearer {admin_token}"}
     )
+    assert resp.status_code == 200, f"Registration failed: {resp.json()}"
     return resp.json()
 
 
 def login_user(client, email, password):
-    resp = client.post("/api/v1/login", data={"username": email, "password": password})
+    resp = client.post("/api/v1/access", data={"username": email, "password": password})
     assert resp.status_code == 200, f"Login failed: {resp.json()}"
     return resp.json()["access_token"]
 
@@ -213,6 +218,69 @@ class TestMessages:
             json={"receiver_id": user_b["id"], "content": "Hello"}
         )
         assert resp.status_code == 401
+
+    def test_send_message_to_nonexistent_user(self, client, admin_token):
+        patient = register_user(client, "missing_target@example.com", "StrongPass1", "Missing Target", admin_token)
+        patient_token = login_user(client, "missing_target@example.com", "StrongPass1")
+
+        response = client.post(
+            "/api/v1/messages",
+            json={"receiver_id": 99999, "content": "Test message"},
+            headers=auth_header(patient_token),
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_send_message_empty_content(self, client, admin_token):
+        patient = register_user(client, "empty_sender@example.com", "StrongPass1", "Empty Sender", admin_token)
+        clinician = register_user(
+            client,
+            "empty_receiver@example.com",
+            "StrongPass1",
+            "Empty Receiver",
+            admin_token,
+            role=UserRole.CLINICIAN.value,
+        )
+        patient_token = login_user(client, "empty_sender@example.com", "StrongPass1")
+
+        response = client.post(
+            "/api/v1/messages",
+            json={"receiver_id": clinician["id"], "content": "   "},
+            headers=auth_header(patient_token),
+        )
+
+        assert response.status_code == 422
+
+    def test_thread_messages_are_ordered_by_time(self, client, admin_token):
+        patient = register_user(client, "ordered_patient@example.com", "StrongPass1", "Ordered Patient", admin_token)
+        clinician = register_user(
+            client,
+            "ordered_clinician@example.com",
+            "StrongPass1",
+            "Ordered Clinician",
+            admin_token,
+            role=UserRole.CLINICIAN.value,
+        )
+        patient_token = login_user(client, "ordered_patient@example.com", "StrongPass1")
+
+        for index in range(5):
+            response = client.post(
+                "/api/v1/messages",
+                json={"receiver_id": clinician["id"], "content": f"Message {index + 1}"},
+                headers=auth_header(patient_token),
+            )
+            assert response.status_code == 201
+
+        thread_response = client.get(
+            f"/api/v1/messages/thread/{clinician['id']}",
+            headers=auth_header(patient_token),
+        )
+
+        assert thread_response.status_code == 200
+        messages = thread_response.json()
+        sent_at_times = [datetime.fromisoformat(item["sent_at"].replace("Z", "+00:00")) for item in messages]
+        assert all(sent_at_times[index] <= sent_at_times[index + 1] for index in range(len(sent_at_times) - 1))
 
     def test_get_inbox_for_clinician_success(self, client, admin_token):
         """Clinician inbox returns conversation summaries with unread counts."""

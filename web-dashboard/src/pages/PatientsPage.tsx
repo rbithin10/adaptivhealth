@@ -19,6 +19,7 @@ import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 
+// What risk category a patient falls into
 type PatientRiskLevel = 'low' | 'moderate' | 'high' | 'critical';
 
 interface PatientRecordState {
@@ -33,15 +34,21 @@ type RecordSource = Record<string, unknown>;
 
 const PatientsPage: React.FC = () => {
   const navigate = useNavigate();
+  // Search bar text and risk-level filter
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRisk, setFilterRisk] = useState<'all' | PatientRiskLevel>('all');
+  // The full list of patients loaded from the server
   const [patients, setPatients] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  // Toast notification state
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('error');
+  // Tracks which patient's medical record is currently being fetched
   const [recordsLoadingFor, setRecordsLoadingFor] = useState<number | null>(null);
+  // Cached medical-record availability per patient
   const [recordsByPatient, setRecordsByPatient] = useState<Record<number, PatientRecordState>>({});
+  // Document viewer modal state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUrl, setViewerUrl] = useState('');
   const [viewerTitle, setViewerTitle] = useState('Medical Record');
@@ -54,13 +61,14 @@ const PatientsPage: React.FC = () => {
     setSnackbarOpen(true);
   };
 
+  // Load patient list on first render
   useEffect(() => {
     loadPatients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-hydrate document record states when the page becomes visible again
-  // so that documents uploaded in PatientDetailPage are reflected immediately.
+  // Refresh medical record states when the tab regains focus
+  // (catches documents uploaded on the detail page)
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && patients.length > 0) {
@@ -72,6 +80,7 @@ const PatientsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patients]);
 
+  // Fetch all patients, their risk assessments, and medical record availability
   const loadPatients = async () => {
     try {
       const currentUser = await api.getCurrentUser();
@@ -88,6 +97,7 @@ const PatientsPage: React.FC = () => {
         return userRole === 'patient';
       });
 
+      // Fetch each patient's latest risk score in parallel
       const riskResults = await Promise.allSettled(
         patientUsers.map((patient) => api.getLatestRiskAssessmentForUser(patient.user_id))
       );
@@ -129,6 +139,7 @@ const PatientsPage: React.FC = () => {
     }
   };
 
+  // Show medical condition badges (e.g. Prior MI, Heart Failure) for a patient
   const renderMedicalSummary = (summary?: MedicalProfileSummary) => {
     const badges = summary
       ? [
@@ -272,6 +283,7 @@ const PatientsPage: React.FC = () => {
     revokeViewerObjectUrl();
   };
 
+  // Open the in-page document viewer with a signed blob URL
   const openMedicalRecordViewer = async (url: string, title: string) => {
     revokeViewerObjectUrl();
     const blob = await api.getDocumentBlobByUrl(url);
@@ -282,6 +294,7 @@ const PatientsPage: React.FC = () => {
     setViewerOpen(true);
   };
 
+  // Try to find a viewable document URL from the patient or medical profile
   const extractRecordUrl = (source: unknown): { url: string; title: string } | null => {
     const record = asRecord(source);
     if (!record) return null;
@@ -368,6 +381,7 @@ const PatientsPage: React.FC = () => {
     };
   };
 
+  // For each patient, check if a medical record document exists
   const hydrateMedicalRecordStates = async (patientsList: User[]) => {
     try {
     const results = await Promise.allSettled(
@@ -410,6 +424,7 @@ const PatientsPage: React.FC = () => {
     }
   };
 
+  // Open the document viewer for a specific patient's medical record
   const handleViewMedicalRecord = async (patient: User) => {
     setRecordsLoadingFor(patient.user_id);
     try {
@@ -491,6 +506,7 @@ const PatientsPage: React.FC = () => {
     return null;
   };
 
+  // Filter patients by search text and selected risk level
   const filteredPatients = patients.filter((patient) => {
     const userRole = (patient.user_role || '').toLowerCase();
 

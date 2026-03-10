@@ -1,16 +1,17 @@
-// StatusBadge Component
-// Displays patient status as a colored pill
-// Maps risk_level from ML model ("low" | "moderate" | "high") to visual status
-// Used in: Patient list, Patient detail, Alert cards
+/* StatusBadge — A small coloured pill that shows a patient's status
+   (Stable = green, Warning = amber, Critical = red).
+   Converts the AI risk level into a simple visual label. */
 
+// React library
 import React from 'react';
 import { AlertTriangle, AlertCircle, CheckCircle } from 'lucide-react';
 import { colors } from '../../theme/colors';
 
+// The risk levels that come from the AI model
 export type RiskLevel = 'low' | 'moderate' | 'high';
 export type Status = 'stable' | 'warning' | 'critical';
 
-// Map backend risk_level to display status
+// Convert the AI risk level to a display-friendly status name
 export function riskToStatus(riskLevel: RiskLevel | string): Status {
   switch (riskLevel.toLowerCase()) {
     case 'high':
@@ -23,7 +24,7 @@ export function riskToStatus(riskLevel: RiskLevel | string): Status {
   }
 }
 
-// Status configuration
+// Visual settings for each status: colours, labels, and icons
 const statusConfig = {
   critical: {
     label: 'Critical',
@@ -51,12 +52,14 @@ const statusConfig = {
   },
 };
 
+// What this component needs: the status, whether to show an icon, and the size
 interface StatusBadgeProps {
   status: Status;
   showIcon?: boolean;
   size?: 'sm' | 'md';
 }
 
+// The StatusBadge component — renders a coloured pill with an icon and label
 export default function StatusBadge({
   status,
   showIcon = true,

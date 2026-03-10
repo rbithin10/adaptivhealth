@@ -2,16 +2,16 @@
 Script to create an admin account in the database.
 """
 
-from app.database import SessionLocal, engine, Base
-from app.models.user import User, UserRole
-from app.models.auth_credential import AuthCredential
-from app.services.auth_service import pwd_context
+from app.database import SessionLocal, engine, Base  # Database connection tools
+from app.models.user import User, UserRole            # User table and role choices
+from app.models.auth_credential import AuthCredential  # Stores login passwords securely
+from app.services.auth_service import pwd_context      # Password hashing helper
 from datetime import datetime, timezone
 
-# Ensure all tables exist
+# Make sure all database tables exist before we try to insert anything
 Base.metadata.create_all(bind=engine)
 
-# Create session
+# Open a new database session (like opening a conversation with the database)
 db = SessionLocal()
 
 try:
@@ -60,10 +60,10 @@ try:
     print(f"  User ID: {admin_user.user_id}")
     
 except Exception as e:
-    db.rollback()
-    print(f"✗ Error creating admin account: {e}")
+    db.rollback()  # Undo any partial changes if something went wrong
+    print(f"\u2717 Error creating admin account: {e}")
     import traceback
-    traceback.print_exc()
+    traceback.print_exc()  # Show the full error details for debugging
     
 finally:
-    db.close()
+    db.close()  # Always close the database connection when we're done

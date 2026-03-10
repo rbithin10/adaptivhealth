@@ -1,452 +1,259 @@
-# Adaptiv Health - Complete Platform
+# Adaptiv Health
 
-A comprehensive health monitoring platform with **FastAPI backend**, **React clinician dashboard**, and **Flutter patient mobile app** following medical-grade design standards.
-
-## 🏥 What Is This?
-
-Adaptiv Health is a clinical-grade health monitoring system designed for:
-- **Patients**: Track heart rate, blood pressure, and recovery with the mobile app
-- **Clinicians**: Monitor multiple patients and assess risk with the web dashboard
-- **Backend**: Secure data management with ML-powered risk prediction
+A comprehensive cardiac-rehabilitation health monitoring platform with a **FastAPI backend**, **React clinician dashboard**, and **Flutter patient mobile app**.
 
 ---
 
-## 🚀 Quick Start (5 Minutes)
+## Overview
 
-### 1. Start the Backend
+Adaptiv Health is a clinical-grade health monitoring system designed for:
+- **Patients** — Track heart rate, blood pressure, nutrition, rehab progress, and recovery via the mobile app
+- **Clinicians** — Monitor patients, assess risk, manage alerts, and message patients via the web dashboard
+- **Backend** — Secure data management with ML-powered risk prediction, anomaly detection, and AI coaching
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Python 3.9+
+- Node.js 16+
+- Flutter 3.13+
+- PostgreSQL 12+
+
+### 1. Configure Environment
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the server
-python -m app.main
+cp .env.example .env        # Edit with your database URL, secret key, etc.
+cp web-dashboard/.env.example web-dashboard/.env
 ```
-Backend runs on `http://localhost:8080`
 
-### 2. Start the Flutter App
+### 2. Start the Backend
+```bash
+pip install -r requirements.txt
+python start_server.py
+```
+Backend runs on `http://localhost:8080`. API docs at `/docs`.
+
+### 3. Start the Web Dashboard
+```bash
+cd web-dashboard
+npm install
+npm start
+```
+Dashboard runs on `http://localhost:3000`.
+
+### 4. Start the Mobile App
 ```bash
 cd mobile-app
 flutter pub get
 flutter run
 ```
 
-### 3. Start the React Dashboard
-```bash
-cd web-dashboard
-npm install
-npm start
-```
+---
 
-### 4. Login
-```
-Email: test@example.com
-Password: password123
-```
+## Features
+
+### Patient Mobile App (Flutter) — 16 Screens
+- Real-time heart rate monitoring with animated ring display
+- Vital signs tracking (SpO2, blood pressure, HRV)
+- AI-powered health recommendations and coaching
+- Guided workout sessions with HR zone management
+- Recovery scoring and breathing exercises
+- Nutrition tracking and recipe library
+- Rehab programme management
+- Device pairing (BLE) and health platform integrations (Fitbit, Apple Health, Google Fit)
+- Doctor messaging with read receipts
+- Dark mode support
+- Onboarding flow and notifications
+
+### Clinician Web Dashboard (React) — 8 Pages
+- Patient roster with search and filtering
+- Individual patient vitals, history, and medical profile
+- Risk assessment with ML prediction explainability
+- Advanced ML panel (anomaly detection, trend forecasting)
+- Alert management and clinical recommendations
+- Patient-clinician messaging
+- Admin panel (user management)
+- Professional medical UI (WCAG 2.1 AA compliant)
+
+### Backend API (FastAPI) — 16 Route Modules
+- JWT authentication with token refresh and blocklist
+- Vital signs recording and retrieval
+- ML risk prediction with explainability
+- Anomaly detection and trend forecasting
+- Natural language AI coaching endpoints
+- Nutrition tracking and food analysis
+- Rehab programme management
+- Patient-clinician messaging
+- Activity tracking and alerts
+- Medical history and consent management
+- Medication reminders
+- Rate limiting and CORS
 
 ---
 
-## 📱 Features
-
-### Patient Mobile App (Flutter)
-- ✅ Real-time heart rate monitoring with animated ring display
-- ✅ Vital signs tracking (SpO2, blood pressure, HRV)
-- ✅ AI-powered health recommendations
-- ✅ Guided workout sessions with HR zone management
-- ✅ Recovery scoring and breathing exercises
-- ✅ Secure authentication with JWT tokens
-
-### Clinician Dashboard (React)
-- ✅ Patient roster with search and filtering
-- ✅ Individual patient vital signs and history
-- ✅ Risk assessment with ML predictions
-- ✅ Alert management and clinical recommendations
-- ✅ Professional medical UI (WCAG 2.1 AA)
-
-### Backend (FastAPI)
-- ✅ User authentication (pbkdf2_sha256, NIST-approved)
-- ✅ Heart rate and vital signs storage
-- ✅ ML model for risk prediction (96.9% accuracy)
-- ✅ Session tracking (workouts, recovery)
-- ✅ AI health recommendations
-- ✅ 10 RESTful API endpoints
-
----
-
-## 📊 System Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Patient (Mobile)                      │
-│  Flutter App (Heart rate ring, workouts, recovery)      │
-└────────────────┬────────────────────────────────────────┘
-                 │ HTTPS (JWT Auth)
-┌────────────────▼────────────────────────────────────────┐
+│                   Patient (Mobile)                       │
+│  Flutter App — 16 screens, BLE, Fitbit, health APIs     │
+└────────────────────┬────────────────────────────────────┘
+                     │ HTTPS (JWT Auth)
+┌────────────────────▼────────────────────────────────────┐
 │                  Backend (FastAPI)                       │
-│  Authentication, Vitals, ML Prediction, Sessions        │
-│  Database: PostgreSQL/SQLite (7 tables)                  │
-│  ML Model: scikit-learn (Risk Assessment)                │
-└────────────────┬────────────────────────────────────────┘
-                 │ HTTPS (JWT Auth)
-┌────────────────▼────────────────────────────────────────┐
+│  16 API modules, 14 DB models, 11 services              │
+│  Database: PostgreSQL  │  ML: scikit-learn / TFLite      │
+└────────────────────┬────────────────────────────────────┘
+                     │ HTTPS (JWT Auth)
+┌────────────────────▼────────────────────────────────────┐
 │              Clinician (Web Dashboard)                   │
-│     React App (Patient management, risk alerts)          │
+│  React/TypeScript — 8 pages, MUI theme, Axios client    │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📂 Directory Structure
+## Project Structure
 
 ```
 AdaptivHealth/
 ├── app/                          # Backend (FastAPI)
-│   ├── main.py                   # Entry point
-│   ├── database.py               # SQLAlchemy setup
-│   ├── config.py                 # Configuration
-│   ├── api/                      # API routes
-│   │   ├── auth.py               # Login/register
-│   │   ├── user.py               # User profiles
-│   │   ├── vital_signs.py        # Heart rate, BP, etc
-│   │   ├── predict.py            # ML predictions
-│   │   └── ...
-│   ├── models/                   # Database models
-│   ├── schemas/                  # Pydantic schemas
-│   └── services/                 # Business logic
-│       ├── auth_service.py
-│       ├── encryption.py
-│       └── ml_prediction.py
+│   ├── main.py                   # Application entry point
+│   ├── config.py                 # Environment configuration
+│   ├── database.py               # SQLAlchemy database setup
+│   ├── rate_limiter.py           # Request rate limiting
+│   ├── api/                      # Route handlers (16 modules)
+│   ├── models/                   # SQLAlchemy models (14 files)
+│   ├── schemas/                  # Pydantic schemas (14 files)
+│   └── services/                 # Business logic & ML (16 files)
 │
-├── web-dashboard/                # React Dashboard
-│   ├── src/
-│   │   ├── pages/                # Login, Dashboard, Patients, Admin
-│   │   ├── components/           # StatusBadge, StatCard
-│   │   ├── services/             # API client
-│   │   ├── theme/                # Design system
-│   │   └── App.tsx
-│   └── package.json
+├── web-dashboard/                # React Clinician Dashboard
+│   └── src/
+│       ├── pages/                # 8 pages + tests
+│       ├── components/           # Reusable UI components
+│       ├── services/             # API client (Axios)
+│       ├── theme/                # Colours, typography, MUI theme
+│       └── types/                # TypeScript interfaces
 │
-├── mobile-app/                   # Flutter App
-│   ├── lib/
-│   │   ├── screens/              # Home, Login, Workout, Recovery, Profile, History
-│   │   ├── theme/                # Design system
-│   │   ├── services/             # API client
-│   │   └── main.dart
-│   └── pubspec.yaml
+├── mobile-app/                   # Flutter Patient App
+│   └── lib/
+│       ├── screens/              # 16 screens + home sub-widgets
+│       ├── providers/            # State management (Provider)
+│       ├── services/             # API, BLE, health, notifications
+│       ├── widgets/              # Shared reusable widgets
+│       └── theme/                # Design tokens
 │
-├── ml_models/                    # ML model files
-│   ├── risk_model.pkl            # Trained Random Forest
-│   ├── scaler.pkl                # Feature scaler
-│   └── feature_columns.json      # Feature names
+├── ml_models/                    # Trained ML model + training scripts
+├── tests/                        # Backend test suite (34 test files, pytest)
+├── migrations/                   # SQL migration scripts (14 files)
+├── scripts/                      # DB setup, migration, deploy utilities
+├── docs/                         # Technical documentation
 │
-├── docs/                         # Documentation
-│   ├── README.md                 # Documentation index
-│   └── *.md                      # Technical docs
-│
-├── README.md                     # This file
-├── ROADMAP.md                    # Development roadmap
-└── requirements.txt              # Python dependencies
+├── .env.example                  # Environment variable template
+├── requirements.txt              # Python dependencies
+├── Dockerfile                    # Container build
+├── start_server.py               # Server launcher
+└── start.bat                     # Windows quick start
 ```
 
 ---
 
-## 🎯 What's Included
-
-### ✅ Complete
-- [x] Backend API (10 endpoints)
-- [x] React Dashboard (4 pages, 2 components)
-- [x] Flutter App Foundation (design system, API client)
-- [x] 4 Flutter Screens (Home, Login, Workout, Recovery)
-- [x] Authentication system (JWT + secure storage)
-- [x] ML risk prediction model
-- [x] Design system (colors, typography, spacing)
-- [x] Professional documentation
-
-### ⏳ Not Yet Implemented
-- [ ] History screen (session logs, trends)
-- [ ] Profile screen (settings, logout)
-- [ ] Navigation implementation (go_router)
-- [ ] State management (Provider)
-- [ ] Chart integration (fl_chart)
-- [ ] Unit tests
-
----
-
-## 🔐 Security Features
-
-- ✅ JWT token authentication (RS256 signing)
-- ✅ NIST-approved password hashing (pbkdf2_sha256, 600k iterations)
-- ✅ Secure token storage (flutter_secure_storage)
-- ✅ HIPAA-compliant encryption (AES-256)
-- ✅ SQL injection prevention (SQLAlchemy ORM)
-- ✅ CORS configuration
-- ✅ Rate limiting ready
-- ✅ HTTPS support configured
-
----
-
-## 🎨 Design System
-
-### Colors (ISO 3864 Compliant)
-```
-Primary:   #2563EB (Blue)    - Actions, interactive
-Critical:  #EF4444 (Red)     - Alerts, danger
-Warning:   #F59E0B (Orange)  - Caution, elevated
-Stable:    #22C55E (Green)   - Normal, safe
-Neutral:   #111827-#FAFAFA  - Text, backgrounds
-```
-
-### Typography (DM Sans)
-```
-Screen Title:   24px, bold
-Section Title:  18px, semibold
-Card Title:     16px, semibold
-Body:           14px, regular
-Caption:        12px, regular
-Hero Number:    56px, bold    (Heart rate display)
-```
-
-### Spacing
-```
-8px base unit (4, 8, 12, 16, 20, 24, 32...)
-```
-
----
-
-## 📖 Documentation
-
-| Document | Purpose | Location |
-|----------|---------|----------|
-| **IMPLEMENTATION_STATUS.md** | Complete progress overview | Root |
-| **FLUTTER_QUICK_START.md** | Get Flutter running in 5 min | Root |
-| **FLUTTER_IMPLEMENTATION_GUIDE.md** | Technical reference (Flutter) | mobile-app/ |
-| **IMPLEMENTATION_SUMMARY.md** | React dashboard summary | web-dashboard/ |
-| **VISUAL_DESIGN_REFERENCE.md** | Design system details | web-dashboard/ |
-| **TESTING_GUIDE.md** | How to test React components | web-dashboard/ |
-
----
-
-## 🧪 API Endpoints
+## API Endpoints
 
 ### Authentication
-- `POST /auth/login` - Email/password login → JWT token
-- `POST /auth/register` - Create new user account
-
-### User Management
-- `GET /users/me` - Current user profile
-- `GET /users/{user_id}` - Get any user (admin)
+- `POST /auth/register` — Create account
+- `POST /auth/login` — Login, returns JWT
+- `POST /auth/refresh` — Refresh access token
+- `POST /auth/request-password-reset` — Request password reset email
+- `POST /auth/reset-password` — Reset password with token
 
 ### Vital Signs
-- `GET /vitals/latest` - Current HR, SpO2, BP
-- `GET /vitals/history` - Historical vital data (24h/7d/30d)
-- `POST /vitals/submit` - User submits manual reading
+- `GET /vitals/latest` — Current HR, SpO2, BP
+- `GET /vitals/history` — Historical data (24h/7d/30d)
+- `POST /vitals/submit` — Submit a reading
 
 ### Risk Prediction
-- `POST /predictions/risk` - ML risk assessment
+- `POST /predictions/risk` — ML risk assessment with explainability
 
-### Sessions
-- `POST /sessions/start` - Begin workout/recovery session
-- `POST /sessions/end` - End session, save metrics
+### Messaging
+- `GET /messages/` — Conversation history
+- `POST /messages/` — Send message
 
-### Recommendations
-- `GET /recommendations/` - AI health recommendation
-
----
-
-## 🚀 Deployment
-
-### Backend (Production)
-```bash
-# Update config.py with production URLs
-# Set DATABASE_URL to production PostgreSQL
-# Set JWT_SECRET_KEY to strong random value
-# Build and deploy to cloud (AWS, Google Cloud, etc)
-
-python -m app.main --host 0.0.0.0 --port 8000
-```
-
-### React Dashboard
-```bash
-npm run build  # Creates optimized build
-# Deploy build/ folder to web hosting
-```
-
-### Flutter App
-```bash
-# iOS
-flutter build ios --release
-
-# Android
-flutter build apk --release
-flutter build appbundle --release  # For Google Play
-```
+### Recommendations, Nutrition, Rehab, Alerts, Activity
+- See full API docs at `http://localhost:8080/docs`
 
 ---
 
-## 📊 Database Schema
+## Security
 
-### Users Table
-```
-id, email, username, password_hash, age, device_id
-```
-
-### Vital Signs Table
-```
-id, user_id, heart_rate, spo2, systolic_bp, diastolic_bp, timestamp
-```
-
-### Sessions Table
-```
-id, user_id, session_type, start_time, end_time, duration, wellness_level
-```
-
-### Risk Assessment Table
-```
-id, user_id, risk_score, risk_level, timestamp, recommendations
-```
+- JWT token authentication (HS256) with refresh and token blocklist
+- NIST-approved password hashing (pbkdf2_sha256, 600k iterations)
+- Optional AES-256-GCM encryption for PHI fields
+- SQL injection prevention (SQLAlchemy ORM)
+- CORS configuration and rate limiting
+- HTTPS support (SSL certificates included for deployment)
+- Secure token storage on mobile (flutter_secure_storage)
 
 ---
 
-## 🔧 Development Setup
-
-### Requirements
-- Python 3.9+
-- Node.js 16+
-- Flutter 3.13+
-- PostgreSQL 12+ (or SQLite for dev)
-
-### Backend Setup
-```bash
-pip install -r requirements.txt
-python -m app.main
-```
-
-### React Setup
-```bash
-cd web-dashboard
-npm install
-npm start
-```
-
-### Flutter Setup
-```bash
-cd mobile-app
-flutter pub get
-flutter run
-```
-
----
-
-## 🐛 Troubleshooting
-
-### "Backend connection refused"
-- Check backend is running: `python -m app.main`
-- Verify port 8000 is not in use
-
-### "Flutter API 404 error"
-- Use correct API URL:
-  - Physical device/iOS: `http://localhost:8080`
-  - Android emulator: `http://10.0.2.2:8000`
-
-### "JWT token expired"
-- Tokens automatically refresh via API interceptor
-- Check secure storage is accessible
-
-### "React build fails"
-- Clear cache: `rm -rf node_modules package-lock.json && npm install`
-- Check Node version: `node --version` (should be 16+)
-
----
-
-## 📈 Key Metrics
-
-| Metric | Value |
-|--------|-------|
-| Total Code | 3500+ lines |
-| Backend Endpoints | 10 |
-| React Pages | 4 |
-| Flutter Screens | 4 |
-| Color System | 15+ colors |
-| Typography Styles | 8 |
-| ML Model Accuracy | 96.9% |
-| Test Coverage | Design verified |
-| Code Quality | 0 errors |
-| Accessibility | WCAG 2.1 AA |
-
----
-
-## 💡 Technology Stack
+## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend (Mobile)** | Flutter 3.13, Dart |
-| **Frontend (Web)** | React 18, TypeScript |
-| **Backend** | FastAPI, Python |
-| **Database** | PostgreSQL/SQLite, SQLAlchemy |
-| **Auth** | JWT (RS256), pbkdf2_sha256 |
-| **ML** | scikit-learn |
-| **Storage** | flutter_secure_storage, localStorage |
-| **HTTP** | Dio (Flutter), fetch (React) |
-| **Design** | Material Design 3, Lucide Icons |
+| **Mobile App** | Flutter, Dart, Provider, Dio |
+| **Web Dashboard** | React 18, TypeScript, MUI, Axios |
+| **Backend** | FastAPI, Python, Pydantic |
+| **Database** | PostgreSQL, SQLAlchemy |
+| **ML** | scikit-learn, TensorFlow Lite |
+| **Auth** | JWT (HS256), pbkdf2_sha256 |
+| **Deployment** | Docker, Nginx, AWS RDS |
 
 ---
 
-## 📝 License & Credits
+## Testing
 
-**Design Guide**: Claude Opus 4.6 (1500+ lines, comprehensive specs)  
-**Implementation**: Complete across all platforms  
-**Standards**: WCAG 2.1 AA, ISO 3864, HIPAA-compliant
+```bash
+# Backend tests
+pytest
 
----
+# Web dashboard tests
+cd web-dashboard && npm test
 
-## 🎯 Next Steps
-
-### Immediate (30 minutes)
-1. Run backend: `python -m app.main`
-2. Run Flutter: `flutter run`
-3. Test login with demo credentials
-4. Verify all 4 screens load
-
-### Short Term (2-4 hours)
-1. Build History screen
-2. Build Profile screen
-3. Setup navigation (go_router)
-
-### Medium Term (4-6 hours)
-1. Add state management (Provider)
-2. Integrate charts (fl_chart)
-3. Add unit tests
-
-### Before Launch (6-8 hours)
-1. Update production API URL
-2. Build APK/IPA
-3. Test on real devices
-4. Submit to stores
+# Flutter tests
+cd mobile-app && flutter test
+```
 
 ---
 
-## 📞 Support
+## Deployment
 
-- **Backend Issues**: Check `app/` folder structure
-- **React Issues**: See `web-dashboard/IMPLEMENTATION_SUMMARY.md`
-- **Flutter Issues**: Read `FLUTTER_QUICK_START.md`
-- **Design Questions**: Reference design system files
-- **API Reference**: Backend has OpenAPI docs at `/docs`
+```bash
+# Backend (Docker)
+docker build -t adaptiv-health .
+docker run -p 8080:8080 --env-file .env adaptiv-health
 
----
+# Web dashboard
+cd web-dashboard && npm run build
+# Serve the build/ directory
 
-## ✨ Highlights
-
-✅ **Professional Medical UI** - ISO 3864 colors, WCAG 2.1 AA  
-✅ **Real-time Monitoring** - Live heart rate with animations  
-✅ **ML-Powered Insights** - 96.9% accurate risk prediction  
-✅ **Secure** - JWT auth, encrypted storage, HIPAA-ready  
-✅ **Cross-Platform** - iOS, Android, Web, all with same design system  
-✅ **Well-Documented** - 7 comprehensive guides  
+# Mobile app
+flutter build apk --release          # Android
+flutter build appbundle --release     # Google Play
+flutter build ios --release           # iOS
+```
 
 ---
 
-**Status**: Production-Ready (95% Complete)  
-**Last Updated**: January 2025  
+## Environment Variables
+
+See [.env.example](.env.example) for all required and optional variables including:
+- `DATABASE_URL` — PostgreSQL connection string
+- `SECRET_KEY` — JWT signing secret
+- `GEMINI_API_KEY` — Google Gemini for AI features
+- `SMTP_*` — Email configuration for password resets
+- `PHI_ENCRYPTION_KEY` — Optional field-level encryption
+
+---
+
 **Version**: 1.0.0
-
-Happy coding! 💪

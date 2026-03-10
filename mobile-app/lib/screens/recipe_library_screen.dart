@@ -1,3 +1,12 @@
+/*
+Recipe Library Screen.
+
+Shows heart-healthy recipes that patients can browse and cook. Recipes are
+loaded from a local JSON file bundled with the app. Users can filter by
+tags like "Heart Healthy", "High Fiber", or "Omega-3 Rich", and log a
+meal directly from a recipe.
+*/
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -18,6 +27,7 @@ class RecipeLibraryScreen extends StatefulWidget {
 }
 
 class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
+  // Tags the user can filter recipes by
   static const List<String> _availableTags = [
     'Heart Healthy',
     'High Fiber',
@@ -25,18 +35,22 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     'Anti-Inflammatory',
   ];
 
+  // Screen state
   bool _isLoading = true;
   String? _errorMessage;
   List<Map<String, dynamic>> _recipes = [];
   String _activeFilter = 'Heart Healthy';
+  // Tracks whether a meal was logged so we can refresh the parent screen
   bool _hasLoggedMeal = false;
 
+  // Load recipes from the server when the screen opens
   @override
   void initState() {
     super.initState();
     _loadRecipes();
   }
 
+  // Load recipes from the bundled JSON asset file
   Future<void> _loadRecipes() async {
     setState(() {
       _isLoading = true;
@@ -47,7 +61,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
       final rawJson = await rootBundle.loadString('assets/data/recipes.json');
       final decoded = jsonDecode(rawJson);
 
-      // Support both the legacy array format and the v2 versioned-object format.
+      // Support both the legacy array format and the v2 versioned-object format
       final List<dynamic> rawList;
       if (decoded is List) {
         rawList = decoded;
@@ -76,6 +90,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     }
   }
 
+  // Only show recipes that match the currently selected tag filter
   List<Map<String, dynamic>> get _filteredRecipes {
     return _recipes.where((recipe) {
       final tags = (recipe['tags'] as List<dynamic>?)
@@ -86,6 +101,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     }).toList();
   }
 
+  // Log a recipe as a meal entry in the nutrition tracker
   Future<void> _logRecipeMeal(Map<String, dynamic> recipe) async {
     try {
       await widget.apiClient.createNutritionEntry(
@@ -123,6 +139,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     return 0;
   }
 
+  // Main screen layout
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -169,6 +186,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     );
   }
 
+  // Body content: loading spinner, error message, or recipe list
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -202,6 +220,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
 
     return Column(
       children: [
+        // Horizontal scrollable row of filter chips
         SizedBox(
           height: 56,
           child: ListView.separated(
@@ -258,6 +277,7 @@ class _RecipeLibraryScreenState extends State<RecipeLibraryScreen> {
     );
   }
 
+  // Bottom sheet showing full recipe details and a "Log This Meal" button
   Future<void> _showRecipeDetailSheet(Map<String, dynamic> recipe) async {
     final ingredients = (recipe['ingredients'] as List<dynamic>?)
             ?.map((item) => item.toString())

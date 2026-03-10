@@ -16,13 +16,13 @@ from datetime import datetime
 
 class SessionPlanResponse(BaseModel):
     """Next session the patient should complete this week."""
-    activity_type: str = Field(..., description="e.g. walking, stretching, cycling, yoga")
-    target_duration_minutes: int = Field(..., description="How long the session should last")
-    target_hr_min: int = Field(..., description="Lower bound of target HR range")
-    target_hr_max: int = Field(..., description="Upper bound of target HR range")
-    week_number: int
-    session_number: int = Field(..., description="Which session in this week (1-based)")
-    description: str = Field(..., description="Short human-friendly instruction")
+    activity_type: str = Field(..., description="e.g. walking, stretching, cycling, yoga")  # What exercise to do
+    target_duration_minutes: int = Field(..., description="How long the session should last")  # Minutes of exercise planned
+    target_hr_min: int = Field(..., description="Lower bound of target HR range")  # Minimum safe heart rate during exercise
+    target_hr_max: int = Field(..., description="Upper bound of target HR range")  # Maximum safe heart rate during exercise
+    week_number: int  # Which week of the program this session is in
+    session_number: int = Field(..., description="Which session in this week (1-based)")  # Session number within the week
+    description: str = Field(..., description="Short human-friendly instruction")  # Plain English instructions for the patient
 
 
 # =============================================================================
@@ -31,13 +31,13 @@ class SessionPlanResponse(BaseModel):
 
 class ProgressResponse(BaseModel):
     """Progression status returned after completing a session or on request."""
-    current_week: int
-    total_weeks: Optional[int] = Field(None, description="4 for phase_2, null for phase_3")
-    sessions_completed_this_week: int
-    sessions_required_this_week: int
-    overall_sessions_completed: int
-    can_advance: bool = Field(..., description="True when week progression gate is met")
-    program_status: str = Field(..., description="active / completed / paused")
+    current_week: int  # Which week the patient is currently on
+    total_weeks: Optional[int] = Field(None, description="4 for phase_2, null for phase_3")  # Total weeks in the program (null means ongoing)
+    sessions_completed_this_week: int  # How many sessions done this week so far
+    sessions_required_this_week: int  # How many sessions needed to progress
+    overall_sessions_completed: int  # Total sessions done since the program started
+    can_advance: bool = Field(..., description="True when week progression gate is met")  # Can the patient move to the next week?
+    program_status: str = Field(..., description="active / completed / paused")  # Is the program running, finished, or on hold?
 
 
 # =============================================================================
@@ -67,7 +67,7 @@ class RehabProgramResponse(BaseModel):
 
 class CompleteSessionRequest(BaseModel):
     """Payload sent after a patient finishes a rehab session."""
-    actual_duration_minutes: int = Field(..., ge=1, description="How many minutes the patient exercised")
-    avg_heart_rate: Optional[int] = Field(None, ge=30, le=250, description="Average HR during session")
-    peak_heart_rate: Optional[int] = Field(None, ge=30, le=250, description="Peak HR during session")
-    activity_type: str = Field(..., description="walking, stretching, cycling, yoga")
+    actual_duration_minutes: int = Field(..., ge=1, description="How many minutes the patient exercised")  # Actual time spent exercising
+    avg_heart_rate: Optional[int] = Field(None, ge=30, le=250, description="Average HR during session")  # Average heart rate during the workout
+    peak_heart_rate: Optional[int] = Field(None, ge=30, le=250, description="Peak HR during session")  # Highest heart rate during the workout
+    activity_type: str = Field(..., description="walking, stretching, cycling, yoga")  # What type of exercise was done

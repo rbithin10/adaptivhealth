@@ -33,40 +33,50 @@ State machine:
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+# Pydantic models define the shape of data we accept and return
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 import logging
 
+# Database session provider for each request
 from app.database import get_db
+# User model and roles (PATIENT, CLINICIAN, ADMIN)
 from app.models.user import User, UserRole
+# Alert model used to notify clinicians about consent changes
 from app.models.alert import Alert
+# Authentication helper to verify who is making the request
 from app.api.auth import get_current_user
 
+# Set up a logger for tracking consent-related events
 logger = logging.getLogger(__name__)
+# Group all consent endpoints under one router
 router = APIRouter()
 
-# Valid share states
-SHARING_ON = "SHARING_ON"
-SHARING_DISABLE_REQUESTED = "SHARING_DISABLE_REQUESTED"
-SHARING_OFF = "SHARING_OFF"
+# These constants represent the three possible data-sharing states
+SHARING_ON = "SHARING_ON"                           # Patient's data is visible to clinicians
+SHARING_DISABLE_REQUESTED = "SHARING_DISABLE_REQUESTED"  # Patient asked to stop sharing, waiting for clinician review
+SHARING_OFF = "SHARING_OFF"                          # Sharing is turned off (clinician approved the request)
 
 
 class ConsentStatusResponse(BaseModel):
-    share_state: str
-    requested_at: Optional[str] = None
-    reviewed_at: Optional[str] = None
-    decision: Optional[str] = None
-    reason: Optional[str] = None
+    """What the API returns when a patient checks their sharing status."""
+    share_state: str                          # Current state: SHARING_ON, SHARING_DISABLE_REQUESTED, or SHARING_OFF
+    requested_at: Optional[str] = None        # When the disable request was made (if any)
+    reviewed_at: Optional[str] = None         # When a clinician reviewed the request (if any)
+    decision: Optional[str] = None            # The clinician's decision: "approve" or "reject"
+    reason: Optional[str] = None              # The reason given for the request or decision
 
 
 class DisableRequest(BaseModel):
-    reason: Optional[str] = Field(None, max_length=500)
+    """Data a patient sends when asking to stop sharing their health data."""
+    reason: Optional[str] = Field(None, max_length=500)  # Optional explanation for why they want to opt out
 
 
 class ReviewRequest(BaseModel):
-    decision: str = Field(..., description="approve or reject")
-    reason: Optional[str] = Field(None, max_length=500)
+    """Data a clinician sends when approving or rejecting a consent request."""
+    decision: str = Field(..., description="approve or reject")           # Must be "approve" or "reject"
+    reason: Optional[str] = Field(None, max_length=500)  # Optional note about the decision
 
 
 # =============================================================================
@@ -112,24 +122,29 @@ async def request_sharing_disable(
     Does NOT stop sharing immediately — creates a pending request that a
     clinician must approve or reject.
     """
+    # Only patients can control their own consent (clinicians manage via the review endpoint)
     if current_user.role != UserRole.PATIENT:
         raise HTTPException(status_code=403, detail="Only patient users can request to disable data sharing")
 
+    # If sharing is already off, there's nothing to disable
     if (current_user.share_state or SHARING_ON) == SHARING_OFF:
         raise HTTPException(status_code=400, detail="Sharing is already disabled")
 
+    # If a request is already pending, don't create a duplicate
     if (current_user.share_state or SHARING_ON) == SHARING_DISABLE_REQUESTED:
         raise HTTPException(status_code=400, detail="A disable request is already pending")
 
+    # Update the patient's consent state to "pending review"
     current_user.share_state = SHARING_DISABLE_REQUESTED
     current_user.share_requested_at = datetime.now(timezone.utc)
     current_user.share_requested_by = current_user.user_id
     current_user.share_reason = body.reason
+    # Clear any previous review data since this is a new request
     current_user.share_decision = None
     current_user.share_reviewed_at = None
     current_user.share_reviewed_by = None
 
-    # Create an alert for clinicians
+    # Create a warning alert so clinicians know a patient wants to opt out
     alert = Alert(
         user_id=current_user.user_id,
         alert_type="consent_disable_request",
@@ -140,6 +155,7 @@ async def request_sharing_disable(
         is_sent_to_clinician=True,
     )
     db.add(alert)
+    # Save the state change and the new alert together
     db.commit()
 
     logger.info(f"Sharing disable requested by patient {current_user.user_id}")
@@ -158,15 +174,19 @@ async def enable_sharing(
     db: Session = Depends(get_db)
 ):
     """Patient re-enables data sharing (from SHARING_OFF state)."""
+    # Only patients can toggle their own sharing preferences
     if current_user.role != UserRole.PATIENT:
         raise HTTPException(status_code=403, detail="Only patients can manage their own consent")
 
+    # If sharing is already on, no action needed
     if (current_user.share_state or SHARING_ON) == SHARING_ON:
         raise HTTPException(status_code=400, detail="Sharing is already enabled")
 
+    # Can't re-enable while a disable request is still being reviewed
     if (current_user.share_state or SHARING_ON) == SHARING_DISABLE_REQUESTED:
         raise HTTPException(status_code=400, detail="Cannot re-enable while a disable request is pending")
 
+    # Switch sharing back on and clear all previous request/review data
     current_user.share_state = SHARING_ON
     current_user.share_requested_at = None
     current_user.share_requested_by = None
@@ -237,24 +257,30 @@ async def review_consent_request(
     - approve → share_state becomes SHARING_OFF
     - reject  → share_state returns to SHARING_ON
     """
+    # Only clinicians can review consent requests
     if current_user.role != UserRole.CLINICIAN:
         raise HTTPException(status_code=403, detail="Only clinicians can review consent requests")
 
+    # Make sure the decision is a valid choice
     if body.decision not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="Decision must be 'approve' or 'reject'")
 
+    # Find the patient who made the consent request
     patient = db.query(User).filter(User.user_id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
+    # Make sure there is actually a pending request to review
     if (patient.share_state or SHARING_ON) != SHARING_DISABLE_REQUESTED:
         raise HTTPException(status_code=400, detail="No pending consent request for this patient")
 
+    # Record the review details
     now = datetime.now(timezone.utc)
-    patient.share_reviewed_at = now
-    patient.share_reviewed_by = current_user.user_id
-    patient.share_decision = body.decision
+    patient.share_reviewed_at = now              # When the review happened
+    patient.share_reviewed_by = current_user.user_id  # Which clinician reviewed it
+    patient.share_decision = body.decision       # "approve" or "reject"
 
+    # Apply the decision: approve turns sharing off, reject turns it back on
     if body.decision == "approve":
         patient.share_state = SHARING_OFF
         msg = "approved"
@@ -262,9 +288,11 @@ async def review_consent_request(
         patient.share_state = SHARING_ON
         msg = "rejected"
 
+    # Save the clinician's reason if they provided one
     if body.reason:
         patient.share_reason = body.reason
 
+    # Save all changes to the database
     db.commit()
     logger.info(f"Consent request for patient {patient_id} {msg} by clinician {current_user.user_id}")
     return {"message": f"Consent disable request {msg}."}

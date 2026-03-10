@@ -21,15 +21,18 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 
 const ResetPasswordPage: React.FC = () => {
+  // Grab the reset token from the URL (e.g. /reset-password?token=abc123)
   const [searchParams] = useSearchParams();
   const token = useMemo(() => searchParams.get('token') || '', [searchParams]);
 
+  // Form fields and UI state
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Check if the password meets minimum security rules
   const validatePassword = (password: string): string | null => {
     if (password.length < 8) {
       return 'Password must be at least 8 characters long.';
@@ -43,6 +46,7 @@ const ResetPasswordPage: React.FC = () => {
     return null;
   };
 
+  // When the user clicks "Reset Password", validate and send to the server
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -64,6 +68,7 @@ const ResetPasswordPage: React.FC = () => {
       return;
     }
 
+    // Send the new password along with the reset token to the backend
     setLoading(true);
     try {
       const response = await api.confirmPasswordReset(token, newPassword);
@@ -81,8 +86,10 @@ const ResetPasswordPage: React.FC = () => {
     }
   };
 
+  // If there's no token in the URL, the link is broken or incomplete
   const invalidLink = !token;
 
+  // -- Render the reset password form --
   return (
     <Container maxWidth="sm">
       <Box
@@ -111,6 +118,7 @@ const ResetPasswordPage: React.FC = () => {
             </Typography>
           </Box>
 
+          {/* Show a warning if the reset link is missing a token */}
           {invalidLink && (
             <Alert severity="error" sx={{ mb: 3 }}>
               Invalid reset link
@@ -129,6 +137,7 @@ const ResetPasswordPage: React.FC = () => {
             </Alert>
           )}
 
+          {/* Only show the form if the reset hasn't succeeded yet */}
           {!success && !invalidLink && (
             <form onSubmit={handleSubmit}>
               <TextField

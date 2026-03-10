@@ -5,12 +5,12 @@ Shows a list of past workout and recovery sessions with stats like duration,
 average heart rate, and date/time. Users can view details of each session.
 */
 
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
-import '../services/api_client.dart';
-import '../widgets/ai_coach_overlay.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:intl/intl.dart'; // Date/number formatting
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../services/api_client.dart'; // Talks to our backend server
+import '../widgets/ai_coach_overlay.dart'; // Floating AI coach button overlay
 
 class HistoryScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -25,16 +25,18 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  List<Map<String, dynamic>> _activities = [];
-  bool _loading = true;
-  String? _error;
+  List<Map<String, dynamic>> _activities = []; // Past workout and recovery sessions
+  bool _loading = true; // True while activities are being fetched
+  String? _error; // Error message if loading fails
 
+  // Fetch activities from the server when the screen opens
   @override
   void initState() {
     super.initState();
     _loadActivities();
   }
 
+  // Pull the last 50 activities from the server
   Future<void> _loadActivities() async {
     setState(() {
       _loading = true;
@@ -56,6 +58,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  // Convert an ISO date string into a friendly format like "Mar 15, 2025 3:30 PM"
   String _formatDateTime(String? isoString) {
     if (isoString == null) return 'Unknown';
     try {
@@ -66,6 +69,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  // Turn a number of minutes into a readable format like "1h 30m"
   String _formatDuration(int? minutes) {
     if (minutes == null || minutes == 0) return 'N/A';
     if (minutes < 60) return '$minutes min';
@@ -74,6 +78,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return '${hours}h ${mins}m';
   }
 
+  // Pick an icon based on the type of activity (running, breathing, walking, etc.)
   IconData _getActivityIcon(String? activityType) {
     switch (activityType?.toLowerCase()) {
       case 'workout':
@@ -89,6 +94,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  // Pick a colour for the activity card based on its type
   Color _getActivityColor(String? activityType) {
     switch (activityType?.toLowerCase()) {
       case 'workout':
@@ -104,6 +110,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  // Return the exercise illustration path for an activity type (or null if none)
   String? _getActivityImage(String? activityType) {
     switch (activityType?.toLowerCase()) {
       case 'walking':
@@ -131,6 +138,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  // Build the activity history list with pull-to-refresh
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;

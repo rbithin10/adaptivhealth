@@ -1,13 +1,16 @@
-/// Adaptiv Health - Widget Library
-///
-/// Export all custom widgets for easy importing.
-/// Usage: import 'package:adaptiv_health/widgets/widgets.dart';
+/*
+Widget Library — Re-exports all custom widgets.
+
+Instead of importing each widget file individually, other files
+can just import this one file to get access to everything.
+*/
 library;
 
-export 'vital_card.dart';
-export 'risk_badge.dart';
-export 'recommendation_card.dart';
-export 'target_zone_indicator.dart';
-export 'week_view.dart';
-export 'floating_chatbot.dart';
-export 'edge_ai_status_card.dart';
+// Each "export" makes a widget available to files that import this library
+export 'vital_card.dart';           // Small card showing a single vital sign
+export 'risk_badge.dart';           // Colored badge showing risk level
+export 'recommendation_card.dart';  // Workout recommendation display
+export 'target_zone_indicator.dart';// Heart rate target zone visual
+export 'week_view.dart';            // Weekly calendar view
+export 'floating_chatbot.dart';     // Draggable AI chatbot button
+export 'edge_ai_status_card.dart';  // On-device AI status display

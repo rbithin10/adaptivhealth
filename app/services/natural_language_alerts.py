@@ -106,27 +106,28 @@ def generate_natural_language_alert(
     """
     Convert technical alert data into a patient-friendly message.
     """
-    name = patient_name.split()[0] if patient_name else None
+    name = patient_name.split()[0] if patient_name else None  # Use first name only for a friendly greeting
 
+    # Look up the message template for this alert type
     message_data = _ALERT_MESSAGES.get(
         alert_type,
-        _ALERT_MESSAGES.get("other", _DEFAULT_MESSAGE),
+        _ALERT_MESSAGES.get("other", _DEFAULT_MESSAGE),  # Fall back to a generic message if type unknown
     )
 
-    greeting = f"Hi {name}, " if name else ""
+    greeting = f"Hi {name}, " if name else ""  # Add a personal greeting if we know the name
 
-    friendly_message = greeting + message_data["message"]
+    friendly_message = greeting + message_data["message"]  # Build the patient-friendly message
     if trigger_value:
-        friendly_message = friendly_message.replace("{value}", str(trigger_value))
+        friendly_message = friendly_message.replace("{value}", str(trigger_value))  # Insert the actual value
     else:
-        friendly_message = friendly_message.replace(" ({value})", "")
+        friendly_message = friendly_message.replace(" ({value})", "")  # Remove placeholder if no value
         friendly_message = friendly_message.replace("{value}", "elevated")
 
-    action_steps = message_data["actions"]
+    action_steps = message_data["actions"]  # What the patient should do next
 
-    urgency = _severity_to_urgency(severity)
+    urgency = _severity_to_urgency(severity)  # Convert technical severity to patient-friendly urgency
 
-    risk_context = None
+    risk_context = None  # Extra context about overall risk (if available)
     if risk_score is not None:
         risk_context = _risk_score_to_plain_language(risk_score, risk_level)
 

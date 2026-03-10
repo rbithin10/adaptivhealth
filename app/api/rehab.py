@@ -61,17 +61,17 @@ def get_current_rehab_program(
     Auto-creates a program if the user has a rehab_phase set but no
     active program yet. Returns 404 when user is not in rehab.
     """
-    program = get_or_create_program(current_user, db)
-    if not program:
+    program = get_or_create_program(current_user, db)  # Find or create a rehab program for this patient
+    if not program:  # Patient hasn't been assigned to a rehab phase yet
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No rehab program active. Update your rehab phase in Profile.",
         )
 
-    session_plan = get_current_session_plan(program, current_user)
-    progress = get_progress(program, db)
+    session_plan = get_current_session_plan(program, current_user)  # Build today's exercise plan
+    progress = get_progress(program, db)  # Calculate overall progress stats
 
-    return RehabProgramResponse(
+    return RehabProgramResponse(  # Send back the full program with plan and progress
         program_id=program.program_id,
         user_id=program.user_id,
         program_type=program.program_type,
@@ -103,19 +103,19 @@ def complete_rehab_session(
     Returns updated progress, including whether the patient advanced
     to the next week.
     """
-    program = get_or_create_program(current_user, db)
-    if not program:
+    program = get_or_create_program(current_user, db)  # Find the user's active rehab program
+    if not program:  # No program exists
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No rehab program active.",
         )
-    if program.status != "active":
+    if program.status != "active":  # Can't log sessions for a paused or completed program
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Program is '{program.status}', cannot log sessions.",
         )
 
-    progress = complete_session(program, request, current_user, db)
+    progress = complete_session(program, request, current_user, db)  # Record the session and check if the patient can advance
     return progress
 
 
@@ -133,11 +133,11 @@ def get_rehab_progress(
     """
     Return the current progress summary without modifying any state.
     """
-    program = get_or_create_program(current_user, db)
-    if not program:
+    program = get_or_create_program(current_user, db)  # Find the user's active rehab program
+    if not program:  # No program on record
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No rehab program active.",
         )
 
-    return get_progress(program, db)
+    return get_progress(program, db)  # Return progress stats without changing anything

@@ -9,6 +9,7 @@ import '../../theme/typography.dart';
 
 /// Row of four tappable action buttons used on the Home dashboard.
 class HomeQuickActionsRow extends StatelessWidget {
+  // Callbacks for when the user taps each button — the parent screen decides what happens
   final VoidCallback onWorkout;
   final VoidCallback onRecovery;
   final VoidCallback onHealth;
@@ -24,6 +25,7 @@ class HomeQuickActionsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Layout: a "Quick Actions" title followed by a row of four buttons
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -34,6 +36,7 @@ class HomeQuickActionsRow extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        // Four equally-spaced quick action buttons
         Row(
           children: [
             Expanded(
@@ -78,10 +81,11 @@ class HomeQuickActionsRow extends StatelessWidget {
   }
 }
 
+// A single quick-action button — icon on top, label below, tinted background
 class _QuickActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
-  final Color color;
+  final Color color;    // Theme colour — used for icon, text, and background tint
   final VoidCallback onTap;
 
   const _QuickActionButton({

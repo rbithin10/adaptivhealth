@@ -8,7 +8,9 @@ server knows who is asking.
 Matches backend API at /api/v1 with correct endpoint prefixes and schemas.
 */
 
+// Import the HTTP library (axios) used to talk to the backend server
 import axios, { AxiosInstance, AxiosError } from 'axios';
+// Import all the data shapes we expect back from the server
 import {
   TokenResponse,
   User,
@@ -55,65 +57,73 @@ import {
   MedicalExtractionStatusResponse,
 } from '../types';
 
-// AWS ALB production endpoint. Override with REACT_APP_API_URL for local dev.
-// Local: REACT_APP_API_URL=http://localhost:8080 in .env.development
+// The server address — uses an environment variable if set, otherwise the live production URL
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 
+// The backend sometimes returns user data with different field names
+// This function makes them consistent so the rest of the app doesn't have to guess
 const normalizeUser = (
   data: Partial<User> & { id?: number; name?: string; role?: string }
 ): User => ({
   ...data,
-  user_id: data.user_id ?? data.id,
-  full_name: data.full_name ?? data.name,
-  user_role: data.user_role ?? data.role,
+  user_id: data.user_id ?? data.id,         // Use "user_id" or fall back to "id"
+  full_name: data.full_name ?? data.name,    // Use "full_name" or fall back to "name"
+  user_role: data.user_role ?? data.role,    // Use "user_role" or fall back to "role"
   assigned_clinician_id: data.assigned_clinician_id,
 } as User);
 
+// This class handles ALL communication between the web dashboard and the backend server
 class ApiService {
-  private client: AxiosInstance;
+  private client: AxiosInstance; // The HTTP client that actually sends/receives data
 
   constructor() {
+    // Set up the HTTP client with the server address and default settings
     this.client = axios.create({
-      baseURL: `${API_BASE_URL}/api/v1`,
+      baseURL: `${API_BASE_URL}/api/v1`,  // All requests go to /api/v1 on the server
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', // Tell the server we're sending JSON data
       },
     });
 
-    // Request interceptor for auth token
+    // Before every request, automatically attach the user's login token
+    // so the server knows who is making the request
     this.client.interceptors.request.use(
       (config) => {
-        const token = localStorage.getItem('token');
+        const token = localStorage.getItem('token'); // Get the saved login token
         if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
+          config.headers.Authorization = `Bearer ${token}`; // Add it to the request header
         }
         return config;
       },
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor for error handling
+    // After every response, check if the user's session expired (401 error)
+    // If so, try to refresh the token automatically so the user stays logged in
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => response, // If the response is fine, just pass it through
       async (error: AxiosError) => {
         const originalRequest = (error.config ?? {}) as AxiosError['config'] & { _retry?: boolean };
         if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
+          originalRequest._retry = true; // Mark this request so we don't retry forever
           const refreshToken = localStorage.getItem('refresh_token');
           if (refreshToken) {
             try {
+              // Ask the server for a new token using our refresh token
               const resp = await axios.post(`${API_BASE_URL}/api/v1/session/extend`, { refresh_token: refreshToken });
               const newToken = resp.data.access_token;
-              localStorage.setItem('token', newToken);
+              localStorage.setItem('token', newToken); // Save the new token
               if (resp.data.refresh_token) {
-                localStorage.setItem('refresh_token', resp.data.refresh_token);
+                localStorage.setItem('refresh_token', resp.data.refresh_token); // Save the new refresh token too
               }
+              // Retry the original request with the new token
               originalRequest.headers.Authorization = `Bearer ${newToken}`;
               return this.client(originalRequest);
             } catch {
-              // Refresh failed — fall through to logout
+              // Refresh failed — the user will need to log in again
             }
           }
+          // Clear all saved login data and send the user to the login page
           localStorage.removeItem('token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
@@ -125,24 +135,28 @@ class ApiService {
   }
 
   // =========================================================================
-  // Health Checks
+  // Health Checks — Quick checks to see if the server is running
   // =========================================================================
 
+  // Check if the main server is alive and responding
   async getHealth(): Promise<HealthCheckResponse> {
     const response = await this.client.get<HealthCheckResponse>('/health');
     return response.data;
   }
 
+  // Check if the database connection is working
   async getDatabaseHealth(): Promise<DatabaseHealthCheckResponse> {
     const response = await this.client.get<DatabaseHealthCheckResponse>('/health/db');
     return response.data;
   }
 
   // =========================================================================
-  // Authentication
+  // Authentication — Login, logout, register, and password reset
   // =========================================================================
 
+  // Log in with email and password — returns a token the app stores to stay logged in
   async login(email: string, password: string): Promise<TokenResponse> {
+    // The login endpoint expects form data (not JSON), like a traditional web form
     const formData = new URLSearchParams();
     formData.append('username', email);
     formData.append('password', password);
@@ -153,11 +167,13 @@ class ApiService {
     return response.data;
   }
 
+  // Send a password reset email to the user
   async requestPasswordReset(email: string): Promise<{ message: string }> {
     const response = await this.client.post('/reset-password', { email });
     return response.data;
   }
 
+  // Complete the password reset using the token from the email link
   async confirmPasswordReset(token: string, newPassword: string): Promise<{ message: string }> {
     const response = await this.client.post('/reset-password/confirm', {
       token,
@@ -166,12 +182,13 @@ class ApiService {
     return response.data;
   }
 
+  // Log out — tells the server to expire the token and clears local saved data
   async logout(): Promise<void> {
     try {
-      // Revoke the token server-side so it cannot be reused even before expiry.
+      // Tell the server to revoke the token so it can't be reused
       await this.client.post('/session/end');
     } catch {
-      // Always clear local state regardless of server response.
+      // Even if the server request fails, we still clear local data
     } finally {
       localStorage.removeItem('token');
       localStorage.removeItem('refresh_token');
@@ -179,6 +196,7 @@ class ApiService {
     }
   }
 
+  // Create a new user account with the provided details
   async register(userData: {
     email: string;
     password: string;
@@ -199,14 +217,16 @@ class ApiService {
   }
 
   // =========================================================================
-  // User Management
+  // User Management — View and update user profiles
   // =========================================================================
 
+  // Get the profile of the currently logged-in user
   async getCurrentUser(): Promise<UserProfileResponse> {
     const response = await this.client.get<UserProfileResponse>('/users/me');
     return normalizeUser(response.data) as UserProfileResponse;
   }
 
+  // Update the logged-in user's own profile details
   async updateCurrentUserProfile(data: {
     full_name?: string;
     age?: number;
@@ -222,6 +242,7 @@ class ApiService {
     return normalizeUser(response.data) as UserProfileResponse;
   }
 
+  // Get a list of all users — can filter by role (patient/clinician/admin) and search by name
   async getAllUsers(
     page: number = 1,
     perPage: number = 50,
@@ -232,35 +253,39 @@ class ApiService {
       params: {
         page,
         per_page: perPage,
-        ...(role ? { role } : {}),
-        ...(search ? { search } : {}),
+        ...(role ? { role } : {}),       // Only include role filter if specified
+        ...(search ? { search } : {}),   // Only include search term if specified
       },
     });
     return {
       ...response.data,
-      users: response.data.users.map(normalizeUser),
+      users: response.data.users.map(normalizeUser), // Normalize every user in the list
     };
   }
 
+  // Get a specific user's profile by their ID number
   async getUserById(userId: number): Promise<User> {
     const response = await this.client.get<User>(`/users/${userId}`);
     return normalizeUser(response.data);
   }
 
   // =========================================================================
-  // Vital Signs
+  // Vital Signs — Heart rate, oxygen levels, blood pressure readings
   // =========================================================================
 
+  // Get the most recent vital signs for the logged-in user
   async getLatestVitalSigns(): Promise<VitalSignResponse> {
     const response = await this.client.get<VitalSignResponse>('/vitals/latest');
     return response.data;
   }
 
+  // Get the most recent vital signs for a specific patient (by their ID)
   async getLatestVitalSignsForUser(userId: number): Promise<VitalSignResponse> {
     const response = await this.client.get<VitalSignResponse>(`/vitals/user/${userId}/latest`);
     return response.data;
   }
 
+  // Get a paginated list of past vital sign readings for the logged-in user
   async getVitalSignsHistory(
     page: number = 1,
     perPage: number = 50
@@ -274,6 +299,7 @@ class ApiService {
     return response.data;
   }
 
+  // Get past vital sign readings for a specific patient over a number of days
   async getVitalSignsHistoryForUser(
     userId: number,
     days: number = 7,
@@ -289,6 +315,7 @@ class ApiService {
     return response.data;
   }
 
+  // Get a statistical summary (averages, min, max) of recent vitals
   async getVitalSignsSummary(days: number = 7): Promise<VitalSignsSummaryResponse> {
     const response = await this.client.get<VitalSignsSummaryResponse>('/vitals/summary', {
       params: { days },
@@ -296,6 +323,7 @@ class ApiService {
     return response.data;
   }
 
+  // Get a statistical summary of vitals for a specific patient
   async getVitalSignsSummaryForUser(userId: number, days: number = 7): Promise<VitalSignsSummaryResponse> {
     const response = await this.client.get<VitalSignsSummaryResponse>(`/vitals/user/${userId}/summary`, {
       params: { days },
@@ -303,6 +331,7 @@ class ApiService {
     return response.data;
   }
 
+  // Submit new vital sign readings (e.g. from a wearable device or manual entry)
   async submitVitalSigns(vitals: {
     heart_rate: number;
     spo2?: number;
@@ -318,9 +347,10 @@ class ApiService {
   }
 
   // =========================================================================
-  // Risk Assessments
+  // Risk Assessments — How likely is a cardiac event for this patient?
   // =========================================================================
 
+  // Get the most recent risk assessment for the logged-in user
   async getLatestRiskAssessment(): Promise<RiskAssessmentResponse> {
     const response = await this.client.get<RiskAssessmentResponse>(
       '/risk-assessments/latest'
@@ -328,6 +358,7 @@ class ApiService {
     return response.data;
   }
 
+  // Get the most recent risk assessment for a specific patient
   async getLatestRiskAssessmentForUser(userId: number): Promise<RiskAssessmentResponse> {
     const response = await this.client.get<RiskAssessmentResponse>(
       `/patients/${userId}/risk-assessments/latest`
@@ -335,6 +366,7 @@ class ApiService {
     return response.data;
   }
 
+  // Ask the server to calculate a fresh risk assessment for the logged-in user
   async computeRiskAssessment(): Promise<RiskAssessmentComputeResponse> {
     const response = await this.client.post<RiskAssessmentComputeResponse>(
       '/risk-assessments/compute'
@@ -342,6 +374,7 @@ class ApiService {
     return response.data;
   }
 
+  // Ask the server to calculate a fresh risk assessment for a specific patient
   async computeRiskAssessmentForUser(userId: number): Promise<RiskAssessmentComputeResponse> {
     const response = await this.client.post<RiskAssessmentComputeResponse>(
       `/patients/${userId}/risk-assessments/compute`
@@ -349,6 +382,7 @@ class ApiService {
     return response.data;
   }
 
+  // Run a custom risk prediction using manually provided health measurements
   async predictRisk(data: {
     age: number;
     baseline_hr: number;
@@ -369,9 +403,10 @@ class ApiService {
   }
 
   // =========================================================================
-  // Recommendations
+  // Recommendations — Personalised health advice for patients
   // =========================================================================
 
+  // Get the most recent recommendation for the logged-in user
   async getLatestRecommendation(): Promise<RecommendationResponse> {
     const response = await this.client.get<RecommendationResponse>(
       '/recommendations/latest'
@@ -379,6 +414,7 @@ class ApiService {
     return response.data;
   }
 
+  // Get the most recent recommendation for a specific patient
   async getLatestRecommendationForUser(userId: number): Promise<RecommendationResponse> {
     const response = await this.client.get<RecommendationResponse>(
       `/patients/${userId}/recommendations/latest`
@@ -387,9 +423,10 @@ class ApiService {
   }
 
   // =========================================================================
-  // Alerts
+  // Alerts — Health warnings and notifications for patients
   // =========================================================================
 
+  // Get a paginated list of alerts for the logged-in user
   async getAlerts(
     page: number = 1,
     perPage: number = 50
@@ -400,6 +437,7 @@ class ApiService {
     return response.data;
   }
 
+  // Get alerts for a specific patient by their ID
   async getAlertsForUser(
     userId: number,
     page: number = 1,
@@ -411,11 +449,13 @@ class ApiService {
     return response.data;
   }
 
+  // Get alert statistics (counts by severity, type, etc.)
   async getAlertStats(): Promise<AlertStatsResponse> {
     const response = await this.client.get<AlertStatsResponse>('/alerts/stats');
     return response.data;
   }
 
+  // Mark an alert as "seen" by the clinician
   async acknowledgeAlert(alertId: number): Promise<AlertResponse> {
     const response = await this.client.patch<AlertResponse>(
       `/alerts/${alertId}/acknowledge`
@@ -423,6 +463,7 @@ class ApiService {
     return response.data;
   }
 
+  // Mark an alert as resolved with optional notes about what was done
   async resolveAlert(
     alertId: number,
     data: {
@@ -438,14 +479,16 @@ class ApiService {
   }
 
   // =========================================================================
-  // Activities
+  // Activities — Exercise sessions tracked by the patient
   // =========================================================================
 
+  // Get a list of recent activity sessions for the logged-in user
   async getActivities(limit: number = 50, offset: number = 0): Promise<ActivityListResponse> {
     const response = await this.client.get('/activities', {
       params: { limit, offset },
     });
     const data = response.data;
+    // The server might return a plain array or a structured object — handle both
     if (Array.isArray(data)) {
       return {
         activities: data,
@@ -457,6 +500,7 @@ class ApiService {
     return data as ActivityListResponse;
   }
 
+  // Get activity sessions for a specific patient
   async getActivitiesForUser(
     userId: number,
     limit: number = 50,
@@ -477,6 +521,7 @@ class ApiService {
     return data as ActivityListResponse;
   }
 
+  // Get details of a single activity session by its ID
   async getActivityById(sessionId: number): Promise<ActivitySessionResponse> {
     const response = await this.client.get<ActivitySessionResponse>(
       `/activities/${sessionId}`
@@ -484,6 +529,7 @@ class ApiService {
     return response.data;
   }
 
+  // Start a new activity session (e.g. "walking", "cycling")
   async startActivity(data: {
     activity_type: string;
   }): Promise<ActivitySessionResponse> {
@@ -494,6 +540,7 @@ class ApiService {
     return response.data;
   }
 
+  // End an in-progress activity session
   async endActivity(sessionId: number): Promise<ActivitySessionResponse> {
     const response = await this.client.post<ActivitySessionResponse>(
       `/activities/end/${sessionId}`
@@ -502,10 +549,10 @@ class ApiService {
   }
 
   // =========================================================================
-  // Advanced ML — Anomaly Detection & Trend Forecast
+  // Advanced ML — Smart analytics powered by machine learning
   // =========================================================================
 
-  // Detect anomalies in a patient's recent vitals using Z-score analysis
+  // Look for unusual patterns in a patient's recent vitals (anomaly detection)
   async getAnomalyDetection(
     userId: number,
     hours: number = 24,
@@ -518,7 +565,7 @@ class ApiService {
     return response.data;
   }
 
-  // Forecast vital sign trends for a patient using linear regression
+  // Predict where a patient's vitals are heading over the next few weeks
   async getTrendForecast(
     userId: number,
     days: number = 14,
@@ -531,7 +578,7 @@ class ApiService {
     return response.data;
   }
 
-  // Get A/B tested recommendation for a patient based on risk level
+  // Get a personalised recommendation that's been A/B tested for effectiveness
   async getRankedRecommendation(
     userId: number,
     riskLevel: string = 'low',
@@ -546,7 +593,7 @@ class ApiService {
     return response.data;
   }
 
-  // Record outcome of a recommendation A/B test for a patient
+  // Record whether a patient followed through on a recommendation (for improving future ones)
   async recordRecommendationOutcome(
     userId: number,
     experimentId: string,
@@ -567,7 +614,7 @@ class ApiService {
     return response.data;
   }
 
-  // Generate a patient-friendly natural language alert message
+  // Create a plain-English alert message that patients can easily understand
   async generateNaturalLanguageAlert(
     userId: number,
     alertType: string,
@@ -592,7 +639,7 @@ class ApiService {
     return response.data;
   }
 
-  // Get plain-language risk summary for a patient
+  // Get an easy-to-read summary of a patient's risk level in plain English
   async getNaturalLanguageRiskSummary(
     userId: number
   ): Promise<NaturalLanguageRiskSummaryResponse> {
@@ -603,7 +650,7 @@ class ApiService {
     return response.data;
   }
 
-  // Get current model retraining status and metadata (doctor-only)
+  // Check whether the AI model is currently being retrained (clinician-only)
   async getRetrainingStatus(): Promise<RetrainingStatusResponse> {
     const response = await this.client.get<RetrainingStatusResponse>(
       '/model/retraining-status'
@@ -611,7 +658,7 @@ class ApiService {
     return response.data;
   }
 
-  // Check if model retraining conditions are met (doctor-only)
+  // Check if there's enough new data to retrain the AI model (clinician-only)
   async getRetrainingReadiness(): Promise<RetrainingReadinessResponse> {
     const response = await this.client.get<RetrainingReadinessResponse>(
       '/model/retraining-readiness'
@@ -619,7 +666,7 @@ class ApiService {
     return response.data;
   }
 
-  // Run a risk prediction with SHAP-like feature explanations
+  // Run a risk prediction and explain WHY the AI made that decision
   async explainPrediction(
     params: {
       age: number;
@@ -641,7 +688,7 @@ class ApiService {
     return response.data;
   }
 
-  // Compute optimized baseline HR from recent resting data
+  // Calculate the best resting heart rate baseline from recent data
   async getBaselineOptimization(
     userId: number,
     days: number = 7
@@ -653,7 +700,7 @@ class ApiService {
     return response.data;
   }
 
-  // Apply the computed optimized baseline to the patient's profile
+  // Save the calculated baseline to the patient's profile
   async applyBaselineOptimization(
     userId: number
   ): Promise<BaselineApplyResponse> {
@@ -666,19 +713,22 @@ class ApiService {
   }
 
   // =========================================================================
-  // Consent / Data Sharing
+  // Consent / Data Sharing — Patient permission to share their health data
   // =========================================================================
 
+  // Check the current data sharing status for the logged-in patient
   async getConsentStatus(): Promise<ConsentStatusResponse> {
     const response = await this.client.get<ConsentStatusResponse>('/consent/status');
     return response.data;
   }
 
+  // Get a list of patients who have requested changes to their data sharing settings
   async getPendingConsentRequests(): Promise<PendingConsentRequestsResponse> {
     const response = await this.client.get<PendingConsentRequestsResponse>('/consent/pending');
     return response.data;
   }
 
+  // Approve or reject a patient's consent change request (clinician action)
   async reviewConsentRequest(
     patientId: number,
     decision: 'approve' | 'reject',
@@ -692,9 +742,10 @@ class ApiService {
   }
 
   // =========================================================================
-  // Admin - User Management
+  // Admin - User Management — Admin-only actions for managing user accounts
   // =========================================================================
 
+  // Reset a user's password (admin-only, doesn't need the old password)
   async adminResetUserPassword(userId: number, newPassword: string): Promise<AdminResetPasswordResponse> {
     const response = await this.client.post<AdminResetPasswordResponse>(`/users/${userId}/reset-password`, {
       new_password: newPassword,
@@ -702,6 +753,7 @@ class ApiService {
     return response.data;
   }
 
+  // Create a new user account as an admin (can set any role)
   async createUser(userData: {
     email: string;
     password: string;
@@ -715,11 +767,13 @@ class ApiService {
     return normalizeUser(response.data);
   }
 
+  // Deactivate (soft-delete) a user account so they can no longer log in
   async deactivateUser(userId: number): Promise<DeactivateUserResponse> {
     const response = await this.client.delete<DeactivateUserResponse>(`/users/${userId}`);
     return response.data;
   }
 
+  // Update a user's profile information
   async updateUser(
     userId: number,
     userData: {
@@ -733,6 +787,7 @@ class ApiService {
     return normalizeUser(response.data);
   }
 
+  // Link a clinician to a patient so the clinician can view their data
   async assignClinicianToPatient(
     patientId: number,
     clinicianId: number
@@ -744,14 +799,16 @@ class ApiService {
   }
 
   // ========================================================================
-  // Messaging API
+  // Messaging — Secure messages between patients and clinicians
   // ========================================================================
 
+  // Get the list of recent conversations (inbox)
   async getMessagingInbox(): Promise<InboxSummaryResponse[]> {
     const response = await this.client.get('/messages/inbox');
     return response.data;
   }
 
+  // Get the full message history between the logged-in user and another user
   async getMessageThread(otherUserId: number, limit: number = 50): Promise<MessageResponse[]> {
     const response = await this.client.get(`/messages/thread/${otherUserId}`, {
       params: { limit },
@@ -759,6 +816,7 @@ class ApiService {
     return response.data;
   }
 
+  // Send a new message to another user
   async sendMessage(receiverId: number, content: string): Promise<MessageResponse> {
     const response = await this.client.post('/messages', {
       receiver_id: receiverId,
@@ -767,58 +825,69 @@ class ApiService {
     return response.data;
   }
 
+  // Mark a message as "read" so the sender knows it was seen
   async markMessageAsRead(messageId: number): Promise<MessageResponse> {
     const response = await this.client.post(`/messages/${messageId}/read`);
     return response.data;
   }
 
   // ========================================================================
-  // Medical Profile API
+  // Medical Profile — Patient conditions, medications, and documents
   // ========================================================================
 
+  // Get a patient's medical history (list of conditions like hypertension, diabetes)
   async getPatientMedicalHistory(userId: number): Promise<MedicalCondition[]> {
     const response = await this.client.get(`/patients/${userId}/medical-history`);
     return response.data;
   }
 
+  // Add a new medical condition to a patient's history
   async addPatientCondition(userId: number, data: MedicalConditionCreate): Promise<MedicalCondition> {
     const response = await this.client.post(`/patients/${userId}/medical-history`, data);
     return response.data;
   }
 
+  // Update an existing medical condition entry
   async updatePatientCondition(userId: number, historyId: number, data: Partial<MedicalConditionCreate>): Promise<MedicalCondition> {
     const response = await this.client.put(`/patients/${userId}/medical-history/${historyId}`, data);
     return response.data;
   }
 
+  // Remove a medical condition from a patient's history
   async deletePatientCondition(userId: number, historyId: number): Promise<void> {
     await this.client.delete(`/patients/${userId}/medical-history/${historyId}`);
   }
 
+  // Get a patient's list of current and past medications
   async getPatientMedications(userId: number): Promise<Medication[]> {
     const response = await this.client.get(`/patients/${userId}/medications`);
     return response.data;
   }
 
+  // Add a new medication to a patient's profile
   async addPatientMedication(userId: number, data: MedicationCreate): Promise<Medication> {
     const response = await this.client.post(`/patients/${userId}/medications`, data);
     return response.data;
   }
 
+  // Update details of an existing medication entry
   async updatePatientMedication(userId: number, medicationId: number, data: Partial<MedicationCreate>): Promise<Medication> {
     const response = await this.client.put(`/patients/${userId}/medications/${medicationId}`, data);
     return response.data;
   }
 
+  // Remove a medication from a patient's profile
   async deletePatientMedication(userId: number, medicationId: number): Promise<void> {
     await this.client.delete(`/patients/${userId}/medications/${medicationId}`);
   }
 
+  // Get the complete medical profile (conditions + medications + documents combined)
   async getPatientMedicalProfile(userId: number): Promise<MedicalProfile> {
     const response = await this.client.get(`/patients/${userId}/medical-profile`);
     return response.data;
   }
 
+  // Upload a medical document (PDF, image) for AI-powered data extraction
   async uploadPatientDocument(userId: number, file: File): Promise<DocumentUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -828,6 +897,7 @@ class ApiService {
     return response.data;
   }
 
+  // Confirm the AI-extracted conditions and medications from an uploaded document
   async confirmDocumentExtraction(userId: number, data: {
     document_id: number;
     conditions: MedicalConditionCreate[];
@@ -837,11 +907,13 @@ class ApiService {
     return response.data;
   }
 
+  // Check if the AI document extraction feature is available and configured
   async getMedicalExtractionStatus(): Promise<MedicalExtractionStatusResponse> {
     const response = await this.client.get('/medical-extraction/status');
     return response.data;
   }
 
+  // Download a file from the server as raw binary data (used for document viewing)
   async getDocumentBlobByUrl(url: string): Promise<Blob> {
     const response = await this.client.get(url, {
       responseType: 'blob',
@@ -850,5 +922,6 @@ class ApiService {
   }
 }
 
+// Create one shared instance of the API service for the whole app to use
 export const api = new ApiService();
 export default api;

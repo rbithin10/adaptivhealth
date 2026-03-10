@@ -25,18 +25,18 @@ class TokenBlocklist(Base):
 
     __tablename__ = "token_blocklist"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)  # Unique ID for each blocked token entry
 
-    # UUID string from the JWT's "jti" claim — guaranteed unique per token
+    # The unique ID from inside the token — used to identify which token was revoked
     jti = Column(String(36), unique=True, nullable=False, index=True)
 
-    # When the original JWT expires — used for cleanup
+    # When the original login token was set to expire — used to clean up old entries
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
-    # When the revocation was recorded
+    # When the user logged out and this token was added to the blocklist
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
-        Index("idx_token_blocklist_expires", "expires_at"),
+        Index("idx_token_blocklist_expires", "expires_at"),  # Speed up cleanup of expired entries
         {"extend_existing": True},
     )

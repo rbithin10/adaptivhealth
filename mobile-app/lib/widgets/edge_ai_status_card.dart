@@ -14,56 +14,66 @@
 ///   // The widget auto-updates via Provider when new predictions arrive.
 library;
 
+// Flutter's main UI toolkit
 import 'package:flutter/material.dart';
+// Date/time formatting (e.g. "3:45 PM")
 import 'package:intl/intl.dart';
+// Google's font library for consistent text styling
 import 'package:google_fonts/google_fonts.dart';
+// State management — lets us listen for AI prediction updates
 import 'package:provider/provider.dart';
+// Our local AI model store (holds predictions, alerts, sync state)
 import '../services/edge_ai_store.dart';
+// Cloud sync states (idle, syncing, offline, etc.)
 import '../services/cloud_sync_service.dart';
+// Data model for AI risk predictions
 import '../models/edge_prediction.dart';
+// Our custom color palette
 import '../theme/colors.dart';
 
 // ============================================================================
 // Edge AI Status Card — For Home Screen
 // ============================================================================
 
+// A card that shows the status of on-device AI: risk score, alerts, GPS, sync
 class EdgeAiStatusCard extends StatelessWidget {
   const EdgeAiStatusCard({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
+    final brightness = Theme.of(context).brightness;  // Light or dark mode
 
-    // Safely try to get EdgeAiStore — may not be provided yet
+    // Try to get the AI store — it might not be available yet during startup
     EdgeAiStore? edgeStore;
     try {
       edgeStore = Provider.of<EdgeAiStore>(context);
     } catch (_) {
-      return const SizedBox.shrink(); // Not in widget tree yet
+      return const SizedBox.shrink(); // Not ready yet — show nothing
     }
 
+    // Stack up the different status sections vertically
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header row: Edge AI indicator
+        // Green/orange/red dot + "Edge AI Active" header
         _buildHeader(edgeStore, brightness),
         const SizedBox(height: 8),
 
-        // Risk score card (if prediction available)
+        // Show the risk score card if we have a prediction
         if (edgeStore.latestPrediction != null)
           _buildRiskCard(edgeStore.latestPrediction!, brightness),
 
-        // Active alerts
+        // Show any active health alerts (critical BPM, etc.)
         if (edgeStore.activeAlerts.isNotEmpty)
           ...edgeStore.activeAlerts.map(
             (alert) => _buildAlertCard(alert, brightness),
           ),
 
-        // GPS emergency badge
+        // Show the GPS location captured during an emergency
         if (edgeStore.latestEmergency != null)
           _buildGpsEmergencyBadge(edgeStore.latestEmergency!, brightness),
 
-        // Sync status
+        // Show cloud sync status (pending uploads, errors, last sync time)
         if (edgeStore.pendingSyncCount > 0 ||
             edgeStore.lastSyncErrorMessage != null ||
           edgeStore.lastSyncTime != null ||
@@ -74,29 +84,30 @@ class EdgeAiStatusCard extends StatelessWidget {
     );
   }
 
-  // ---- Header: Edge AI status indicator ----
+  // ---- Header: green/orange/red dot showing whether the AI model is loaded ----
   Widget _buildHeader(EdgeAiStore store, Brightness brightness) {
-    final bool modelReady = store.modelLoaded;
-    late final Color statusColor;
-    late final String statusText;
+    final bool modelReady = store.modelLoaded;  // Is the AI model loaded on-device?
+    late final Color statusColor;  // Dot color
+    late final String statusText;  // Text next to the dot
 
+    // Pick status based on model state
     if (store.isInitializing) {
-      statusColor = Colors.orange;
+      statusColor = Colors.orange;  // Still loading
       statusText = 'Edge AI Loading...';
     } else if (modelReady) {
-      statusColor = AdaptivColors.stable;
+      statusColor = AdaptivColors.stable;  // Fully loaded — running locally
       statusText = 'Edge AI Active (v${store.modelVersion})';
     } else if (store.isReady) {
-      statusColor = Colors.orange;
+      statusColor = Colors.orange;  // Threshold-only mode (no ML model)
       statusText = 'Edge Safety Active (Threshold Mode)';
     } else {
-      statusColor = AdaptivColors.critical;
+      statusColor = AdaptivColors.critical;  // Can't run locally — cloud fallback
       statusText = 'Edge AI Unavailable — Using Cloud';
     }
 
     return Row(
       children: [
-        // Status dot
+        // Colored dot (green, orange, or red)
         Container(
           width: 8,
           height: 8,
@@ -115,7 +126,7 @@ class EdgeAiStatusCard extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        // Inference time badge (if available)
+        // Show how fast the AI ran its prediction (e.g. "12ms")
         if (store.latestPrediction != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -136,10 +147,10 @@ class EdgeAiStatusCard extends StatelessWidget {
     );
   }
 
-  // ---- Risk Score Card ----
+  // ---- Risk Score Card: shows the AI's risk assessment (low/moderate/high) ----
   Widget _buildRiskCard(EdgeRiskPrediction prediction, Brightness brightness) {
-    final riskColor = _getRiskColor(prediction.riskLevel);
-    final riskPercent = (prediction.riskScore * 100).toStringAsFixed(0);
+    final riskColor = _getRiskColor(prediction.riskLevel);  // Color for this risk level
+    final riskPercent = (prediction.riskScore * 100).toStringAsFixed(0);  // Convert 0.XX to XX%
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -151,7 +162,7 @@ class EdgeAiStatusCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Risk level icon
+          // Circle with a risk-level icon (check, info, or warning)
           Container(
             width: 40,
             height: 40,
@@ -170,7 +181,7 @@ class EdgeAiStatusCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // Risk info
+          // Risk level text and score percentage
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,7 +205,7 @@ class EdgeAiStatusCard extends StatelessWidget {
               ],
             ),
           ),
-          // Source badge
+          // "ON-DEVICE" badge to show this ran locally, not in the cloud
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
@@ -216,8 +227,9 @@ class EdgeAiStatusCard extends StatelessWidget {
     );
   }
 
-  // ---- Alert Card ----
+  // ---- Alert Card: shows a critical or warning health alert ----
   Widget _buildAlertCard(ThresholdAlert alert, Brightness brightness) {
+    // Red for critical, orange for warnings
     final alertColor = alert.severity == 'critical' ? AdaptivColors.critical : Colors.orange;
 
     return Container(
@@ -262,7 +274,7 @@ class EdgeAiStatusCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          // Action steps
+          // Recommended actions (show up to 2 steps)
           ...alert.actions.take(2).map((action) => Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Row(
@@ -287,7 +299,7 @@ class EdgeAiStatusCard extends StatelessWidget {
     );
   }
 
-  // ---- GPS Emergency Badge ----
+  // ---- GPS Emergency Badge: shows the location captured during a critical alert ----
   Widget _buildGpsEmergencyBadge(
     GpsEmergencyAlert emergency,
     Brightness brightness,
@@ -327,27 +339,29 @@ class EdgeAiStatusCard extends StatelessWidget {
               ],
             ),
           ),
-          // Sync indicator
+          // Cloud icon showing whether the location has been synced to the server
           Icon(
             emergency.synced ? Icons.cloud_done : Icons.cloud_off,
             size: 16,
-            color: emergency.synced ? AdaptivColors.stable : Colors.orange,
+            color: emergency.synced ? AdaptivColors.stable : Colors.orange,  // Green = synced, orange = pending
           ),
         ],
       ),
     );
   }
 
-  // ---- Sync Status ----
+  // ---- Sync Status: shows upload progress, errors, and a Force Sync button ----
   Widget _buildSyncStatus(EdgeAiStore store, Brightness brightness) {
-    final secondaryColor = AdaptivColors.getSecondaryTextColor(brightness);
-    final lastErrorTime = store.lastSyncErrorAt;
-    final lastSyncTime = store.lastSyncTime;
-    final hasError = store.lastSyncErrorMessage != null;
+    final secondaryColor = AdaptivColors.getSecondaryTextColor(brightness);  // Muted text color
+    final lastErrorTime = store.lastSyncErrorAt;  // When the last error happened
+    final lastSyncTime = store.lastSyncTime;  // When the last successful sync was
+    final hasError = store.lastSyncErrorMessage != null;  // Whether there's an error to show
+    // Get the icon, color, and label for the current sync state
     final status =
       _statusPresentation(store.syncState, store.pendingSyncCount, brightness);
-    final queueEventTime = store.lastQueueEventAt;
+    final queueEventTime = store.lastQueueEventAt;  // When the last queue event happened
 
+    // Helper to format a DateTime as "3:45 PM"
     String formatTime(DateTime value) => DateFormat('h:mm a').format(value.toLocal());
 
     return Padding(
@@ -494,6 +508,7 @@ class EdgeAiStatusCard extends StatelessWidget {
     );
   }
 
+  // Map each cloud sync state to a user-friendly label, color, and icon
   _SyncStatusPresentation _statusPresentation(
     CloudSyncState state,
     int pending,
@@ -545,7 +560,7 @@ class EdgeAiStatusCard extends StatelessWidget {
     }
   }
 
-  // ---- Helpers ----
+  // ---- Helpers: pick a color based on risk level text ----
   Color _getRiskColor(String level) {
     switch (level.toLowerCase()) {
       case 'high':
@@ -559,10 +574,11 @@ class EdgeAiStatusCard extends StatelessWidget {
   }
 }
 
+// Simple data class to hold the icon, color, and text for a sync state
 class _SyncStatusPresentation {
-  final String label;
-  final Color color;
-  final IconData icon;
+  final String label;  // Text description (e.g. "Syncing 3 readings...")
+  final Color color;   // Color for the status indicator
+  final IconData icon;  // Icon to show next to the text
 
   const _SyncStatusPresentation({
     required this.label,

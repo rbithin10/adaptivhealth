@@ -6,12 +6,12 @@ session tracker, today's session plan, and a button to start the workout.
 If no program is active it prompts the user to set their rehab phase in Profile.
 */
 
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../theme/colors.dart';
-import '../services/api_client.dart';
-import '../widgets/ai_coach_overlay.dart';
-import 'workout_screen.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:google_fonts/google_fonts.dart'; // Custom font support
+import '../theme/colors.dart'; // App colour palette
+import '../services/api_client.dart'; // Talks to our backend server
+import '../widgets/ai_coach_overlay.dart'; // Floating AI coach button overlay
+import 'workout_screen.dart'; // Active workout timer screen
 
 class RehabProgramScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -23,10 +23,11 @@ class RehabProgramScreen extends StatefulWidget {
 }
 
 class _RehabProgramScreenState extends State<RehabProgramScreen> {
-  bool _isLoading = true;
-  String? _errorMessage;
-  Map<String, dynamic>? _programData;
+  bool _isLoading = true; // True while the program is being fetched
+  String? _errorMessage; // Holds an error message if loading fails
+  Map<String, dynamic>? _programData; // The rehab program returned by the server
 
+  // Return the matching exercise illustration for a given activity type
   String _exerciseImageFor(String activityType) {
     switch (activityType) {
       case 'light_jogging':
@@ -61,12 +62,14 @@ class _RehabProgramScreenState extends State<RehabProgramScreen> {
     }
   }
 
+  // Fetch the rehab program when the screen opens
   @override
   void initState() {
     super.initState();
     _loadProgram();
   }
 
+  // Load the patient's active rehab program from the server
   Future<void> _loadProgram() async {
     setState(() {
       _isLoading = true;
@@ -145,6 +148,7 @@ class _RehabProgramScreenState extends State<RehabProgramScreen> {
     await _loadProgram();
   }
 
+  // Show a congratulations popup when the user finishes a full week
   void _showMilestoneDialog(int completedWeek) {
     showDialog(
       context: context,
@@ -171,6 +175,7 @@ class _RehabProgramScreenState extends State<RehabProgramScreen> {
   // ------------------------------------------------------------------
   // Build
   // ------------------------------------------------------------------
+  // Build the rehab program screen: loading, error, empty, or full program view
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;

@@ -28,25 +28,33 @@ Manages health alerts and warnings for cardiac patients.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+# StreamingResponse lets us send real-time updates to the dashboard via SSE
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+# desc sorts results newest first; and_ combines filter conditions; func lets us count/aggregate
 from sqlalchemy import desc, and_, func
 from typing import Optional
 from datetime import datetime, timedelta, timezone
+# asyncio lets us run background loops for real-time streaming
 import asyncio
 import json
 import logging
 
+# Database session provider for each request
 from app.database import get_db
+# User model to look up patient and clinician accounts
 from app.models.user import User
 from app.models.user import UserRole
+# Alert model represents a health warning stored in the database
 from app.models.alert import Alert
+# Data shapes for creating, updating, and returning alert information
 from app.schemas.alert import (
     AlertCreate,
     AlertUpdate,
     AlertResponse,
     AlertListResponse
 )
+# Authentication helpers to verify who is making the request
 from app.api.auth import (
     get_current_user,
     get_current_doctor_user,
@@ -55,20 +63,26 @@ from app.api.auth import (
     auth_service,
 )
 
+# Set up a logger for this file so we can track alert-related events
 logger = logging.getLogger(__name__)
+# Create a router to group all alert-related API endpoints together
 router = APIRouter()
 
 
 def _get_doctor_user_from_token_query(token: str, db: Session) -> User:
-    """Validate query-token and ensure caller is clinician/admin for SSE stream."""
+    """Check the login token passed as a URL parameter and make sure the caller is a clinician or admin.
+    This is needed for the real-time SSE stream where tokens come via query string instead of headers."""
+    # Decode the login token to read who the user is
     payload = auth_service.decode_token(token)
 
+    # Reject if the token is expired, malformed, or not an access token
     if not payload or payload.get("type") != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         )
 
+    # Pull the user ID from the token data
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(
@@ -76,6 +90,7 @@ def _get_doctor_user_from_token_query(token: str, db: Session) -> User:
             detail="Invalid token payload",
         )
 
+    # Look up the user in the database
     user = db.query(User).filter(User.user_id == int(user_id)).first()
     if not user:
         raise HTTPException(
@@ -83,12 +98,14 @@ def _get_doctor_user_from_token_query(token: str, db: Session) -> User:
             detail="User not found",
         )
 
+    # Block deactivated accounts from accessing the stream
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
         )
 
+    # Only clinicians and admins are allowed to see the alert stream
     if user.role not in [UserRole.CLINICIAN, UserRole.ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -99,9 +116,11 @@ def _get_doctor_user_from_token_query(token: str, db: Session) -> User:
 
 
 def _compute_alert_snapshot(db: Session, days: int) -> dict:
-    """Compute alert stats payload used by both REST and SSE responses."""
+    """Build a summary of alert statistics for the dashboard — used by both the REST endpoint and SSE stream."""
+    # Only look at alerts from the last N days
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # Count how many alerts exist at each severity level (critical, warning, etc.)
     severity_counts = db.query(
         Alert.severity,
         func.count(Alert.alert_id).label("count")
@@ -109,6 +128,7 @@ def _compute_alert_snapshot(db: Session, days: int) -> dict:
         Alert.created_at >= since
     ).group_by(Alert.severity).all()
 
+    # Count how many alerts have NOT been acknowledged (still need attention)
     unacknowledged = db.query(func.count(Alert.alert_id)).filter(
         and_(
             Alert.created_at >= since,
@@ -116,6 +136,7 @@ def _compute_alert_snapshot(db: Session, days: int) -> dict:
         )
     ).scalar()
 
+    # Return the compiled statistics as a dictionary
     return {
         "period_days": days,
         "severity_breakdown": {
@@ -188,22 +209,25 @@ async def get_my_alerts(
     
     Returns paginated list of alerts with optional filtering.
     """
+    # Start by getting all alerts that belong to the currently logged-in user
     query = db.query(Alert).filter(Alert.user_id == current_user.user_id)
     
-    # Apply filters
+    # If the user wants to see only read or unread alerts, filter accordingly
     if acknowledged is not None:
         query = query.filter(Alert.acknowledged == acknowledged)
     
+    # If the user wants to see only a specific severity level (e.g. "critical")
     if severity:
         query = query.filter(Alert.severity == severity)
 
+    # If the user wants to see only a specific type of alert (e.g. "high_heart_rate")
     if alert_type:
         query = query.filter(Alert.alert_type == alert_type)
     
-    # Count total for pagination
+    # Count how many alerts match these filters (needed for pagination info)
     total = query.count()
     
-    # Get paginated results
+    # Get one page of results, sorted newest first
     alerts = query.order_by(desc(Alert.created_at))\
                   .offset((page - 1) * per_page)\
                   .limit(per_page)\
@@ -234,20 +258,25 @@ async def acknowledge_alert(
     
     Marks the alert as read/acknowledged by the user.
     """
+    # Find the alert by its ID, but only if it belongs to the current user
     alert = db.query(Alert).filter(
         Alert.alert_id == alert_id,
         Alert.user_id == current_user.user_id
     ).first()
     
+    # If no matching alert found, tell the user
     if not alert:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Alert not found"
         )
     
+    # Mark the alert as seen/acknowledged so it no longer shows as new
     alert.acknowledged = True
+    # Record when the alert was acknowledged
     alert.updated_at = datetime.now(timezone.utc)  # type: ignore
     
+    # Save the changes to the database
     db.commit()
     db.refresh(alert)
     
@@ -274,6 +303,7 @@ async def resolve_alert(
     
     Marks alert as resolved and records resolution details.
     """
+    # Find the alert by its ID (any user's alert, since clinicians can resolve any)
     alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     
     if not alert:
@@ -282,31 +312,38 @@ async def resolve_alert(
             detail="Alert not found"
         )
 
+    # Make sure the clinician has permission to access this patient's data
     patient = db.query(User).filter(User.user_id == alert.user_id).first()
     if patient:
         check_clinician_phi_access(current_user, patient)
     
-    # Update fields
+    # Update acknowledged status if provided in the request
     if update_data.acknowledged is not None:
         alert.acknowledged = update_data.acknowledged
 
+    # Mark this alert as resolved (issue has been addressed)
     alert.is_resolved = True
     
+    # Use the provided resolution time, or default to right now
     if update_data.resolved_at:
         alert.resolved_at = update_data.resolved_at
     else:
         alert.resolved_at = datetime.now(timezone.utc)
     
+    # Record who resolved this alert (the clinician or admin)
     if update_data.resolved_by:
         alert.resolved_by = str(update_data.resolved_by)  # type: ignore
     else:
         alert.resolved_by = str(current_user.user_id)  # type: ignore
     
+    # Save any notes the clinician wrote about how the alert was handled
     if update_data.resolution_notes:
         alert.resolution_notes = update_data.resolution_notes
     
+    # Record the last time this alert was modified
     alert.updated_at = datetime.now(timezone.utc)  # type: ignore
     
+    # Save all changes to the database
     db.commit()
     db.refresh(alert)
     
@@ -447,40 +484,51 @@ async def stream_alert_statistics(
     poll_seconds: float = Query(1.0, ge=0.5, le=10.0),
     db: Session = Depends(get_db),
 ):
-    """Server-Sent Events stream for near-instant dashboard alert updates."""
+    """Real-time stream that pushes alert updates to the clinician dashboard instantly.
+    Uses Server-Sent Events (SSE) so the browser gets live updates without refreshing."""
+    # Verify the clinician's identity from the token in the URL
     user = _get_doctor_user_from_token_query(token, db)
     logger.info(f"Alerts SSE connected for clinician/admin user {user.user_id}")
 
     async def event_generator():
+        # Track the last data we sent so we only push when something changes
         last_signature = ""
+        # Count loops between heartbeat messages (keeps the connection alive)
         heartbeat_counter = 0
 
         while True:
+            # Stop the stream if the dashboard has closed the connection
             if await request.is_disconnected():
                 logger.info(f"Alerts SSE disconnected for user {user.user_id}")
                 break
 
+            # Get the latest alert statistics from the database
             snapshot = _compute_alert_snapshot(db, days)
 
+            # Create a fingerprint of the current data to detect changes
             signature_obj = {
                 "severity_breakdown": snapshot.get("severity_breakdown", {}),
                 "unacknowledged_count": snapshot.get("unacknowledged_count", 0),
             }
             signature = json.dumps(signature_obj, sort_keys=True)
 
+            # Only send data to the dashboard if something has actually changed
             if signature != last_signature:
                 last_signature = signature
                 payload = {
                     "event": "alerts_update",
                     "data": snapshot,
                 }
+                # Send the updated alert data as an SSE event
                 yield f"event: alerts_update\ndata: {json.dumps(payload)}\n\n"
 
+            # Send a heartbeat every ~15 seconds to keep the connection alive
             heartbeat_counter += 1
             if heartbeat_counter >= int(max(1, round(15.0 / poll_seconds))):
                 heartbeat_counter = 0
                 yield f"event: heartbeat\ndata: {json.dumps({'ts': datetime.now(timezone.utc).isoformat()})}\n\n"
 
+            # Wait before checking again (default 1 second between checks)
             await asyncio.sleep(poll_seconds)
 
     return StreamingResponse(

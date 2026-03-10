@@ -1,8 +1,13 @@
+/* AlertsPanel — Shows a list of health alerts for a patient.
+   Each alert can be acknowledged or resolved by the clinician. */
+
 import React from 'react';
+// Data shape for a single alert
 import { AlertResponse } from '../../types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: the patient's alerts and action handlers
 interface AlertsPanelProps {
   patientId: number;
   alerts: AlertResponse[];
@@ -11,6 +16,7 @@ interface AlertsPanelProps {
   onResolveAlert: (alertId: number) => Promise<void>;
 }
 
+// The alerts list component — shows each alert with Acknowledge and Resolve buttons
 const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAcknowledgeAlert, onResolveAlert }) => {
   return (
     <div style={{ backgroundColor: colors.neutral.white, border: `1px solid ${colors.neutral['300']}`, borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>

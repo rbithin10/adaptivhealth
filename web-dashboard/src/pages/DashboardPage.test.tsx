@@ -1,3 +1,4 @@
+/* DashboardPage.test.tsx — Tests that the clinical dashboard renders and role-based redirects work */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -10,6 +11,7 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }));
 
+// Stub every API the dashboard calls on mount (user info, alerts, consent, etc.)
 const mockApi = {
   getCurrentUser: jest.fn(),
   getAllUsers: jest.fn(),
@@ -23,11 +25,13 @@ jest.mock('../services/api', () => ({
   default: mockApi,
 }));
 
+// Dashboard page — clinician view and admin redirect
 describe('DashboardPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  // Clinicians should see the full clinical dashboard with all data loaded
   it('renders dashboard for clinician users', async () => {
     mockApi.getCurrentUser.mockResolvedValue({ user_role: 'clinician' });
     mockApi.getAllUsers.mockResolvedValue({ users: [], total: 0, page: 1, per_page: 200 });
@@ -46,6 +50,7 @@ describe('DashboardPage', () => {
     });
   });
 
+  // Admins don't belong here — they should be sent to /admin automatically
   it('redirects admin users to admin page', async () => {
     mockApi.getCurrentUser.mockResolvedValue({ user_role: 'admin' });
 

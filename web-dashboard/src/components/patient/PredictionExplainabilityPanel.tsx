@@ -1,9 +1,15 @@
+/* PredictionExplainabilityPanel — Shows WHY the AI made a particular risk prediction.
+   Breaks down which health factors contributed most (e.g. heart rate too high)
+   with visual bars showing each factor's impact. */
+
 import React from 'react';
+// Icons: direction arrows, expand/collapse, loading spinner, and search
 import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronUp, Loader, Minus, Search } from 'lucide-react';
 import { ExplainPredictionResponse } from '../../types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: the explanation data, loading state, and action handlers
 interface PredictionExplainabilityPanelProps {
   explainData: ExplainPredictionResponse | null;
   explainExpanded: boolean;
@@ -13,6 +19,7 @@ interface PredictionExplainabilityPanelProps {
   onRunExplain: () => Promise<void>;
 }
 
+// The prediction explainability panel component
 const PredictionExplainabilityPanel: React.FC<PredictionExplainabilityPanelProps> = ({
   explainData,
   explainExpanded,

@@ -1,9 +1,11 @@
+/* ResetPasswordPage.test.tsx — Tests for the password reset flow (token validation + submission) */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ResetPasswordPage from './ResetPasswordPage';
 
+// Fake the password-reset API call
 const mockApi = {
   confirmPasswordReset: jest.fn(),
 };
@@ -13,11 +15,13 @@ jest.mock('../services/api', () => ({
   default: mockApi,
 }));
 
+// Password reset page — token check and successful reset
 describe('ResetPasswordPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  // If there's no token in the URL, the page should tell the user the link is bad
   it('shows invalid link when token is missing', () => {
     render(
       <MemoryRouter initialEntries={['/reset-password']}>
@@ -28,6 +32,7 @@ describe('ResetPasswordPage', () => {
     expect(screen.getByText('Invalid reset link')).toBeInTheDocument();
   });
 
+  // Happy path: valid token + matching passwords → success message
   it('submits valid reset and shows success message', async () => {
     mockApi.confirmPasswordReset.mockResolvedValue({
       message: 'Password reset successful. You can now log in.',

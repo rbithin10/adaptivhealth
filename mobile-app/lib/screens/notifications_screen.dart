@@ -5,12 +5,12 @@ Displays health alerts and warnings for the current user.
 Allows acknowledging alerts to mark them as read.
 */
 
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
-import '../services/api_client.dart';
-import '../services/edge_ai_store.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:provider/provider.dart'; // State management
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../services/api_client.dart'; // Talks to our backend server
+import '../services/edge_ai_store.dart'; // On-device AI alert store
 
 class NotificationsScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -25,15 +25,17 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  late Future<Map<String, dynamic>> _alertsFuture;
-  bool _showUnreadOnly = false;
+  late Future<Map<String, dynamic>> _alertsFuture; // The pending server request for alerts
+  bool _showUnreadOnly = false; // Filter toggle: all alerts vs unread only
 
+  // Load alerts from the server when the screen opens
   @override
   void initState() {
     super.initState();
     _loadAlerts();
   }
 
+  // Fetch the latest alerts from the server (optionally filtered to unread)
   void _loadAlerts() {
     setState(() {
       _alertsFuture = widget.apiClient.getAlerts(
@@ -44,6 +46,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
+  // Mark an alert as read so it moves to the "acknowledged" list
   Future<void> _acknowledgeAlert(int alertId, int index) async {
     try {
       await widget.apiClient.acknowledgeAlert(alertId);
@@ -68,6 +71,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  // Pick a colour based on how serious the alert is (critical = red, warning = orange, info = blue)
   Color _getSeverityColor(String? severity) {
     switch (severity?.toLowerCase()) {
       case 'critical':
@@ -81,6 +85,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  // Pick an icon matching the alert severity level
   IconData _getSeverityIcon(String? severity) {
     switch (severity?.toLowerCase()) {
       case 'critical':
@@ -94,6 +99,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  // Turn an ISO timestamp into a friendly "5m ago" or "Yesterday" label
   String _formatTimestamp(String? timestamp) {
     if (timestamp == null || timestamp.isEmpty) return '';
     try {
@@ -112,17 +118,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  // Build the notifications screen with server alerts and on-device AI alerts
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final appBarFg = AdaptivColors.getTextColor(brightness);
     return Scaffold(
       backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       appBar: AppBar(
         backgroundColor: AdaptivColors.getSurfaceColor(brightness),
+        foregroundColor: appBarFg,
+        iconTheme: IconThemeData(color: appBarFg),
         elevation: 0,
         title: Text(
           'Notifications',
-          style: AdaptivTypography.screenTitle,
+          style: AdaptivTypography.screenTitle.copyWith(color: appBarFg),
         ),
         actions: [
           // Filter toggle
@@ -427,6 +437,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+  // A single alert card showing severity icon, title, message, time, and acknowledge button
   Widget _buildAlertCard({
     required int alertId,
     required String title,

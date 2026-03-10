@@ -1,3 +1,4 @@
+/* AdminPage.test.tsx — Tests that only admins can access the admin panel */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -10,6 +11,7 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }));
 
+// Fake the API calls the admin page makes (current user, user list, logout)
 const mockApi = {
   getCurrentUser: jest.fn(),
   getAllUsers: jest.fn(),
@@ -21,11 +23,13 @@ jest.mock('../services/api', () => ({
   default: mockApi,
 }));
 
+// Admin page access control tests
 describe('AdminPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  // An actual admin should see the User Management section
   it('renders admin content for admin users', async () => {
     mockApi.getCurrentUser.mockResolvedValue({ user_id: 1, user_role: 'admin', full_name: 'Admin' });
     mockApi.getAllUsers.mockResolvedValue({ users: [], total: 0, page: 1, per_page: 200 });
@@ -41,6 +45,7 @@ describe('AdminPage', () => {
     });
   });
 
+  // A clinician trying to sneak into /admin should get kicked to the dashboard
   it('redirects non-admin users away from admin page', async () => {
     mockApi.getCurrentUser.mockResolvedValue({ user_id: 2, user_role: 'clinician', full_name: 'Clinician' });
     mockApi.getAllUsers.mockResolvedValue({ users: [], total: 0, page: 1, per_page: 200 });

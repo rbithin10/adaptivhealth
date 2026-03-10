@@ -58,25 +58,25 @@ class VitalSignRecord(Base):
     # -------------------------------------------------------------------------
     # Massoud's original columns (already in AWS RDS - 50K rows)
     # -------------------------------------------------------------------------
-    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
-    heart_rate = Column(Integer, nullable=False)
-    spo2 = Column(Float, nullable=True)  # Changed to Float to support decimal values (e.g., 97.5%)
-    systolic_bp = Column(Integer, nullable=True)
-    diastolic_bp = Column(Integer, nullable=True)
-    hrv = Column(Float, nullable=True)
-    activity_type = Column(String(50), nullable=True)
-    is_anomaly = Column(Boolean, default=False, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)  # When this reading was taken
+    heart_rate = Column(Integer, nullable=False)          # Heart rate in beats per minute (BPM)
+    spo2 = Column(Float, nullable=True)                   # Blood oxygen saturation percentage (e.g. 97.5%)
+    systolic_bp = Column(Integer, nullable=True)           # Top blood pressure number (pressure when heart beats)
+    diastolic_bp = Column(Integer, nullable=True)          # Bottom blood pressure number (pressure between beats)
+    hrv = Column(Float, nullable=True)                     # Heart rate variability — how much time varies between heartbeats
+    activity_type = Column(String(50), nullable=True)      # What the patient was doing when this was measured
+    is_anomaly = Column(Boolean, default=False, nullable=True)  # Whether this reading was flagged as unusual
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)  # When this record was saved
 
     # -------------------------------------------------------------------------
-    # Bithin's extra columns (to be added via ALTER TABLE)
+    # Extra columns added for the mobile app and wearable integration
     # -------------------------------------------------------------------------
-    source_device = Column(String(100), nullable=True)
-    device_id = Column(String(255), nullable=True)
-    is_valid = Column(Boolean, default=True, nullable=True)
-    confidence_score = Column(Float, default=1.0, nullable=True)
-    processed_by_edge_ai = Column(Boolean, default=False, nullable=True)
-    activity_phase = Column(String(20), nullable=True)
+    source_device = Column(String(100), nullable=True)     # Name of the wearable device (e.g. "Fitbit Charge 6")
+    device_id = Column(String(255), nullable=True)         # Unique identifier of the specific device
+    is_valid = Column(Boolean, default=True, nullable=True)  # Whether this reading passed quality checks
+    confidence_score = Column(Float, default=1.0, nullable=True)  # How reliable this reading is (0.0 to 1.0)
+    processed_by_edge_ai = Column(Boolean, default=False, nullable=True)  # Whether the mobile app's AI already analysed this
+    activity_phase = Column(String(20), nullable=True)     # Exercise phase: warm_up, active, cool_down, or recovery
 
     # -------------------------------------------------------------------------
     # Relationship

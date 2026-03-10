@@ -5,13 +5,13 @@ It also keeps the login token and sends it with each request.
 All screens reuse this one client so everything stays consistent.
 */
 
-import 'dart:io';
-import 'dart:convert';
+import 'dart:io'; // Needed for file uploads and HTTP client tweaks
+import 'dart:convert'; // For converting data to/from JSON
 
-import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:dio/dio.dart'; // Our HTTP client library (like Axios for Flutter)
+import 'package:dio/io.dart'; // Low-level HTTP adapter for certificate handling
+import 'package:flutter/foundation.dart'; // Gives us kIsWeb and kDebugMode checks
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // Encrypted storage for login tokens
 
 class ApiClient {
   // Server address. Change this for your own backend.
@@ -48,41 +48,37 @@ class ApiClient {
   static const String _localWebUrl      = 'http://localhost:8080/api/v1';
   static const String _localAndroidUrl  = 'http://10.0.2.2:8080/api/v1';
 
+  // Picks the right server address based on build settings
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
-      return _configuredBaseUrl;
+      return _configuredBaseUrl; // Developer manually set a custom URL
     }
     if (_useProduction == 'true') {
-      return _productionBaseUrl;
+      return _productionBaseUrl; // Use the live production server
     }
     if (_useLocal == 'true') {
       // Web and desktop can reach localhost directly.
       // Android emulator must use the special 10.0.2.2 alias.
       return kIsWeb ? _localWebUrl : _localAndroidUrl;
     }
-    // Default: EC2 development server.
-    return _ec2BaseUrl;
+    return _ec2BaseUrl; // Default: the cloud development server
   }
 
-  // One HTTP client shared by the whole app.
-  final Dio _dio;
+  final Dio _dio; // One HTTP client shared by the whole app
 
-  // Secure storage for auth tokens — persists across app restarts.
-  static const _storage = FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(); // Encrypted vault for login tokens on the device
 
-  // In-memory token cache (loaded from storage at startup).
-  static String? _authToken;
-  static String? _refreshToken;
+  static String? _authToken; // The current login token kept in memory for speed
+  static String? _refreshToken; // A backup token used to get a new login token when the current one expires
 
-  // Guard against concurrent refresh calls that could cause a loop.
-  static bool _isRefreshing = false;
+  static bool _isRefreshing = false; // Prevents multiple token refresh attempts from running at the same time
 
   /// Load previously saved tokens from secure device storage.
   /// Must be called once from main() before runApp() so the app starts
   /// in an authenticated state when a valid session already exists.
   static Future<void> initialize() async {
-    _authToken = await _storage.read(key: 'auth_token');
-    _refreshToken = await _storage.read(key: 'refresh_token');
+    _authToken = await _storage.read(key: 'auth_token'); // Grab the saved login token
+    _refreshToken = await _storage.read(key: 'refresh_token'); // Grab the saved refresh token
   }
 
   /// Persist new tokens both in memory and in secure storage.
@@ -90,26 +86,27 @@ class ApiClient {
     required String accessToken,
     String? refreshToken,
   }) async {
-    _authToken = accessToken;
-    await _storage.write(key: 'auth_token', value: accessToken);
+    _authToken = accessToken; // Keep in memory for fast access
+    await _storage.write(key: 'auth_token', value: accessToken); // Also save to encrypted storage
     if (refreshToken != null) {
       _refreshToken = refreshToken;
-      await _storage.write(key: 'refresh_token', value: refreshToken);
+      await _storage.write(key: 'refresh_token', value: refreshToken); // Save the backup token too
     }
   }
 
   /// Wipe tokens from memory and from secure storage.
   static Future<void> _clearStoredTokens() async {
-    _authToken = null;
-    _refreshToken = null;
-    await _storage.delete(key: 'auth_token');
-    await _storage.delete(key: 'refresh_token');
+    _authToken = null; // Forget the login token
+    _refreshToken = null; // Forget the refresh token
+    await _storage.delete(key: 'auth_token'); // Remove from encrypted storage
+    await _storage.delete(key: 'refresh_token'); // Remove refresh token from storage too
   }
 
+  // When creating this client, either use a provided Dio instance (for testing) or make a new one
   ApiClient({
     Dio? dio,
   })  : _dio = dio ?? _createDio() {
-    _setupInterceptors();
+    _setupInterceptors(); // Attach the auto-login and auto-refresh helpers
   }
 
   // Create the Dio client with default settings.
@@ -125,10 +122,10 @@ class ApiClient {
   static Dio _createDio() {
     final dio = Dio(
       BaseOptions(
-        baseUrl: baseUrl,
+        baseUrl: baseUrl, // Every request starts from this server address
         // Stop requests from hanging too long.
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
+        connectTimeout: const Duration(seconds: 10), // Give up connecting after 10 seconds
+        receiveTimeout: const Duration(seconds: 10), // Give up waiting for a response after 10 seconds
       ),
     );
 
@@ -140,11 +137,12 @@ class ApiClient {
       //   --dart-define=ALLOW_INVALID_CERTS=true
       // NOTE: Enabling this for release builds is insecure and should only be
       // used for local testing against self-signed dev servers.
+      // Accept self-signed certificates in debug mode so we can test against dev servers
       const allowInvalidCerts = bool.fromEnvironment('ALLOW_INVALID_CERTS', defaultValue: false);
       if (!kIsWeb && (kDebugMode || allowInvalidCerts)) {
         (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
           final client = HttpClient();
-          client.badCertificateCallback = (cert, host, port) => true;
+          client.badCertificateCallback = (cert, host, port) => true; // Trust any certificate during dev
           return client;
         };
       }
@@ -152,55 +150,52 @@ class ApiClient {
     return dio;
   }
 
-  // Add helpers that run on every request and error.
+  // Attach automatic behaviour to every request and error
   void _setupInterceptors() {
     _dio.interceptors.add(
       InterceptorsWrapper(
-        // Add the login token to each request.
+        // Automatically attach the login token to every outgoing request
         onRequest: (options, handler) async {
           final token = _authToken;
           if (token != null) {
-            // Standard Authorization header format.
-            options.headers['Authorization'] = 'Bearer $token';
+            options.headers['Authorization'] = 'Bearer $token'; // Standard "Bearer" auth format
           }
           return handler.next(options);
         },
         
-        // Handle errors returned by the server.
+        // Handle errors returned by the server
         onError: (error, handler) async {
-          // 401 means the token is not valid anymore.
-          // Guard with _isRefreshing to prevent concurrent refresh attempts
-          // (multiple simultaneous 401s would otherwise each try to refresh,
-          // potentially creating a feedback loop).
+          // 401 means our login token expired — try to get a new one automatically
+          // The _isRefreshing guard prevents multiple 401s from all trying to refresh at once
           if (error.response?.statusCode == 401 &&
               _refreshToken != null &&
               !_isRefreshing &&
               !(error.requestOptions.extra['_retried'] ?? false)) {
-            _isRefreshing = true;
+            _isRefreshing = true; // Lock so no other request tries to refresh simultaneously
             try {
+              // Ask the server for a fresh token using our backup refresh token
               final refreshResp = await _dio.post(
                 '/auth/token/refresh',
                 data: {'refresh_token': _refreshToken},
                 options: Options(extra: {'_retried': true}),
               );
-              final newToken = refreshResp.data['access_token'] as String;
-              final newRefresh = refreshResp.data['refresh_token'] as String?;
+              final newToken = refreshResp.data['access_token'] as String; // The new login token
+              final newRefresh = refreshResp.data['refresh_token'] as String?; // Sometimes the server also gives a new refresh token
               await _saveTokens(accessToken: newToken, refreshToken: newRefresh);
-              // Retry the original request with the new access token.
+              // Now retry the original request that failed, using the fresh token
               error.requestOptions.headers['Authorization'] = 'Bearer $newToken';
-              error.requestOptions.extra['_retried'] = true;
+              error.requestOptions.extra['_retried'] = true; // Mark it so we don't loop
               final retryResponse = await _dio.fetch(error.requestOptions);
-              return handler.resolve(retryResponse);
+              return handler.resolve(retryResponse); // Return the successful retry result
             } catch (_) {
-              // Refresh failed — force logout and surface the original 401.
-              await _clearStoredTokens();
+              await _clearStoredTokens(); // Refresh failed too — user must log in again
             } finally {
-              _isRefreshing = false;
+              _isRefreshing = false; // Unlock so future requests can refresh if needed
             }
           } else if (error.response?.statusCode == 401) {
-            await _clearStoredTokens();
+            await _clearStoredTokens(); // Can't refresh — clear everything
           }
-          return handler.next(error);
+          return handler.next(error); // Pass the error along to the calling code
         },
       ),
     );
@@ -217,21 +212,21 @@ class ApiClient {
       final response = await _dio.post(
         '/auth/signin',
         data: {
-          'username': email,  // FastAPI OAuth2 uses 'username'
+          'username': email,  // The backend expects "username" even though it's really an email
           'password': password,
         },
         options: Options(
-          contentType: Headers.formUrlEncodedContentType,
+          contentType: Headers.formUrlEncodedContentType, // Send as form data, not JSON
           headers: {'Content-Type': Headers.formUrlEncodedContentType},
         ),
       );
       
-      // Persist the tokens so the session survives app restarts.
+      // Save the login tokens so the user stays logged in even after closing the app
       final accessToken = response.data['access_token'] as String;
       final refreshToken = response.data['refresh_token'] as String?;
       await _saveTokens(accessToken: accessToken, refreshToken: refreshToken);
       
-      return response.data;
+      return response.data; // Return the full server response to the caller
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -275,6 +270,7 @@ class ApiClient {
     String? phone,
   }) async {
     try {
+      // Build the registration payload — only include fields that were provided
       final data = <String, dynamic>{
         'email': email,
         'password': password,
@@ -298,14 +294,14 @@ class ApiClient {
   /// Safe to call even when already logged out.
   Future<void> logout() async {
     try {
-      // Tell the server to revoke this token so it cannot be reused.
+      // Tell the server to block this token so nobody can reuse it
       if (_authToken != null) {
         await _dio.post('/logout');
       }
     } catch (_) {
-      // Ignore server errors during logout — always clear local state.
+      // Even if the server can't be reached, always wipe local tokens
     } finally {
-      await _clearStoredTokens();
+      await _clearStoredTokens(); // Remove tokens from memory and encrypted storage
     }
   }
 
@@ -330,13 +326,12 @@ class ApiClient {
       final response = await _dio.get(
         '/users',
         queryParameters: {
-          'role': 'clinician',
+          'role': 'clinician', // Only fetch users who are clinicians
           'per_page': limit,
           'page': 1,
         },
       );
-      // Backend returns {users: [...], total: n, page: 1, per_page: n}
-      final List<dynamic> users = response.data['users'] ?? [];
+      final List<dynamic> users = response.data['users'] ?? []; // Extract the clinician list
       return users.cast<Map<String, dynamic>>();
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -344,23 +339,21 @@ class ApiClient {
   }
 
   /// Get the clinician assigned to the current patient.
-  /// Returns clinician details (user_id, full_name, email, phone).
-  /// Throws 404 if no clinician assigned.
+  /// Returns clinician details or null if nobody is assigned yet.
   Future<Map<String, dynamic>?> getAssignedClinician() async {
     try {
       final response = await _dio.get('/users/me/clinician');
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      // 404 means no clinician assigned - return null instead of throwing
       if (e.response?.statusCode == 404) {
-        return null;
+        return null; // No clinician assigned yet — that's okay, return nothing
       }
       throw _handleDioError(e);
     }
   }
 
   /// Update current user profile.
-  /// Sends only non-null fields (partial update).
+  /// Sends only non-null fields (only updates what the user actually changed).
   Future<Map<String, dynamic>> updateProfile({
     String? fullName,
     int? age,
@@ -382,6 +375,7 @@ class ApiClient {
     int? phq2Score,
   }) async {
     try {
+      // Build a map with only the fields the user actually provided
       final data = <String, dynamic>{};
       if (fullName != null) data['name'] = fullName;
       if (age != null) data['age'] = age;
@@ -415,7 +409,7 @@ class ApiClient {
     }
   }
 
-  /// Update medical history (encrypted on server).
+  /// Update medical history (encrypted on server for privacy).
   /// Used during onboarding and profile settings.
   Future<Map<String, dynamic>> updateMedicalHistory({
     List<String>? conditions,
@@ -425,6 +419,7 @@ class ApiClient {
     String? notes,
   }) async {
     try {
+      // Only include sections the user actually filled in
       final data = <String, dynamic>{};
       if (conditions != null) data['conditions'] = conditions;
       if (medications != null) data['medications'] = medications;
@@ -477,19 +472,19 @@ class ApiClient {
         '/vitals/history',
         queryParameters: {'days': days},
       );
-      // Backend returns {vitals: [...], summary: ..., total, page, per_page}
+      // Backend wraps results in {vitals: [...]} — extract the list
       if (response.data is Map && response.data['vitals'] is List) {
         return response.data['vitals'];
       }
-      // Fallback for raw list responses
+      // Some server versions return a plain list instead
       return response.data is List ? response.data : [];
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
   }
 
-  /// Submit a vital reading to backend.
-  /// This is used by wearable ingestion paths (real BLE and dev mock stream).
+  /// Submit a vital reading to the server.
+  /// Used when the app receives data from a wearable device or mock stream.
   Future<Map<String, dynamic>> submitVitalSigns({
     required int heartRate,
     int? spo2,
@@ -499,9 +494,10 @@ class ApiClient {
     DateTime? timestamp,
   }) async {
     try {
+      // Build the vitals payload — heart rate is required, everything else is optional
       final payload = <String, dynamic>{
         'heart_rate': heartRate,
-        'timestamp': (timestamp ?? DateTime.now()).toIso8601String(),
+        'timestamp': (timestamp ?? DateTime.now()).toIso8601String(), // Default to right now
       };
 
       if (spo2 != null) payload['spo2'] = spo2;
@@ -532,7 +528,7 @@ class ApiClient {
 
   // ============ Activity Endpoints ============
 
-  /// Start an exercise session
+  /// Start an exercise session on the server
   Future<Map<String, dynamic>> startSession({
     required String sessionType,
     required int targetDuration,
@@ -541,15 +537,15 @@ class ApiClient {
       final response = await _dio.post(
         '/activities/start',
         data: {
-          'activity_type': sessionType,
-          'duration_minutes': targetDuration,
-          'start_time': DateTime.now().toIso8601String(),
+          'activity_type': sessionType, // e.g. "walking", "cycling"
+          'duration_minutes': targetDuration, // How long the user plans to exercise
+          'start_time': DateTime.now().toIso8601String(), // Record when they started
         },
       );
       final responseData = response.data;
       if (responseData is Map<String, dynamic>) {
         if (responseData['session_id'] == null) {
-          throw 'Invalid response from server: missing session_id';
+          throw 'Invalid response from server: missing session_id'; // Server must return an ID
         }
         return responseData;
       }
@@ -559,7 +555,7 @@ class ApiClient {
     }
   }
 
-  /// End exercise session
+  /// End an exercise session and record the heart rate stats
   Future<Map<String, dynamic>> endSession({
     required int sessionId,
     required int avgHeartRate,
@@ -567,11 +563,11 @@ class ApiClient {
   }) async {
     try {
       final response = await _dio.post(
-        '/activities/end/$sessionId',
+        '/activities/end/$sessionId', // Tell the server which session we're finishing
         data: {
-          'end_time': DateTime.now().toIso8601String(),
-          'avg_heart_rate': avgHeartRate,
-          'peak_heart_rate': maxHeartRate,
+          'end_time': DateTime.now().toIso8601String(), // When the exercise ended
+          'avg_heart_rate': avgHeartRate, // Average HR during the workout
+          'peak_heart_rate': maxHeartRate, // Highest HR recorded during the workout
         },
       );
       final responseData = response.data;
@@ -636,10 +632,9 @@ class ApiClient {
 
   // ============ Alert Endpoints ============
 
-  /// Create a new alert for the current user.
+  /// Create a new alert (used by the SOS button and automated warnings).
   ///
-  /// Used by patient-side emergency actions (e.g., SOS button).
-  /// Backend contract requires: user_id, alert_type, severity, message.
+  /// The backend needs: user_id, alert_type, severity, message.
   Future<Map<String, dynamic>> createAlert({
     required String alertType,
     required String severity,
@@ -650,6 +645,7 @@ class ApiClient {
     String? thresholdValue,
   }) async {
     try {
+      // First, look up our own user ID so the server knows who triggered this alert
       final profile = await getCurrentUser();
       final userIdRaw = profile['user_id'] ?? profile['id'];
       if (userIdRaw == null) {
@@ -658,7 +654,7 @@ class ApiClient {
 
       final userId = userIdRaw is int
           ? userIdRaw
-          : int.tryParse(userIdRaw.toString());
+          : int.tryParse(userIdRaw.toString()); // Convert to number if it came as text
       if (userId == null) {
         throw 'Invalid current user ID format';
       }
@@ -667,11 +663,11 @@ class ApiClient {
         '/alerts',
         data: {
           'user_id': userId,
-          'alert_type': alertType,
-          'severity': severity.toLowerCase(),
+          'alert_type': alertType, // e.g. "sos", "vital_abnormal"
+          'severity': severity.toLowerCase(), // "critical", "warning", or "info"
           'message': (notes != null && notes.trim().isNotEmpty)
               ? notes.trim()
-              : 'Manual alert triggered by patient',
+              : 'Manual alert triggered by patient', // Default message if none provided
           if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
           if (actionRequired != null && actionRequired.trim().isNotEmpty)
             'action_required': actionRequired.trim(),
@@ -687,7 +683,7 @@ class ApiClient {
     }
   }
 
-  /// Get my alerts with pagination and filtering.
+  /// Get my alerts with pagination and optional filters.
   Future<Map<String, dynamic>> getAlerts({
     int page = 1,
     int perPage = 50,
@@ -695,6 +691,7 @@ class ApiClient {
     String? severity,
   }) async {
     try {
+      // Build query filters — only include the ones that were specified
       final queryParams = <String, dynamic>{
         'page': page,
         'per_page': perPage,
@@ -712,7 +709,7 @@ class ApiClient {
     }
   }
 
-  /// Acknowledge an alert (mark as read).
+  /// Acknowledge an alert (patient has seen it).
   Future<Map<String, dynamic>> acknowledgeAlert(int alertId) async {
     try {
       final response = await _dio.patch('/alerts/$alertId/acknowledge');
@@ -722,7 +719,7 @@ class ApiClient {
     }
   }
 
-  /// Resolve an alert with optional notes.
+  /// Resolve an alert — mark it as handled, with optional notes about what was done.
   Future<Map<String, dynamic>> resolveAlert(
     int alertId, {
     String? resolutionNotes,
@@ -768,7 +765,7 @@ class ApiClient {
     }
   }
 
-  /// Request to disable data sharing with clinicians
+  /// Request to stop sharing health data with clinicians.
   Future<Map<String, dynamic>> requestDisableSharing({String? reason}) async {
     try {
       final response = await _dio.post(
@@ -781,7 +778,7 @@ class ApiClient {
     }
   }
 
-  /// Re-enable data sharing
+  /// Turn data sharing with clinicians back on.
   Future<Map<String, dynamic>> enableSharing() async {
     try {
       final response = await _dio.post('/consent/enable');
@@ -793,14 +790,14 @@ class ApiClient {
 
   // ============ Natural Language / AI ============
 
-  /// Get patient-friendly risk summary for AI chatbot.
+  /// Get a simple, patient-friendly summary of their health risk.
   Future<String> getNLRiskSummary() async {
     try {
       final response = await _dio.get('/nl/risk-summary');
       if (response.data is Map && response.data['nl_summary'] != null) {
-        return response.data['nl_summary'] as String;
+        return response.data['nl_summary'] as String; // The AI-generated summary text
       }
-      return 'Your health status is stable. Keep up your current routine.';
+      return 'Your health status is stable. Keep up your current routine.'; // Fallback if server returns nothing
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -903,14 +900,13 @@ class ApiClient {
     return getNLRiskSummary();
   }
 
-  /// Send a chat message to the hybrid AI coach (template + Gemini).
+  /// Send a chat message to the AI health coach.
   ///
-  /// Sends the user message and recent conversation history to
-  /// POST /nl/chat. The backend routes to fast templates for known
-  /// topics or Gemini LLM for open-ended questions.
+  /// The server uses quick templates for common questions
+  /// or sends it to a Gemini AI for open-ended conversations.
   Future<String> postNLChat(
     String message,
-    List<Map<String, String>> conversationHistory,
+    List<Map<String, String>> conversationHistory, // Previous messages for context
   ) async {
     try {
       final response = await _dio.post(
@@ -929,29 +925,25 @@ class ApiClient {
     }
   }
 
-  /// Send an image + chat prompt for multimodal analysis.
+  /// Send a photo along with a chat message for the AI to analyze.
   ///
-  /// Sends multipart form-data to POST /nl/chat-with-image with:
-  /// - image
-  /// - message
-  /// - analysis_type
-  /// - conversation_history (JSON-encoded string)
+  /// Useful for food photo analysis, medication identification, etc.
   Future<String> postNLChatWithImage(
     File imageFile,
     String message,
-    String analysisType,
+    String analysisType, // e.g. "food", "medication", "wound"
     List<Map<String, String>> history,
   ) async {
     try {
-      final filename = imageFile.path.split(RegExp(r'[\\/]')).last;
+      final filename = imageFile.path.split(RegExp(r'[\\/]')).last; // Extract just the file name
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(
+        'image': await MultipartFile.fromFile( // Attach the photo as a file upload
           imageFile.path,
           filename: filename,
         ),
-        'message': message,
-        'analysis_type': analysisType,
-        'conversation_history': jsonEncode(history),
+        'message': message, // The user's question about the image
+        'analysis_type': analysisType, // What kind of analysis to run
+        'conversation_history': jsonEncode(history), // Previous chat messages as JSON text
       });
 
       final response = await _dio.post(
@@ -973,12 +965,12 @@ class ApiClient {
 
   /// Analyze a food photo and return detected nutrition data.
   ///
-  /// Sends multipart form-data to POST /food/analyze-image with field name `image`.
+  /// The AI identifies the food and estimates calories and nutrients.
   Future<Map<String, dynamic>> analyzeFoodImage(File imageFile) async {
     try {
-      final filename = imageFile.path.split(RegExp(r'[\\/]')).last;
+      final filename = imageFile.path.split(RegExp(r'[\\/]')).last; // Get the file name
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(
+        'image': await MultipartFile.fromFile( // Upload the food photo
           imageFile.path,
           filename: filename,
         ),
@@ -995,7 +987,7 @@ class ApiClient {
     }
   }
 
-  /// Lookup nutrition data by barcode.
+  /// Look up nutrition info for a product by scanning its barcode.
   Future<Map<String, dynamic>> lookupBarcode(String barcode) async {
     try {
       final response = await _dio.get('/food/barcode/$barcode');
@@ -1128,7 +1120,7 @@ class ApiClient {
     }
   }
 
-  /// Send a message to another user
+  /// Send a text message to another user (patient or clinician).
   Future<void> sendMessage({
     required int receiverId,
     required String content,
@@ -1146,7 +1138,7 @@ class ApiClient {
     }
   }
 
-  /// Mark a message as read
+  /// Mark a specific message as read so the sender knows it was seen.
   Future<Map<String, dynamic>> markMessageRead(int messageId) async {
     try {
       final response = await _dio.post('/messages/$messageId/read');
@@ -1158,8 +1150,7 @@ class ApiClient {
 
   // ============ Medication Reminder Endpoints ============
 
-  /// Get all medication reminders for the current user.
-  /// Returns list of active medications with reminder settings.
+  /// Get all medication reminders set up for this user.
   Future<List<Map<String, dynamic>>> getMedicationReminders() async {
     try {
       final response = await _dio.get('/medications/reminders');
@@ -1199,12 +1190,7 @@ class ApiClient {
     }
   }
 
-  /// Log whether a medication was taken or skipped for a given day.
-  /// 
-  /// PARAMETERS:
-  /// - medId: ID of the medication
-  /// - date: Date string in YYYY-MM-DD format
-  /// - taken: True if taken, False if skipped
+  /// Record whether the user took or skipped a medication on a given day.
   Future<Map<String, dynamic>> logAdherence(
     int medId,
     String date,

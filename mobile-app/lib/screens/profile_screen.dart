@@ -5,22 +5,23 @@ Shows user profile information like name, age, gender, email.
 Users can update their profile details and view their account settings.
 */
 
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
-import 'dart:async';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
-import '../services/api_client.dart';
-import '../services/edge_ai_store.dart';
-import '../services/mock_vitals_service.dart';
-import '../services/notification_service.dart';
-import '../services/medication_reminder_service.dart';
-import '../providers/auth_provider.dart';
-import '../providers/vitals_provider.dart';
-import '../screens/onboarding_screen.dart';
-import '../screens/device_pairing_screen.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:flutter/foundation.dart'; // Gives us kDebugMode to hide dev-only features
+import 'package:provider/provider.dart'; // State management for sharing data across widgets
+import 'package:intl/intl.dart'; // Date/number formatting
+import 'dart:async'; // Async utilities
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../services/api_client.dart'; // Talks to our backend server
+import '../services/edge_ai_store.dart'; // On-device AI model manager
+import '../services/mock_vitals_service.dart'; // Fake wearable data for developer testing
+import '../services/notification_service.dart'; // Local push notification sender
+import '../services/medication_reminder_service.dart'; // Schedules daily medication alerts
+import '../providers/auth_provider.dart'; // Manages login/logout state
+import '../providers/vitals_provider.dart'; // Central hub for all vital sign data
+import '../screens/onboarding_screen.dart'; // First-time setup wizard
+import '../screens/device_pairing_screen.dart'; // Bluetooth device connection screen
+import '../utils/validators.dart'; // Shared input validation helpers
 
 class ProfileScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -39,34 +40,33 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  Map<String, dynamic>? _userProfile;
-  bool _loading = true;
-  bool _editing = false;
-  String? _error;
+  Map<String, dynamic>? _userProfile; // The user's profile data loaded from the server
+  bool _loading = true; // True while the profile is being fetched
+  bool _editing = false; // True when the user taps the Edit button
+  String? _error; // Holds an error message if loading fails
 
-  final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController;
-  late TextEditingController _ageController;
-  late TextEditingController _phoneController;
-  String? _selectedGender;
+  final _formKey = GlobalKey<FormState>(); // Validates the edit form before saving
+  late TextEditingController _nameController; // Text field for the user's full name
+  late TextEditingController _ageController; // Text field for the user's age
+  late TextEditingController _phoneController; // Text field for the user's phone number
+  String? _selectedGender; // Currently selected gender option
 
-  // Consent state
+  // Tracks whether the user is sharing health data with their clinic
   String _shareState = 'SHARING_ON';
-  bool _consentLoading = false;
+  bool _consentLoading = false; // True while the sharing toggle is saving
 
-  // DEV demo stream local UI state
-  // _mockRunning is kept as local state for immediate button feedback;
-  // the canonical truth is VitalsProvider.isMockRunning.
-  bool _mockRunning = false;
-  bool _mockBusy = false;
-  MockScenario _mockMode = MockScenario.rest;
+  // Developer-only demo simulator state
+  bool _mockRunning = false; // Whether fake vital signs are currently being streamed
+  bool _mockBusy = false; // True while the simulator is starting or stopping
+  MockScenario _mockMode = MockScenario.rest; // The chosen simulation scenario (rest, workout, etc.)
 
-  // Medication reminders state
-  List<Map<String, dynamic>> _medications = [];
-  Map<String, dynamic>? _adherenceHistory;
-  bool _medicationsLoading = true;
-  Map<int, bool> _todayAdherence = {}; // medication_id -> taken status
+  // Medication reminders — loaded from the backend
+  List<Map<String, dynamic>> _medications = []; // All medications assigned to this user
+  Map<String, dynamic>? _adherenceHistory; // Weekly history of which doses were taken
+  bool _medicationsLoading = true; // True while medications are being fetched
+  Map<int, bool> _todayAdherence = {}; // Tracks which medications were taken today
 
+  // Set up text controllers and load all profile data when the screen opens
   @override
   void initState() {
     super.initState();
@@ -89,6 +89,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
+  // Clean up text controllers when the screen is closed
   @override
   void dispose() {
     _nameController.dispose();
@@ -97,6 +98,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  // Start the fake wearable simulator so developers can test without a real device
   Future<void> _startMockVitalsStream() async {
     if (_mockBusy || _mockRunning) return;
     setState(() => _mockBusy = true);
@@ -131,6 +133,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Stop the fake wearable simulator
   Future<void> _stopMockVitalsStream() async {
     if (_mockBusy || !_mockRunning) return;
     setState(() => _mockBusy = true);
@@ -152,6 +155,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Fetch the user's profile from the server and fill in the form fields
   Future<void> _loadProfile() async {
     setState(() {
       _loading = true;
@@ -176,6 +180,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Check if the user has agreed to share their data with their clinic
   Future<void> _loadConsentStatus() async {
     try {
       final status = await widget.apiClient.getConsentStatus();
@@ -189,6 +194,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Load all medications and this week's adherence tracking from the server
   Future<void> _loadMedicationReminders() async {
     try {
       final medications = await widget.apiClient.getMedicationReminders();
@@ -223,6 +229,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Save a change to a medication reminder and refresh local notifications
   Future<void> _updateMedicationReminder(int medId, {String? time, bool? enabled}) async {
     try {
       await widget.apiClient.updateMedicationReminder(medId, time: time, enabled: enabled);
@@ -239,6 +246,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Record whether the user took a specific medication today
   Future<void> _logMedicationAdherence(int medId, bool taken) async {
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     try {
@@ -262,6 +270,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Popup clock picker to change what time a medication reminder fires
   Future<void> _showTimePicker(Map<String, dynamic> med) async {
     final currentTime = med['reminder_time'] as String? ?? '08:00';
     final parts = currentTime.split(':');
@@ -281,6 +290,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Toggle data sharing on/off (disabling requires clinician approval)
   Future<void> _toggleSharing() async {
     setState(() => _consentLoading = true);
     try {
@@ -318,6 +328,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Send the updated profile fields to the server and refresh the local state
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -365,6 +376,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Switch between view and edit mode (cancelling discards unsaved changes)
   void _toggleEdit() {
     if (_editing) {
       // Cancel edit
@@ -376,6 +388,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _editing = !_editing);
   }
 
+  // Build the main profile screen layout with header, form fields, and settings sections
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -500,12 +513,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       prefixIcon: Icon(Icons.person_outline),
                                       border: OutlineInputBorder(),
                                     ),
-                                    validator: (value) {
-                                      if (value == null || value.trim().isEmpty) {
-                                        return 'Please enter your full name';
-                                      }
-                                      return null;
-                                    },
+                                    validator: Validators.name,
                                   ),
                                 )
                               : ListTile(
@@ -536,15 +544,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       border: OutlineInputBorder(),
                                     ),
                                     keyboardType: TextInputType.number,
-                                    validator: (value) {
-                                      if (value != null && value.isNotEmpty) {
-                                        final age = int.tryParse(value);
-                                        if (age == null || age < 0 || age > 150) {
-                                          return 'Please enter a valid age';
-                                        }
-                                      }
-                                      return null;
-                                    },
+                                    validator: Validators.age,
                                   ),
                                 )
                               : ListTile(
@@ -612,6 +612,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       border: OutlineInputBorder(),
                                     ),
                                     keyboardType: TextInputType.phone,
+                                    validator: Validators.phone,
                                   ),
                                 )
                               : ListTile(
@@ -1003,6 +1004,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // The wearable simulator controls section (developer testing only)
   Widget _buildMockVitalsSection() {
     final brightness = Theme.of(context).brightness;
     final hasEdgeStore = _hasEdgeStore();
@@ -1134,6 +1136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // Developer tools: reset onboarding flow so it can be tested again
   Widget _buildDeveloperUtilities() {
     final brightness = Theme.of(context).brightness;
     return Container(
@@ -1205,6 +1208,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // Returns true if the Edge AI store is available (it might not be on first load)
   bool _hasEdgeStore() {
     try {
       Provider.of<EdgeAiStore>(context, listen: false);
@@ -1217,6 +1221,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // A single label-value row used inside the Edge AI info card
   Widget _buildEdgeInfoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -1376,6 +1381,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // One medication row with drug name, time picker, and enable/disable switch
   Widget _buildMedicationRow(Map<String, dynamic> med) {
     final medId = med['medication_id'] as int;
     final drugName = med['drug_name'] as String? ?? 'Medication';
@@ -1438,6 +1444,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // Shows a progress bar of how many doses the user took this week
   Widget _buildAdherenceSummary() {
     if (_adherenceHistory == null) {
       return const Text('Loading adherence data...');

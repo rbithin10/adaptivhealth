@@ -1,5 +1,5 @@
-﻿/*
-Recovery Screen â€” post-workout debrief for cardiovascular patients.
+/*
+Recovery Screen Ã¢â‚¬â€ post-workout debrief for cardiovascular patients.
 
 Shows live vitals, a scored recovery ring, session metrics sourced from the
 activity API, a functional breathing exercise widget with all four techniques,
@@ -7,26 +7,36 @@ a personalised recommendation from the backend, contextual tips derived from
 the session data, and bottom actions to log a meal or message the care team.
 */
 
+// Math utilities for drawing the recovery score ring
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+// Custom fonts for a polished look
 import 'package:google_fonts/google_fonts.dart';
+// Provider lets different parts of the app share data easily
+import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
+// Connection to the server for fetching session data and vitals
 import '../services/api_client.dart';
+// Provides live vital readings from any connected source
+import '../providers/vitals_provider.dart';
+// The floating AI health coach that appears on top of screens
 import '../widgets/ai_coach_overlay.dart';
 
 // =============================================================================
 // BREATHING TECHNIQUE DEFINITIONS
 // =============================================================================
 
+// The four breathing techniques patients can choose from
 enum BreathingType {
-  relaxing478,  // 4-7-8  â€” 19 s cycle
-  box,          // 4-4-4-4 â€” 16 s cycle
-  energizing,   // 4-2-4   â€” 10 s cycle
-  calm246,      // 2-4-6   â€” 12 s cycle
+  relaxing478,  // 4-7-8 pattern - 19 second cycle, deeply calming
+  box,          // 4-4-4-4 pattern - 16 second cycle, equal phases
+  energizing,   // 4-2-4 pattern - 10 second cycle, uplifting
+  calm246,      // 2-4-6 pattern - 12 second cycle, gentle for beginners
 }
 
-/// Per-technique metadata consumed by the UI and AnimationController.
+// Settings for each breathing technique (timing, description)
 class _BreathingConfig {
   final String label;
   final String description;
@@ -86,15 +96,15 @@ const Map<BreathingType, _BreathingConfig> _kBreathingConfigs = {
 // RECOVERY SCREEN WIDGET
 // =============================================================================
 
+// The post-workout recovery screen where patients review their session
 class RecoveryScreen extends StatefulWidget {
+  // Connection to the server
   final ApiClient apiClient;
 
-  /// ID of the session that just finished. When provided the screen fetches
-  /// that specific session; otherwise it loads the most recent one.
+  // Which workout session to show (null = most recent one)
   final int? sessionId;
 
-  /// Optional callback so the bottom action bar can switch the host tab.
-  /// Index 3 = Nutrition, Index 4 = Messaging (matches the main scaffold).
+  // Optional callback to switch to another tab (e.g. Nutrition or Messages)
   final ValueChanged<int>? onNavigateToTab;
 
   const RecoveryScreen({
@@ -112,6 +122,7 @@ class RecoveryScreen extends StatefulWidget {
 // DATA MODEL
 // =============================================================================
 
+// Bundles the session data, latest vitals, and AI recommendation together
 class _RecoveryData {
   final Map<String, dynamic> session;
   final Map<String, dynamic>? vitals;
@@ -130,21 +141,41 @@ class _RecoveryData {
 
 class _RecoveryScreenState extends State<RecoveryScreen>
     with SingleTickerProviderStateMixin {
-  // â”€â”€ async data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // The data we're loading from the server (session + vitals + recommendation)
   late Future<_RecoveryData> _dataFuture;
 
-  // â”€â”€ breathing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Controls the breathing exercise animation
   late AnimationController _breathingController;
+  // Which breathing technique is currently selected
   BreathingType _selectedTechnique = BreathingType.relaxing478;
+  // What phase of the breath we're in ("Inhale", "Hold", "Exhale", or "Ready")
   String _breathingPhase = 'Ready';
+  // Whether the breathing exercise is actively running
   bool _isBreathingActive = false;
 
+  // Live vitals from VitalsProvider (overrides stale API data during recovery)
+  VitalsReading? _liveReading;
+  StreamSubscription<VitalsReading>? _vitalsStreamSub;
+
+  // Quick shortcut to get the timing config for whichever breathing technique the user picked
   _BreathingConfig get _cfg => _kBreathingConfigs[_selectedTechnique]!;
 
+  // Set up the screen: fetch data and prepare the breathing animation timer
   @override
   void initState() {
     super.initState();
     _dataFuture = _loadData();
+    // Subscribe to live vitals for real-time recovery monitoring
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        final vitalsProvider = Provider.of<VitalsProvider>(context, listen: false);
+        _vitalsStreamSub = vitalsProvider.vitalsStream.listen((reading) {
+          if (!mounted) return;
+          setState(() => _liveReading = reading);
+        });
+      } catch (_) {}
+    });
     _breathingController = AnimationController(
       duration: Duration(seconds: _cfg.totalSec),
       vsync: this,
@@ -152,10 +183,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // ITEM 1 â€” Data loading
+  // ITEM 1 Ã¢â‚¬â€ Data loading
   // ---------------------------------------------------------------------------
 
-  /// Fetch session, latest vitals, and recommendation in parallel.
+  // Fetch the workout session, latest vitals, and AI recommendation all at once
   Future<_RecoveryData> _loadData() async {
     final results = await Future.wait([
       _fetchSession(),
@@ -194,9 +225,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // ITEM 5 â€” Breathing logic
+  // ITEM 5 Ã¢â‚¬â€ Breathing logic
   // ---------------------------------------------------------------------------
 
+  // Runs every animation frame to check if it's time to switch between inhale, hold, and exhale
   void _onBreathingTick() {
     if (!_isBreathingActive) return;
     final v = _breathingController.value;
@@ -211,6 +243,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     if (phase != _breathingPhase) setState(() => _breathingPhase = phase);
   }
 
+  // Start or stop the breathing exercise when the user taps the button
   void _toggleBreathing() {
     setState(() {
       if (_isBreathingActive) {
@@ -226,6 +259,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     });
   }
 
+  // Switch to a different breathing pattern (e.g. Box, 4-7-8) and reset the animation
   void _selectTechnique(BreathingType type) {
     if (_isBreathingActive) _breathingController.stop();
     setState(() {
@@ -238,12 +272,13 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     });
   }
 
+  // Friendly instruction text shown during the breathing exercise
   String get _breathingHint {
     switch (_breathingPhase) {
       case 'Inhale':
         return 'Breathe in slowly through your nose';
       case 'Hold':
-        return 'Hold gently â€” do not strain';
+        return 'Hold gently Ã¢â‚¬â€ do not strain';
       case 'Exhale':
         return 'Exhale fully through your mouth';
       default:
@@ -251,8 +286,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     }
   }
 
+  // Clean up the breathing animation when the user leaves this screen
   @override
   void dispose() {
+    _vitalsStreamSub?.cancel();
     _breathingController
       ..removeListener(_onBreathingTick)
       ..dispose();
@@ -263,6 +300,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   // BUILD
   // ===========================================================================
 
+  // Builds the main recovery screen with app bar and background image
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -323,6 +361,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   // CONTENT
   // ===========================================================================
 
+  // Assembles all recovery sections: vitals banner, score ring, session stats, breathing, tips, and actions
   Widget _buildContent(_RecoveryData data, Brightness brightness) {
     final session = data.session;
 
@@ -333,14 +372,14 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     final int recoveryTime = _int(session['recovery_time_minutes']) ?? 0;
 
     final vitals = data.vitals;
-    final int? currentHR =
-        vitals != null ? _int(vitals['heart_rate']) : null;
-    final int? currentSpO2 =
-        vitals != null ? _int(vitals['spo2']) : null;
+    final int? currentHR = _liveReading?.heartRate.round()
+        ?? (vitals != null ? _int(vitals['heart_rate']) : null);
+    final int? currentSpO2 = _liveReading?.spo2?.round()
+        ?? (vitals != null ? _int(vitals['spo2']) : null);
     final int? hrv =
         vitals != null ? _int(vitals['hrv']) : null;
 
-    // Derive recovery score â€” ITEM 3
+    // Derive recovery score Ã¢â‚¬â€ ITEM 3
     const int restingHR = 65;
     final double hrRecoveryPct = currentHR != null && avgHR > 0
         ? ((1 - ((currentHR - restingHR).clamp(0, 60) / 60)) * 100)
@@ -361,14 +400,14 @@ class _RecoveryScreenState extends State<RecoveryScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ITEM 2 â€” Post-workout vitals banner
+          // ITEM 2 Ã¢â‚¬â€ Post-workout vitals banner
           if (vitals != null) ...[
             _buildVitalsBanner(
                 currentHR, currentSpO2, restingHR, brightness),
             const SizedBox(height: 24),
           ],
 
-          // ITEM 3 â€” Recovery score ring
+          // ITEM 3 Ã¢â‚¬â€ Recovery score ring
           _buildScoreSection(
             recoveryScore,
             hrRecoveryPct.round(),
@@ -378,7 +417,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           ),
           const SizedBox(height: 28),
 
-          // ITEM 4 â€” Session summary grid
+          // ITEM 4 Ã¢â‚¬â€ Session summary grid
           Text('Session Summary', style: AdaptivTypography.sectionTitle),
           const SizedBox(height: 12),
           _buildSummaryGrid(
@@ -392,13 +431,13 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           ),
           const SizedBox(height: 28),
 
-          // ITEM 5 â€” Breathing exercise
+          // ITEM 5 Ã¢â‚¬â€ Breathing exercise
           Text('Breathing Exercise', style: AdaptivTypography.sectionTitle),
           const SizedBox(height: 12),
           _buildBreathingSection(brightness),
           const SizedBox(height: 28),
 
-          // ITEM 6 â€” Personalised recommendation
+          // ITEM 6 Ã¢â‚¬â€ Personalised recommendation
           if (data.recommendation != null) ...[
             Text('Your Recommendation',
                 style: AdaptivTypography.sectionTitle),
@@ -407,7 +446,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
             const SizedBox(height: 28),
           ],
 
-          // ITEM 7 â€” Contextual tips
+          // ITEM 7 Ã¢â‚¬â€ Contextual tips
           Text('Recovery Tips', style: AdaptivTypography.sectionTitle),
           const SizedBox(height: 12),
           ..._buildContextualTips(
@@ -418,7 +457,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           ),
           const SizedBox(height: 28),
 
-          // ITEM 8 â€” Bottom action bar
+          // ITEM 8 Ã¢â‚¬â€ Bottom action bar
           _buildActionBar(brightness),
         ],
       ),
@@ -426,9 +465,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 2 â€” Post-workout vitals banner
+  // ITEM 2 Ã¢â‚¬â€ Post-workout vitals banner
   // ===========================================================================
 
+  // Shows the user's current heart rate and SpO2 with a coloured status message
   Widget _buildVitalsBanner(
     int? currentHR,
     int? currentSpO2,
@@ -444,7 +484,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
         allOk ? AdaptivColors.stable : AdaptivColors.warning;
     final String statusLabel = allOk
         ? 'Heart is recovering well'
-        : 'Still recovering â€” rest a bit more';
+        : 'Still recovering Ã¢â‚¬â€ rest a bit more';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -503,7 +543,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
                     AdaptivColors.getHRZoneColor(currentHR)),
               if (currentSpO2 != null) ...[
                 const SizedBox(height: 4),
-                _vitalChip('$currentSpO2% SpOâ‚‚', Icons.air,
+                _vitalChip('$currentSpO2% SpOÃ¢â€šâ€š', Icons.air,
                     spo2Ok ? AdaptivColors.stable : AdaptivColors.critical),
               ],
             ],
@@ -513,6 +553,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     );
   }
 
+  // Small pill-shaped label displaying a single vital reading (e.g. "72 BPM")
   Widget _vitalChip(String label, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -536,9 +577,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 3 â€” Recovery score ring (CustomPainter)
+  // ITEM 3 Ã¢â‚¬â€ Recovery score ring (CustomPainter)
   // ===========================================================================
 
+  // Draws the big score ring and three component bars (HR recovery, HRV, intensity)
   Widget _buildScoreSection(
     int score,
     int hrComponent,
@@ -554,7 +596,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     final String label = score >= 75
         ? 'Excellent recovery'
         : score >= 50
-            ? 'Good â€” keep resting'
+            ? 'Good Ã¢â‚¬â€ keep resting'
             : 'Needs more recovery time';
 
     return Card(
@@ -644,6 +686,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     );
   }
 
+  // One row inside the score section showing a coloured dot, label, and percentage
   Widget _subScore(String label, int value, Color color) {
     return Row(
       children: [
@@ -668,9 +711,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 4 â€” Session summary grid
+  // ITEM 4 Ã¢â‚¬â€ Session summary grid
   // ===========================================================================
 
+  // 2×3 grid of workout stats: duration, avg HR, peak HR, calories, recovery time, HRV
   Widget _buildSummaryGrid({
     required int duration,
     required int avgHR,
@@ -682,17 +726,17 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }) {
     final items = [
       _GridItem(
-          Icons.timer_outlined, 'Duration', duration > 0 ? '$duration min' : 'â€”'),
+          Icons.timer_outlined, 'Duration', duration > 0 ? '$duration min' : 'Ã¢â‚¬â€'),
       _GridItem(
-          Icons.favorite_border, 'Avg HR', avgHR > 0 ? '$avgHR BPM' : 'â€”'),
+          Icons.favorite_border, 'Avg HR', avgHR > 0 ? '$avgHR BPM' : 'Ã¢â‚¬â€'),
       _GridItem(
-          Icons.trending_up, 'Peak HR', peakHR > 0 ? '$peakHR BPM' : 'â€”'),
+          Icons.trending_up, 'Peak HR', peakHR > 0 ? '$peakHR BPM' : 'Ã¢â‚¬â€'),
       _GridItem(Icons.local_fire_department_outlined, 'Calories',
-          calories > 0 ? '$calories kcal' : 'â€”'),
+          calories > 0 ? '$calories kcal' : 'Ã¢â‚¬â€'),
       _GridItem(Icons.trending_down, 'Recovery',
-          recoveryTime > 0 ? '$recoveryTime min' : 'â€”'),
+          recoveryTime > 0 ? '$recoveryTime min' : 'Ã¢â‚¬â€'),
       _GridItem(Icons.monitor_heart_outlined, 'HRV',
-          hrv != null && hrv > 0 ? '$hrv ms' : 'â€”'),
+          hrv != null && hrv > 0 ? '$hrv ms' : 'Ã¢â‚¬â€'),
     ];
 
     return GridView.count(
@@ -708,6 +752,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     );
   }
 
+  // A single card in the summary grid showing one metric with its icon and value
   Widget _buildSummaryCard(_GridItem item, Brightness brightness) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -741,9 +786,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 5 â€” Breathing exercise with technique selector
+  // ITEM 5 Ã¢â‚¬â€ Breathing exercise with technique selector
   // ===========================================================================
 
+  // The full breathing exercise section: technique selector, timing labels, animated circle, and start button
   Widget _buildBreathingSection(Brightness brightness) {
     final cfg = _cfg;
     return Card(
@@ -848,6 +894,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     );
   }
 
+  // Small coloured label showing one timing step (e.g. "Inhale 4s")
   Widget _timingBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -863,6 +910,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     );
   }
 
+  // The animated breathing circle that grows on inhale and shrinks on exhale
   Widget _buildBreathingCircle(Brightness brightness) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -874,7 +922,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
             final cfg = _cfg;
             double scale;
             if (t <= cfg.inhaleEnd) {
-              // Inhale: grow 0.55 → 1.0 over the inhale fraction
+              // Inhale: grow 0.55 â†’ 1.0 over the inhale fraction
               final progress =
                   cfg.inhaleEnd > 0 ? (t / cfg.inhaleEnd).clamp(0.0, 1.0) : 1.0;
               scale = 0.55 + Curves.easeInOut.transform(progress) * 0.45;
@@ -882,7 +930,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
               // Hold: stay fully expanded
               scale = 1.0;
             } else {
-              // Exhale: shrink 1.0 → 0.55 over the exhale fraction
+              // Exhale: shrink 1.0 â†’ 0.55 over the exhale fraction
               final remaining = 1.0 - cfg.holdEnd;
               final progress = remaining > 0
                   ? ((t - cfg.holdEnd) / remaining).clamp(0.0, 1.0)
@@ -933,9 +981,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 6 â€” Personalised recommendation card
+  // ITEM 6 Ã¢â‚¬â€ Personalised recommendation card
   // ===========================================================================
 
+  // Card showing the AI's personalised recovery advice and suggested next activity
   Widget _buildRecommendationCard(
       Map<String, dynamic> rec, Brightness brightness) {
     final String title = rec['title']?.toString() ??
@@ -1008,9 +1057,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 7 â€” Contextual recovery tips
+  // ITEM 7 Ã¢â‚¬â€ Contextual recovery tips
   // ===========================================================================
 
+  // Generates a list of recovery tip cards tailored to the workout's intensity and duration
   List<Widget> _buildContextualTips({
     required int duration,
     required int peakHR,
@@ -1019,7 +1069,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }) {
     final tips = <_TipData>[];
 
-    // Cardiac-specific tip â€” always shown first
+    // Cardiac-specific tip Ã¢â‚¬â€ always shown first
     tips.add(const _TipData(
       Icons.favorite,
       'Cardiac Note',
@@ -1055,14 +1105,14 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     if (hrv != null && hrv < 35) {
       tips.add(const _TipData(
         Icons.nights_stay,
-        'Sleep â€” High Priority',
-        'Your HRV is low, indicating your nervous system needs rest. Aim for 8â€“9 hours tonight and avoid screens 1 hour before bed.',
+        'Sleep Ã¢â‚¬â€ High Priority',
+        'Your HRV is low, indicating your nervous system needs rest. Aim for 8Ã¢â‚¬â€œ9 hours tonight and avoid screens 1 hour before bed.',
       ));
     } else {
       tips.add(const _TipData(
         Icons.nights_stay,
         'Sleep',
-        'Quality sleep is when cardiovascular adaptation occurs. Target 7â€“9 hours for optimal recovery.',
+        'Quality sleep is when cardiovascular adaptation occurs. Target 7Ã¢â‚¬â€œ9 hours for optimal recovery.',
       ));
     }
 
@@ -1074,6 +1124,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     ];
   }
 
+  // One recovery tip displayed as a card with an icon, title, and description
   Widget _buildTipCard(_TipData tip, Brightness brightness) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1117,9 +1168,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 8 â€” Bottom action bar
+  // ITEM 8 Ã¢â‚¬â€ Bottom action bar
   // ===========================================================================
 
+  // Bottom buttons: "Log Recovery Meal" and "Message Care Team"
   Widget _buildActionBar(Brightness brightness) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1193,6 +1245,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   // EMPTY & ERROR STATES
   // ===========================================================================
 
+  // Shown when the user hasn't completed any workouts yet
   Widget _buildEmptyState(Brightness brightness) {
     return Center(
       child: Padding(
@@ -1220,6 +1273,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     );
   }
 
+  // Shown when loading the session data fails (usually a network problem)
   Widget _buildErrorState(String error, Brightness brightness) {
     return Center(
       child: Padding(
@@ -1260,6 +1314,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   // UTILITIES
   // ===========================================================================
 
+  // Safely convert any value to a whole number, returning null if it can't
   int? _int(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
@@ -1269,13 +1324,14 @@ class _RecoveryScreenState extends State<RecoveryScreen>
 }
 
 // =============================================================================
-// CUSTOM PAINTER â€” arc progress ring  (ITEM 3)
+// CUSTOM PAINTER Ã¢â‚¬â€ arc progress ring  (ITEM 3)
 // =============================================================================
 
+// Draws a circular progress arc used for the recovery score ring
 class _ArcRingPainter extends CustomPainter {
-  final double progress; // 0.0 â€“ 1.0
-  final Color ringColor;
-  final Color trackColor;
+  final double progress; // How full the ring is (0.0 = empty, 1.0 = complete)
+  final Color ringColor; // The colour of the filled portion
+  final Color trackColor; // The colour of the unfilled background track
 
   const _ArcRingPainter({
     required this.progress,
@@ -1334,18 +1390,20 @@ class _ArcRingPainter extends CustomPainter {
 // PRIVATE DATA CLASSES
 // =============================================================================
 
+// One cell in the session summary grid (icon + label + value)
 class _GridItem {
-  final IconData icon;
-  final String label;
-  final String value;
+  final IconData icon; // The icon shown at the top of the cell
+  final String label; // Short description (e.g. "Avg HR")
+  final String value; // The formatted number (e.g. "120 BPM")
   const _GridItem(this.icon, this.label, this.value);
 }
 
+// Data for a single recovery tip card (icon, title, description, and cardiac flag)
 class _TipData {
-  final IconData icon;
-  final String title;
-  final String description;
-  final bool isCardiac;
+  final IconData icon; // Icon displayed beside the tip
+  final String title; // Bold heading for the tip
+  final String description; // The detailed advice text
+  final bool isCardiac; // Cardiac tips get a special warning background colour
   const _TipData(this.icon, this.title, this.description,
       {this.isCardiac = false});
 }

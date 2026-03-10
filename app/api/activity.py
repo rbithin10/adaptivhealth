@@ -31,17 +31,24 @@ from typing import Optional
 from datetime import datetime, timezone
 import logging
 
+# Import the function that gives us a database session for each request
 from app.database import get_db
+# Import the User model so we can look up user info
 from app.models.user import User
+# Import the ActivitySession model (represents a workout record in the database)
 from app.models.activity import ActivitySession
+# Import the data shapes for creating, updating, and returning activity data
 from app.schemas.activity import (
     ActivitySessionCreate,
     ActivitySessionUpdate,
     ActivitySessionResponse
 )
+# Import authentication helpers to verify who is making the request
 from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
 
+# Set up a logger for this file so we can track what happens
 logger = logging.getLogger(__name__)
+# Create a router to group all activity-related API endpoints together
 router = APIRouter()
 
 
@@ -66,25 +73,28 @@ async def start_activity_session(
     
     Records the start time and initial parameters for a workout.
     """
+    # Create a new workout record with all the data the patient sent
     activity = ActivitySession(
-        user_id=current_user.user_id,
-        start_time=activity_data.start_time or datetime.now(timezone.utc),
-        end_time=activity_data.end_time,
-        activity_type=activity_data.activity_type,
-        avg_heart_rate=activity_data.avg_heart_rate,
-        peak_heart_rate=activity_data.peak_heart_rate,
-        min_heart_rate=activity_data.min_heart_rate,
-        avg_spo2=activity_data.avg_spo2,
-        duration_minutes=activity_data.duration_minutes,
-        calories_burned=activity_data.calories_burned,
-        recovery_time_minutes=activity_data.recovery_time_minutes,
-        feeling_before=activity_data.feeling_before,
-        user_notes=activity_data.user_notes,
-        status="active"
+        user_id=current_user.user_id,                           # Who is doing the workout
+        start_time=activity_data.start_time or datetime.now(timezone.utc),  # When the workout began
+        end_time=activity_data.end_time,                        # When it ended (usually blank at start)
+        activity_type=activity_data.activity_type,              # Type of exercise (walking, cycling, etc.)
+        avg_heart_rate=activity_data.avg_heart_rate,            # Average heart rate during the session
+        peak_heart_rate=activity_data.peak_heart_rate,          # Highest heart rate recorded
+        min_heart_rate=activity_data.min_heart_rate,            # Lowest heart rate recorded
+        avg_spo2=activity_data.avg_spo2,                        # Average blood oxygen level
+        duration_minutes=activity_data.duration_minutes,        # How long the workout lasted in minutes
+        calories_burned=activity_data.calories_burned,          # Estimated calories burned
+        recovery_time_minutes=activity_data.recovery_time_minutes,  # Time to recover after exercise
+        feeling_before=activity_data.feeling_before,            # How the patient felt before starting
+        user_notes=activity_data.user_notes,                    # Any notes the patient wants to add
+        status="active"                                         # Mark this session as currently in progress
     )
     
+    # Save the new session to the database
     db.add(activity)
     db.commit()
+    # Refresh to get the auto-generated session ID from the database
     db.refresh(activity)
     
     logger.info(f"Activity session started: {activity.session_id} for user {current_user.user_id}")
@@ -110,36 +120,40 @@ async def end_activity_session(
     
     Updates the session with end time, final heart rates, and completion status.
     """
+    # Find the workout session that belongs to this user
     activity = db.query(ActivitySession).filter(
         ActivitySession.session_id == session_id,
         ActivitySession.user_id == current_user.user_id
     ).first()
     
+    # If no matching session found, tell the user it doesn't exist
     if not activity:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Activity session not found"
         )
     
-    # Update fields
+    # Take only the fields the user actually sent (ignore blank/missing ones)
     update_data = activity_data.model_dump(exclude_unset=True)
+    # Update each field on the activity record with the new values
     for field, value in update_data.items():
         if hasattr(activity, field):
             setattr(activity, field, value)
     
-    # Set end time if not provided
+    # If no end time was provided, use the current time as the end time
     if activity.end_time is None:
         activity.end_time = datetime.now(timezone.utc)  # type: ignore
     
-    # Mark as completed
+    # Change the status from "active" to "completed" since the workout is over
     if activity.status == "active":
         activity.status = "completed"  # type: ignore
     
-    # Calculate duration if not set
+    # Automatically calculate how long the workout lasted if not already set
     if activity.start_time and activity.end_time and activity.duration_minutes is None:
         delta = activity.end_time - activity.start_time  # type: ignore
         activity.duration_minutes = int(delta.total_seconds() / 60)  # type: ignore
     
+    # Save the updated session to the database
     db.commit()
     db.refresh(activity)
     
@@ -167,15 +181,16 @@ async def get_my_activities(
     
     Returns list of all activity sessions for the current user.
     """
+    # Start building a query for this user's workout sessions
     query = db.query(ActivitySession).filter(
         ActivitySession.user_id == current_user.user_id
     )
     
-    # Filter by activity type if specified
+    # If the user asked to see only a specific type of exercise, filter by it
     if activity_type:
         query = query.filter(ActivitySession.activity_type == activity_type)
     
-    # Order by most recent first
+    # Get the workouts sorted by most recent first, with pagination
     activities = query.order_by(desc(ActivitySession.start_time))\
                      .limit(limit)\
                      .offset(offset)\
@@ -207,7 +222,7 @@ async def get_user_activities(
     
     Clinician/Admin access only.
     """
-    # Check consent
+    # First make sure the patient actually exists in our system
     patient = db.query(User).filter(User.user_id == user_id).first()
     if not patient:
         raise HTTPException(

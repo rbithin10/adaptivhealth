@@ -22,14 +22,16 @@ class HomeHeartRateRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Pick the ring colour based on risk level (green=safe, amber=warning, red=critical)
     final ringColor = AdaptivColors.getRiskColor(riskLevel);
 
     return Column(
       children: [
+        // Stack layers the glow behind the main ring
         Stack(
           alignment: Alignment.center,
           children: [
-            // Outer glow
+            // Soft coloured glow that sits behind the ring
             Container(
               width: 220,
               height: 220,
@@ -44,7 +46,7 @@ class HomeHeartRateRing extends StatelessWidget {
                 ],
               ),
             ),
-            // Main ring
+            // The visible ring with the heart rate number inside
             Container(
               width: 200,
               height: 200,
@@ -76,6 +78,7 @@ class HomeHeartRateRing extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    // Small green "Live" indicator badge
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),

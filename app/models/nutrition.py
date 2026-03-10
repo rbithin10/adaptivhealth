@@ -37,12 +37,12 @@ from app.database import Base
 # =============================================================================
 
 class MealType(str, Enum):
-    """Types of meals."""
-    BREAKFAST = "breakfast"
-    LUNCH = "lunch"
-    DINNER = "dinner"
-    SNACK = "snack"
-    OTHER = "other"
+    """The different meal categories a patient can log."""
+    BREAKFAST = "breakfast"  # Morning meal
+    LUNCH = "lunch"  # Midday meal
+    DINNER = "dinner"  # Evening meal
+    SNACK = "snack"  # Small bite between meals
+    OTHER = "other"  # Anything else (drinks, supplements, etc.)
 
 
 # =============================================================================
@@ -62,12 +62,12 @@ class NutritionEntry(Base):
     # -------------------------------------------------------------------------
     # Primary Key
     # -------------------------------------------------------------------------
-    entry_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    entry_id = Column(Integer, primary_key=True, index=True, autoincrement=True)  # Unique ID for this food entry
 
     # -------------------------------------------------------------------------
-    # Foreign Key
+    # Foreign Key — which patient logged this meal
     # -------------------------------------------------------------------------
-    user_id = Column(
+    user_id = Column(  # The patient who ate this meal
         Integer,
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,

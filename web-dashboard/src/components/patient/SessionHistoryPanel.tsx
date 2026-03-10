@@ -1,12 +1,18 @@
+/* SessionHistoryPanel — Shows a timeline of a patient's past exercise sessions.
+   Each entry shows the date, duration, type, average heart rate, and recovery time. */
+
 import React from 'react';
+// Data shape for a single activity session
 import { ActivitySessionResponse } from '../../types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: the list of activity sessions
 interface SessionHistoryPanelProps {
   activities: ActivitySessionResponse[];
 }
 
+// The session history list component
 const SessionHistoryPanel: React.FC<SessionHistoryPanelProps> = ({ activities }) => {
   return (
     <div

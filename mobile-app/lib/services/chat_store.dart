@@ -1,17 +1,21 @@
-/*
-In-memory store for AI Health Coach chat messages.
+﻿/*
+Chat Store.
 
-Keeps conversation history alive for the entire app session so that
-closing and re-opening the chat bottom sheet does not lose messages.
-The data is not persisted across app restarts.
+Keeps the AI Health Coach conversation in memory while the app is open.
+When the user closes the chat window and reopens it, all messages are
+still there. Messages are NOT saved between app restarts.
 */
 
+// Lets us notify screens when new messages arrive
 import 'package:flutter/foundation.dart';
 
-/// A single chat message exchanged with the AI Health Coach.
+// Represents one message in the chat (either from the user or the AI)
 class ChatMessage {
+  // The actual text of the message
   final String text;
+  // True if the user sent this message, false if the AI sent it
   final bool isUser;
+  // When the message was sent
   final DateTime timestamp;
 
   ChatMessage({
@@ -21,50 +25,48 @@ class ChatMessage {
   });
 }
 
-/// Session-scoped store for chat messages.
-///
-/// Provided via [ChangeNotifierProvider] at the app level so the
-/// conversation survives bottom-sheet dismissals.
+// Stores all chat messages and tells the chat screen to update when new ones arrive
 class ChatStore extends ChangeNotifier {
+  // The list of all messages in the conversation
   final List<ChatMessage> _messages = [];
 
-  /// Whether the AI is currently generating a response.
+  // Whether the AI is currently thinking of a response
   bool _isTyping = false;
 
-  /// Current app section used to provide context for AI responses.
+  // Which screen the user is on right now (helps the AI give relevant answers)
   String _currentScreen = 'home';
 
-  // ---------------------------------------------------------------------------
-  // Public getters
-  // ---------------------------------------------------------------------------
+  // ---- Read-only access to the data ----
 
-  /// Unmodifiable view of the current message list.
+  // Get a copy of all messages (screens can read but not modify directly)
   List<ChatMessage> get messages => List.unmodifiable(_messages);
 
+  // Check if the AI is currently typing a response
   bool get isTyping => _isTyping;
 
+  // Get which screen the user is currently viewing
   String get currentScreen => _currentScreen;
 
+  // Update which screen the user is on (so the AI can give context-aware help)
   set currentScreen(String value) {
+    // Don't bother updating if it's the same screen
     if (_currentScreen == value) return;
     _currentScreen = value;
+    // Tell the chat screen about the change
     notifyListeners();
   }
 
-  // ---------------------------------------------------------------------------
-  // Mutations
-  // ---------------------------------------------------------------------------
+  // ---- Add and manage messages ----
 
-  /// Seed the conversation with greeting messages.
-  ///
-  /// Only adds the greetings when the message list is empty, so re-opening
-  /// the sheet after a conversation does not duplicate them.
+  // Add a welcome greeting if the conversation is empty (first time opening chat)
   void ensureGreeting() {
+    // Only add greetings if no messages exist yet
     if (_messages.isNotEmpty) return;
 
+    // Add two welcome messages from the AI coach
     _messages.addAll([
       ChatMessage(
-        text: "Hi! 👋 I'm your AI Health Coach.",
+        text: "Hi! I'm your AI Health Coach.",
         isUser: false,
         timestamp: DateTime.now(),
       ),
@@ -74,28 +76,31 @@ class ChatStore extends ChangeNotifier {
         timestamp: DateTime.now(),
       ),
     ]);
+    // Tell the chat screen to show the new messages
     notifyListeners();
   }
 
-  /// Append a message (user or bot) to the conversation.
+  // Add a new message to the conversation (from either the user or the AI)
   void addMessage(ChatMessage message) {
     _messages.add(message);
+    // Tell the chat screen to show the new message
     notifyListeners();
   }
 
-  /// Update the typing indicator state.
+  // Show or hide the "AI is typing..." indicator
   void setTyping(bool value) {
+    // Don't bother updating if the value hasn't changed
     if (_isTyping == value) return;
     _isTyping = value;
+    // Tell the chat screen to update the typing indicator
     notifyListeners();
   }
 
-  /// Remove all messages and reset typing state.
-  ///
-  /// Useful if you add a "clear chat" action later.
+  // Delete all messages and reset — used if a "clear chat" button is added later
   void clear() {
     _messages.clear();
     _isTyping = false;
+    // Tell the chat screen to refresh (now empty)
     notifyListeners();
   }
 }

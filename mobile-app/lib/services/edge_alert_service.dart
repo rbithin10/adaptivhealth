@@ -1,43 +1,55 @@
-/// Edge Alert Service — Threshold-based alerts + GPS emergency SOS.
-///
-/// This service handles two critical offline-capable features:
-///
-/// 1. THRESHOLD ALERTS: Pure math, no ML. If HR > 180 or SpO2 < 88,
-///    the patient needs an alert immediately — no model needed.
-///
-/// 2. GPS EMERGENCY: When a critical alert fires, capture GPS coordinates
-///    (GPS works via satellite — no cell signal needed). Queue the
-///    emergency data locally. When connectivity returns, auto-sync
-///    to the cloud so the doctor sees the event with exact location.
-///
-/// WHY GPS WITHOUT NETWORK?
-///   GPS receivers in phones talk directly to satellites. A patient
-///   hiking on a mountaintop with zero cell service can still get:
-///   - Their exact latitude/longitude/altitude
-///   - A locally-stored SOS record
-///   - Auto-sync when they descend to cell coverage
-///   The app can also trigger the phone's native SOS (if available)
-///   or compose an SMS (SMS works on weaker signal than data).
+﻿/*
+Edge Alert Service — Threshold-based alerts + GPS emergency SOS.
+
+This service handles two critical offline-capable features:
+
+1. THRESHOLD ALERTS: Pure math, no ML. If heart rate > 180 or SpO2 < 88,
+   the patient needs an alert immediately — no model needed.
+
+2. GPS EMERGENCY: When a critical alert fires, capture GPS coordinates
+   (GPS works via satellite — no cell signal needed). Queue the
+   emergency data locally. When connectivity returns, auto-sync
+   to the cloud so the doctor sees the event with exact location.
+
+GPS receivers in phones talk directly to satellites. A patient
+hiking on a mountaintop with zero cell service can still get:
+- Their exact latitude/longitude/altitude
+- A locally-stored SOS record
+- Auto-sync when they descend to cell coverage
+*/
 library;
 
+// Converts objects to/from JSON text for saving to phone storage
 import 'dart:convert';
+// Saves small pieces of data to the phone that survive app restarts
 import 'package:shared_preferences/shared_preferences.dart';
+// Our data models for alerts and GPS emergency records
 import '../models/edge_prediction.dart';
 
 // ============================================================================
-// Alert Thresholds (configurable, loaded from edge_model_metadata.json)
+// Alert Thresholds — the danger levels that trigger alerts
 // ============================================================================
 
+// Holds all the numbers that define "dangerous" vital signs
 class AlertThresholds {
+  // Heart rate above this = CRITICAL danger (default: 180 BPM)
   final int hrCriticalHigh;
+  // Heart rate above this = warning (default: 150 BPM)
   final int hrWarningHigh;
+  // Heart rate below this = CRITICAL danger (default: 40 BPM)
   final int hrCriticalLow;
+  // Heart rate below this = warning (default: 50 BPM)
   final int hrWarningLow;
+  // Blood oxygen below this = CRITICAL danger (default: 88%)
   final int spo2Critical;
+  // Blood oxygen below this = warning (default: 92%)
   final int spo2Warning;
+  // Blood pressure top number above this = CRITICAL (default: 180)
   final int bpSystolicCritical;
+  // Blood pressure top number above this = warning (default: 160)
   final int bpSystolicWarning;
 
+  // Default threshold values based on medical guidelines
   const AlertThresholds({
     this.hrCriticalHigh = 180,
     this.hrWarningHigh = 150,
@@ -49,6 +61,7 @@ class AlertThresholds {
     this.bpSystolicWarning = 160,
   });
 
+  // Create thresholds from a JSON settings file (with safe defaults)
   factory AlertThresholds.fromJson(Map<String, dynamic> json) {
     return AlertThresholds(
       hrCriticalHigh: json['hr_critical_high'] as int? ?? 180,
@@ -64,19 +77,22 @@ class AlertThresholds {
 }
 
 // ============================================================================
-// Edge Alert Service
+// Edge Alert Service — checks vitals against danger thresholds
 // ============================================================================
 
 class EdgeAlertService {
+  // The threshold values we compare vitals against
   AlertThresholds thresholds;
 
-  // Queue of emergency alerts waiting to sync to cloud
+  // Queue of GPS emergency alerts waiting to be uploaded to the cloud
   final List<GpsEmergencyAlert> _pendingEmergencies = [];
 
-  // Prevent alert storms — cooldown per alert type
+  // Tracks when each alert type last fired to prevent alert storms
   final Map<String, DateTime> _lastAlertTime = {};
+  // Minimum 2 minutes between repeated alerts of the same type
   static const _alertCooldown = Duration(minutes: 2);
 
+  // Create the service with custom thresholds or use safe medical defaults
   EdgeAlertService({AlertThresholds? thresholds})
       : thresholds = thresholds ?? const AlertThresholds();
 
@@ -87,11 +103,16 @@ class EdgeAlertService {
     int? spo2,
     int? bpSystolic,
   }) {
+    // Collect any alerts we need to return
     final alerts = <ThresholdAlert>[];
+    // Snapshot the current time for cooldown tracking
     final now = DateTime.now();
 
     // ---- Heart Rate Checks ----
+
+    // Check if heart rate is CRITICALLY high (e.g. above 180 BPM)
     if (heartRate >= thresholds.hrCriticalHigh) {
+      // Only fire if we haven't just sent the same alert recently
       if (_canAlert('hr_critical_high', now)) {
         alerts.add(ThresholdAlert(
           alertType: 'high_heart_rate',
@@ -109,6 +130,7 @@ class EdgeAlertService {
           threshold: thresholds.hrCriticalHigh.toDouble(),
         ));
       }
+    // If not critical, check if heart rate is a warning level (e.g. above 150)
     } else if (heartRate >= thresholds.hrWarningHigh) {
       if (_canAlert('hr_warning_high', now)) {
         alerts.add(ThresholdAlert(
@@ -129,6 +151,7 @@ class EdgeAlertService {
       }
     }
 
+    // Check if heart rate is CRITICALLY low (e.g. below 40 BPM)
     if (heartRate <= thresholds.hrCriticalLow && heartRate > 0) {
       if (_canAlert('hr_critical_low', now)) {
         alerts.add(ThresholdAlert(
@@ -146,6 +169,7 @@ class EdgeAlertService {
           threshold: thresholds.hrCriticalLow.toDouble(),
         ));
       }
+    // If not critical, check if heart rate is a warning-low (e.g. below 50)
     } else if (heartRate <= thresholds.hrWarningLow && heartRate > 0) {
       if (_canAlert('hr_warning_low', now)) {
         alerts.add(ThresholdAlert(
@@ -164,8 +188,11 @@ class EdgeAlertService {
       }
     }
 
-    // ---- SpO2 Checks ----
+    // ---- Blood Oxygen (SpO2) Checks ----
+
+    // Only check if SpO2 data was provided and is a real reading
     if (spo2 != null && spo2 > 0) {
+      // Check if blood oxygen is CRITICALLY low (e.g. below 88%)
       if (spo2 <= thresholds.spo2Critical) {
         if (_canAlert('spo2_critical', now)) {
           alerts.add(ThresholdAlert(
@@ -184,6 +211,7 @@ class EdgeAlertService {
             threshold: thresholds.spo2Critical.toDouble(),
           ));
         }
+      // If not critical, check if SpO2 is at warning level (e.g. below 92%)
       } else if (spo2 <= thresholds.spo2Warning) {
         if (_canAlert('spo2_warning', now)) {
           alerts.add(ThresholdAlert(
@@ -204,7 +232,10 @@ class EdgeAlertService {
     }
 
     // ---- Blood Pressure Checks ----
+
+    // Only check if blood pressure data was provided and is a real reading
     if (bpSystolic != null && bpSystolic > 0) {
+      // Check if blood pressure is CRITICALLY high (e.g. above 180 mmHg)
       if (bpSystolic >= thresholds.bpSystolicCritical) {
         if (_canAlert('bp_critical', now)) {
           alerts.add(ThresholdAlert(
@@ -221,6 +252,7 @@ class EdgeAlertService {
             threshold: thresholds.bpSystolicCritical.toDouble(),
           ));
         }
+      // If not critical, check if blood pressure is at warning level
       } else if (bpSystolic >= thresholds.bpSystolicWarning) {
         if (_canAlert('bp_warning', now)) {
           alerts.add(ThresholdAlert(
@@ -240,6 +272,7 @@ class EdgeAlertService {
       }
     }
 
+    // Return all the alerts we found (could be empty if vitals are fine)
     return alerts;
   }
 
@@ -257,6 +290,7 @@ class EdgeAlertService {
     required double riskScore,
     required Map<String, dynamic> vitals,
   }) async {
+    // Build the emergency record with GPS location and health data
     final alert = GpsEmergencyAlert(
       latitude: latitude,
       longitude: longitude,
@@ -267,33 +301,36 @@ class EdgeAlertService {
       vitals: vitals,
     );
 
-    // Queue for cloud sync
+    // Add to the queue waiting to be uploaded to the cloud
     _pendingEmergencies.add(alert);
 
-    // Persist to local storage (survives app restart)
+    // Save to phone storage so it survives app restarts
     await _savePendingEmergencies();
 
     return alert;
   }
 
-  /// Get all pending emergencies that haven't been synced to cloud
+  // Get a read-only copy of emergencies waiting to be synced
   List<GpsEmergencyAlert> get pendingEmergencies =>
       List.unmodifiable(_pendingEmergencies);
 
-  /// Mark an emergency as synced (called after successful cloud upload)
+  // Remove an emergency from the queue after it was successfully uploaded
   Future<void> markEmergencySynced(int index) async {
     if (index >= 0 && index < _pendingEmergencies.length) {
       _pendingEmergencies.removeAt(index);
+      // Update the saved list on the phone
       await _savePendingEmergencies();
     }
   }
 
-  /// Load pending emergencies from local storage (call at app startup)
+  // Load any unsent emergencies from phone storage (called when app starts)
   Future<void> loadPendingEmergencies() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      // Read the JSON string of saved emergencies
       final jsonStr = prefs.getString('pending_gps_emergencies');
       if (jsonStr != null) {
+        // Parse the JSON text back into a list of alert objects
         final list = json.decode(jsonStr) as List;
         _pendingEmergencies.clear();
         for (final item in list) {
@@ -303,32 +340,37 @@ class EdgeAlertService {
         }
       }
     } catch (_) {
-      // Silently fail — don't crash app for storage issues
+      // Don't crash the app over a storage issue — just skip loading
     }
   }
 
   // ---- Private Helpers ----
 
-  /// Prevent alert storms: only one alert per type every 2 minutes
+  // Prevents alert storms: only allow one alert per type every 2 minutes
   bool _canAlert(String type, DateTime now) {
+    // Check when this alert type last fired
     final last = _lastAlertTime[type];
+    // If it fired recently (within cooldown period), block the new alert
     if (last != null && now.difference(last) < _alertCooldown) {
       return false;
     }
+    // Record that we're firing this alert type right now
     _lastAlertTime[type] = now;
     return true;
   }
 
-  /// Persist pending emergencies to SharedPreferences
+  // Save the pending emergencies list to phone storage
   Future<void> _savePendingEmergencies() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      // Convert all emergency objects to JSON text
       final jsonStr = json.encode(
         _pendingEmergencies.map((e) => e.toJson()).toList(),
       );
+      // Write the JSON text to SharedPreferences storage
       await prefs.setString('pending_gps_emergencies', jsonStr);
     } catch (_) {
-      // Best effort persistence
+      // Best effort — if save fails, emergencies are still in memory
     }
   }
 }

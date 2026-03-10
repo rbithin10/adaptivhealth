@@ -223,26 +223,26 @@ def select_exercise(
     Returns:
         A copy of the selected exercise template dict.
     """
-    level = risk_level.lower()
+    level = risk_level.lower()  # Normalize to lowercase for consistent matching
     if level in ("critical", "high"):
-        level = "high"
+        level = "high"  # Critical patients get the same gentle exercises as high-risk
     elif level not in ("moderate", "low"):
-        level = "low"
+        level = "low"  # Default to low-risk exercises if level is unknown
 
-    pool = EXERCISE_LIBRARY[level]
+    pool = EXERCISE_LIBRARY[level]  # Get all exercises for this risk level
 
-    # Filter out last activity to avoid repetition
+    # Try to avoid giving the same exercise two times in a row
     if last_activity:
         candidates = [
             ex for ex in pool if ex["suggested_activity"] != last_activity
         ]
-        # Fall back to full pool if all were filtered (single-item pool edge case)
+        # If filtering removed everything, use the full pool instead
         if not candidates:
             candidates = pool
     else:
         candidates = pool
 
-    return random.choice(candidates).copy()
+    return random.choice(candidates).copy()  # Pick a random exercise and return a copy
 
 
 # =============================================================================
@@ -312,20 +312,22 @@ def get_ranked_recommendation(
     Deterministically assigns users to variant A or B based on user_id hash
     so the same user always gets the same variant.
     """
+    # Determine which variant pool to use based on risk level
     level = risk_level.lower()
     if level in ("critical", "high"):
-        level = "high"
+        level = "high"  # Critical and high share the same recommendations
     elif level not in ("moderate", "low"):
-        level = "low"
+        level = "low"  # Default to low risk
 
-    variants = RECOMMENDATION_VARIANTS.get(level, RECOMMENDATION_VARIANTS["low"])
+    variants = RECOMMENDATION_VARIANTS.get(level, RECOMMENDATION_VARIANTS["low"])  # Get A and B options
 
+    # Allow manual override of variant, otherwise auto-assign based on user ID
     if variant_override and variant_override.upper() in variants:
         variant = variant_override.upper()
     else:
-        variant = _assign_variant(user_id)
+        variant = _assign_variant(user_id)  # Deterministic: same user always gets same variant
 
-    recommendation = variants[variant].copy()
+    recommendation = variants[variant].copy()  # Get the recommendation for this variant
 
     return {
         "variant": variant,
@@ -372,5 +374,6 @@ def _assign_variant(user_id: int) -> str:
 
     MD5 is used here solely for fast, deterministic bucketing, not for security.
     """
+    # Use a hash of the user ID to consistently pick A or B (same user = same variant)
     hash_val = hashlib.md5(str(user_id).encode()).hexdigest()  # noqa: S324
-    return "A" if int(hash_val, 16) % 2 == 0 else "B"
+    return "A" if int(hash_val, 16) % 2 == 0 else "B"  # Even hash = A, odd hash = B

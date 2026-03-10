@@ -47,11 +47,11 @@ class UserBase(BaseModel):
     Base user schema with common fields.
     Used for creating and updating users.
     """
-    email: EmailStr = Field(..., description="User's email address")
-    name: str = Field(..., min_length=1, max_length=255, description="Full name")
-    age: Optional[int] = Field(None, ge=1, le=120, description="Age in years")
-    gender: Optional[str] = Field(None, description="Gender (male, female, other, prefer not to say)")
-    phone: Optional[str] = Field(None, max_length=20, description="Phone number")
+    email: EmailStr = Field(..., description="User's email address")  # The user's email for login and communication
+    name: str = Field(..., min_length=1, max_length=255, description="Full name")  # Their full name (1-255 characters)
+    age: Optional[int] = Field(None, ge=1, le=120, description="Age in years")  # Patient's age (must be between 1 and 120)
+    gender: Optional[str] = Field(None, description="Gender (male, female, other, prefer not to say)")  # Gender identity
+    phone: Optional[str] = Field(None, max_length=20, description="Phone number")  # Contact phone number
     
     @field_validator('gender')
     def validate_gender(cls, v):
@@ -72,8 +72,8 @@ class UserCreate(UserBase):
     Schema for creating new users.
     Includes password and role assignment.
     """
-    password: str = Field(..., min_length=8, description="Password (minimum 8 characters)")
-    role: UserRole = Field(default=UserRole.PATIENT, description="User role")
+    password: str = Field(..., min_length=8, description="Password (minimum 8 characters)")  # Account password (at least 8 chars with letters and numbers)
+    role: UserRole = Field(default=UserRole.PATIENT, description="User role")  # What type of user: patient, clinician, or admin
     
     @field_validator('password')
     def validate_password_strength(cls, v):
@@ -100,24 +100,24 @@ class UserUpdate(BaseModel):
     Schema for updating user information.
     All fields are optional for partial updates.
     """
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    age: Optional[int] = Field(None, ge=1, le=120)
-    gender: Optional[str] = Field(None)
-    phone: Optional[str] = Field(None, max_length=20)
-    weight_kg: Optional[float] = Field(None, ge=0, le=500, description="Weight in kilograms")
-    height_cm: Optional[float] = Field(None, ge=0, le=300, description="Height in centimetres")
-    emergency_contact_name: Optional[str] = Field(None, max_length=255)
-    emergency_contact_phone: Optional[str] = Field(None, max_length=20)
-    rehab_phase: Optional[str] = Field(None, description="Cardiac rehab phase: phase_2, phase_3, or not_in_rehab")
-    activity_level: Optional[str] = Field(None, description="Activity level: none, light, moderate, active")
-    exercise_limitations: Optional[str] = Field(None, description="JSON list of exercise limitations")
-    primary_goal: Optional[str] = Field(None, description="Primary health goal")
-    stress_level: Optional[int] = Field(None, ge=1, le=10, description="Stress level 1-10")
-    sleep_quality: Optional[str] = Field(None, description="Sleep quality: good, fair, poor")
-    smoking_status: Optional[str] = Field(None, description="Smoking status: never, former, current")
-    alcohol_frequency: Optional[str] = Field(None, description="Alcohol frequency: never, occasional, moderate, heavy")
-    sedentary_hours: Optional[float] = Field(None, ge=0, le=24, description="Sedentary hours per day (0-24)")
-    phq2_score: Optional[int] = Field(None, ge=0, le=6, description="PHQ-2 depression screening score (0-6)")
+    name: Optional[str] = Field(None, min_length=1, max_length=255)  # Updated name (optional)
+    age: Optional[int] = Field(None, ge=1, le=120)  # Updated age (optional)
+    gender: Optional[str] = Field(None)  # Updated gender (optional)
+    phone: Optional[str] = Field(None, max_length=20)  # Updated phone number (optional)
+    weight_kg: Optional[float] = Field(None, ge=0, le=500, description="Weight in kilograms")  # Body weight in kilograms
+    height_cm: Optional[float] = Field(None, ge=0, le=300, description="Height in centimetres")  # Body height in centimetres
+    emergency_contact_name: Optional[str] = Field(None, max_length=255)  # Who to call in an emergency
+    emergency_contact_phone: Optional[str] = Field(None, max_length=20)  # Emergency contact's phone number
+    rehab_phase: Optional[str] = Field(None, description="Cardiac rehab phase: phase_2, phase_3, or not_in_rehab")  # Which stage of cardiac rehab
+    activity_level: Optional[str] = Field(None, description="Activity level: none, light, moderate, active")  # How active the patient is day-to-day
+    exercise_limitations: Optional[str] = Field(None, description="JSON list of exercise limitations")  # Any exercises the patient should avoid
+    primary_goal: Optional[str] = Field(None, description="Primary health goal")  # What the patient is working towards
+    stress_level: Optional[int] = Field(None, ge=1, le=10, description="Stress level 1-10")  # Self-reported stress (1=low, 10=high)
+    sleep_quality: Optional[str] = Field(None, description="Sleep quality: good, fair, poor")  # How well the patient sleeps
+    smoking_status: Optional[str] = Field(None, description="Smoking status: never, former, current")  # Do they smoke?
+    alcohol_frequency: Optional[str] = Field(None, description="Alcohol frequency: never, occasional, moderate, heavy")  # How often they drink alcohol
+    sedentary_hours: Optional[float] = Field(None, ge=0, le=24, description="Sedentary hours per day (0-24)")  # Hours spent sitting each day
+    phq2_score: Optional[int] = Field(None, ge=0, le=6, description="PHQ-2 depression screening score (0-6)")  # Depression screening score (higher = more concern)
     
     @field_validator('gender')
     def validate_gender(cls, v):
@@ -170,11 +170,11 @@ class MedicalHistoryUpdate(BaseModel):
     Schema for updating user's medical history.
     Medical data is sensitive and will be encrypted.
     """
-    conditions: Optional[List[str]] = Field(None, description="List of medical conditions")
-    medications: Optional[List[str]] = Field(None, description="Current medications")
-    allergies: Optional[List[str]] = Field(None, description="Known allergies")
-    surgeries: Optional[List[str]] = Field(None, description="Past surgeries")
-    notes: Optional[str] = Field(None, max_length=1000, description="Additional medical notes")
+    conditions: Optional[List[str]] = Field(None, description="List of medical conditions")  # Health conditions the patient has
+    medications: Optional[List[str]] = Field(None, description="Current medications")  # Medicines they are currently taking
+    allergies: Optional[List[str]] = Field(None, description="Known allergies")  # Things they are allergic to
+    surgeries: Optional[List[str]] = Field(None, description="Past surgeries")  # Surgeries they have had in the past
+    notes: Optional[str] = Field(None, max_length=1000, description="Additional medical notes")  # Extra notes from the clinician
 
 
 # =============================================================================
@@ -186,11 +186,11 @@ class UserResponse(UserBase):
     Schema for user data in API responses.
     Includes system-generated fields.
     """
-    id: int = Field(..., description="User ID")
-    role: UserRole = Field(..., description="User role")
-    is_active: bool = Field(..., description="Account active status")
-    is_verified: bool = Field(..., description="Email verification status")
-    assigned_clinician_id: Optional[int] = Field(None, description="ID of assigned clinician (for patients)")
+    id: int = Field(..., description="User ID")  # The unique number that identifies this user
+    role: UserRole = Field(..., description="User role")  # Their role: patient, clinician, or admin
+    is_active: bool = Field(..., description="Account active status")  # Is this account enabled?
+    is_verified: bool = Field(..., description="Email verification status")  # Have they verified their email?
+    assigned_clinician_id: Optional[int] = Field(None, description="ID of assigned clinician (for patients)")  # Which doctor is assigned to this patient
     rehab_phase: Optional[str] = Field(None, description="Cardiac rehab phase: phase_2, phase_3, or not_in_rehab")
     activity_level: Optional[str] = Field(None, description="Activity level")
     exercise_limitations: Optional[str] = Field(None, description="JSON list of exercise limitations")
@@ -261,11 +261,11 @@ class TokenResponse(BaseModel):
     """
     Schema for authentication token responses.
     """
-    access_token: str = Field(..., description="JWT access token")
-    refresh_token: str = Field(..., description="JWT refresh token")
-    token_type: str = Field(default="bearer", description="Token type")
-    expires_in: int = Field(..., description="Access token expiration time in seconds")
-    user: UserResponse = Field(..., description="User information")
+    access_token: str = Field(..., description="JWT access token")  # The key that proves you're logged in
+    refresh_token: str = Field(..., description="JWT refresh token")  # A backup key to get a new access token when it expires
+    token_type: str = Field(default="bearer", description="Token type")  # Always "bearer" — the standard way to use tokens
+    expires_in: int = Field(..., description="Access token expiration time in seconds")  # How many seconds until the access token expires
+    user: UserResponse = Field(..., description="User information")  # Basic info about the logged-in user
 
 
 class RefreshTokenRequest(BaseModel):

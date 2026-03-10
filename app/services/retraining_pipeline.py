@@ -42,13 +42,15 @@ def evaluate_retraining_readiness(
     min_days_since_last: int = 7,
 ) -> Dict[str, Any]:
     """Check if conditions are met to trigger a model retraining."""
-    reasons = []
-    ready = True
+    reasons = []  # Will collect reasons why retraining can or can't happen
+    ready = True  # Assume ready until proven otherwise
 
+    # Check 1: Do we have enough new patient data?
     if new_records_count < min_records:
         ready = False
         reasons.append(f"Only {new_records_count} new records (need {min_records})")
 
+    # Check 2: Has enough time passed since the last retraining?
     if last_retrain_date:
         try:
             last_dt = datetime.fromisoformat(last_retrain_date.replace("Z", "+00:00"))
@@ -84,15 +86,15 @@ def prepare_training_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             "valid_records": 0,
         }
 
-    valid_records = []
-    skipped = 0
-    required_fields = ["heart_rate", "spo2", "risk_label"]
+    valid_records = []  # Will hold records that have all required fields
+    skipped = 0  # Count of records missing required data
+    required_fields = ["heart_rate", "spo2", "risk_label"]  # Every training record must have these
 
     for record in records:
-        if all(record.get(f) is not None for f in required_fields):
+        if all(record.get(f) is not None for f in required_fields):  # Check all required fields exist
             valid_records.append(record)
         else:
-            skipped += 1
+            skipped += 1  # Skip incomplete records
 
     return {
         "status": "ok" if valid_records else "no_valid_data",

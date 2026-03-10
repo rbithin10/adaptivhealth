@@ -1,3 +1,12 @@
+/*
+Doctor Messaging Screen.
+
+A chat screen where the patient can message their assigned clinician.
+Loads the conversation history from the server, lets the user type and
+send new messages, and auto-refreshes every 10 seconds to show replies.
+If no clinician is assigned, shows an informational message instead.
+*/
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
@@ -21,30 +30,36 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  // Loading flags
   bool _isLoading = false;
   bool _isSending = false;
   bool _isLoadingClinician = true;
   String? _errorMessage;
+
+  // IDs and info about the current user and their assigned clinician
   int? _currentUserId;
-  int? _clinicianId; // Real clinician ID from backend
+  int? _clinicianId;
   String _clinicianName = 'Loading...';
+
+  // All messages in the conversation
   List<Map<String, dynamic>> _messages = [];
+
+  // Polls the server every 10s for new messages
   Timer? _autoRefreshTimer;
 
+  // On load: fetch the assigned clinician, then start auto-refresh
   @override
   void initState() {
     super.initState();
     _loadClinicianAndThread();
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 10 seconds to show new replies
     _autoRefreshTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => _refreshThreadSilently(),
     );
   }
 
-  /// Load assigned clinician, then fetch message thread.
-  /// Gets clinician from GET /users/me/clinician endpoint.
-  /// Returns 404 if no clinician assigned (admin needs to assign one).
+  // Look up the patient's assigned clinician, then load messages
   Future<void> _loadClinicianAndThread() async {
     setState(() {
       _isLoadingClinician = true;
@@ -87,7 +102,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
       await _loadThread();
     } catch (e) {
       if (!mounted) return;
-      // Parse error message for better UX
+      // Show user-friendly error messages based on HTTP status
       String errorMsg = 'Unable to connect to clinician';
       if (e.toString().contains('403')) {
         errorMsg = 'Unable to load clinician. Your access may have changed.';
@@ -103,6 +118,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
   }
 
+  // Stop the auto-refresh timer and clean up controllers
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
@@ -111,6 +127,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     super.dispose();
   }
 
+  // Fetch the full message thread from the server
   Future<void> _loadThread() async {
     // Don't load thread if clinician not assigned
     if (_clinicianId == null) {
@@ -157,7 +174,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
   }
 
-  /// Refresh thread without showing loading indicator (for auto-refresh)
+  // Silently re-fetch messages in the background (no loading spinner)
   Future<void> _refreshThreadSilently() async {
     if (_clinicianId == null || _isLoading || _isSending) {
       return;
@@ -193,7 +210,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
   }
 
-  /// Mark all unread messages from clinician as read
+  // Mark any unread messages from the clinician as read
   Future<void> _markUnreadMessagesAsRead() async {
     if (_currentUserId == null || _clinicianId == null) return;
 
@@ -221,6 +238,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
   }
 
+  // Send the typed message to the clinician
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _isSending || _clinicianId == null) return;
@@ -254,6 +272,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
   }
 
+  // Scroll the chat list to the newest message
   void _scrollToBottom() {
     if (!_scrollController.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -266,11 +285,13 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     });
   }
 
+  // Check if a message was sent by the logged-in patient
   bool _isSentByCurrentUser(Map<String, dynamic> message) {
     final senderId = message['sender_id'] as int?;
     return _currentUserId != null && senderId == _currentUserId;
   }
 
+  // Main screen layout
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -307,6 +328,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     );
   }
 
+  // Card showing the clinician's name at the top of the screen
   Widget _buildCareTeamHeader() {
     return Card(
       margin: const EdgeInsets.all(16),
@@ -326,6 +348,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     );
   }
 
+  // The message list area — shows loading, error, empty, or the conversation
   Widget _buildThreadBody() {
     // Show loading state while fetching clinician
     if (_isLoadingClinician) {
@@ -421,6 +444,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     );
   }
 
+  // One chat bubble — blue for sent, white for received
   Widget _buildMessageBubble(Map<String, dynamic> message) {
     final isSent = _isSentByCurrentUser(message);
     final content = message['content'] as String? ?? '';
@@ -477,6 +501,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     );
   }
 
+  // Format a timestamp into a short label ("14:30", "Yesterday 14:30", etc.)
   String _formatTimestamp(DateTime? timestamp) {
     if (timestamp == null) return '';
     
@@ -499,6 +524,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     }
   }
 
+  // Text field and send button at the bottom of the screen
   Widget _buildMessageComposer() {
     final canSend = _clinicianId != null && !_isSending;
     final placeholder = _clinicianId == null

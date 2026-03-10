@@ -1,18 +1,27 @@
-import 'dart:async';
+/*
+Device Pairing Screen.
 
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:provider/provider.dart';
+Lets the user connect a Bluetooth health device (like a heart rate monitor
+or blood pressure cuff) to the app. Scans for nearby devices, shows them
+in a list, and handles the pairing process. Also provides options to connect
+via Apple Health, Google Health Connect, or Fitbit.
+*/
 
-import '../config/platform_guard.dart';
-import '../providers/vitals_provider.dart';
-import '../services/api_client.dart';
-import '../services/ble/ble_permission_handler.dart';
-import '../services/ble/ble_service.dart';
-import '../services/fitbit/fitbit_service.dart';
-import '../theme/colors.dart';
-import '../widgets/ai_coach_overlay.dart';
+import 'dart:async'; // Gives us StreamSubscription and Timer for async events
+
+import 'package:flutter/foundation.dart' show kIsWeb; // Tells us if the app is running in a browser
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // Bluetooth Low Energy library
+import 'package:provider/provider.dart'; // State management
+
+import '../config/platform_guard.dart'; // Detects iOS vs Android
+import '../providers/vitals_provider.dart'; // Central hub for all vital sign data
+import '../services/api_client.dart'; // Talks to our backend server
+import '../services/ble/ble_permission_handler.dart'; // Asks for Bluetooth permissions at runtime
+import '../services/ble/ble_service.dart'; // Our custom wrapper around the BLE library
+import '../services/fitbit/fitbit_service.dart'; // Fitbit OAuth login + data sync
+import '../theme/colors.dart'; // App colour palette
+import '../widgets/ai_coach_overlay.dart'; // Floating AI coach button overlay
 
 class DevicePairingScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -26,29 +35,35 @@ class DevicePairingScreen extends StatefulWidget {
 class _DevicePairingScreenState extends State<DevicePairingScreen> {
   final BleService _bleService = BleService.instance;
 
+  // Stream listeners for BLE scan results and connection state changes
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
 
+  // Devices discovered during scan
   List<ScanResult> _scanResults = [];
+  // Current connection state (connected / disconnected)
   BluetoothConnectionState _connectionState =
       BluetoothConnectionState.disconnected;
   bool _isScanning = false;
   bool _isConnectingHealth = false;
+  // When true, scan for ALL BLE devices instead of only heart rate monitors
   bool _discoverAll = false;
   String? _connectedDeviceId;
 
-  // Scan timing
+  // Tracks how long the current scan has been running
   DateTime? _scanStartTime;
   Timer? _scanElapsedTimer;
   int _scanElapsedSeconds = 0;
 
-  // Last-seen timestamps per device remote ID
+  // Remembers when each device was last seen so we can show "2s ago" etc.
   final Map<String, DateTime> _deviceLastSeen = {};
 
+  // Set up BLE stream listeners when the screen loads
   @override
   void initState() {
     super.initState();
 
+    // Listen for newly discovered devices during a scan
     _scanSubscription = _bleService.scanResultsStream.listen((results) {
       if (!mounted) return;
       final now = DateTime.now();
@@ -60,6 +75,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
       });
     });
 
+    // Listen for connection state changes (connected / disconnected)
     _connectionSubscription =
         _bleService.connectionStateStream.listen((state) {
       if (!mounted) return;
@@ -69,6 +85,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     });
   }
 
+  // Clean up stream subscriptions and timers
   @override
   void dispose() {
     _scanSubscription?.cancel();
@@ -77,6 +94,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     super.dispose();
   }
 
+  // Start scanning for nearby BLE devices
   Future<void> _startScan() async {
     // Check that the Bluetooth adapter is powered on.
     final btOn = await BleService.isBluetoothOn();
@@ -163,6 +181,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
+  // Connect to a selected BLE device
    Future<void> _connect(ScanResult result) async {
     setState(() {
       _connectedDeviceId = result.device.remoteId.str;
@@ -205,6 +224,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
   }
 
 
+  // Disconnect from the currently connected device
   Future<void> _disconnect() async {
     await _bleService.disconnect();
     if (!mounted) return;
@@ -215,6 +235,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   // ── Fitness platform definitions ─────────────────────────────────────────
 
+  // List of supported fitness apps the user can sync through Health Connect
   static const List<_FitnessSource> _fitnessSources = [
     _FitnessSource(
       name: 'Samsung Health',
@@ -273,7 +294,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     ),
   ];
 
-  /// Show the fitness platform picker, then proceed to Health Connect flow.
+  // Show the fitness platform picker, then connect via Health Connect
   Future<void> _connectViaHealth() async {
     if (isIOS) {
       // iOS always goes through HealthKit — no platform picker needed.
@@ -446,8 +467,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   // ── Fitbit direct API connection ──────────────────────────────────────────────
 
-  /// Presents a Fitbit-specific auth dialog, then runs the PKCE OAuth2 flow
-  /// via [VitalsProvider.connectFitbit].  No Health Connect is required.
+  // Open Fitbit login in browser and pair via OAuth2 (no Health Connect needed)
   Future<void> _connectFitbitDirect() async {
     final brightness = Theme.of(context).brightness;
 
@@ -547,7 +567,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 
   // ── Health Connect source ─────────────────────────────────────────────────
 
-  /// Calls VitalsProvider.enableHealthKit() and shows result snackbar.
+  // Actually connect to Health Connect / HealthKit and show the result
   Future<void> _doConnectViaHealth(String platformName) async {
     setState(() => _isConnectingHealth = true);
     try {
@@ -582,6 +602,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
+  // Get the best available name for a scanned device
   String _resolveDeviceName(ScanResult result) {
     final platformName = result.device.platformName.trim();
     if (platformName.isNotEmpty) return platformName;
@@ -592,14 +613,13 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     return id.length > 17 ? id.substring(0, 17) : id;
   }
 
-  /// Returns true when no human-readable name could be resolved.
+  // Returns true if the device has no human-readable name
   bool _isNameUnknown(ScanResult result) {
     return result.device.platformName.trim().isEmpty &&
         result.advertisementData.advName.trim().isEmpty;
   }
 
-  /// Maps BLE manufacturer company ID to a human-readable name.
-  /// Falls back to hex company ID string if the company is unknown.
+  // Turn a BLE manufacturer ID into a name like "Apple" or "Polar"
   String? _resolveManufacturer(ScanResult result) {
     final mfData = result.advertisementData.manufacturerData;
     if (mfData.isEmpty) return null;
@@ -621,7 +641,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     return '0x${companyId.toRadixString(16).toUpperCase().padLeft(4, '0')}';
   }
 
-  /// Formats a DateTime as a short relative age string (e.g. "2s ago").
+  // Format when a device was last detected (e.g. "2s ago")
   String _formatLastSeen(DateTime? lastSeen) {
     if (lastSeen == null) return '';
     final diff = DateTime.now().difference(lastSeen);
@@ -629,7 +649,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     return '${diff.inMinutes}m ago';
   }
 
-  /// Progress banner shown below the scan button while (or just after) scanning.
+  // Progress banner showing scan duration and number of devices found
   Widget _buildScanTimingBanner(Brightness brightness) {
     const totalSeconds = 10;
     final progress = (_scanElapsedSeconds / totalSeconds).clamp(0.0, 1.0);
@@ -698,6 +718,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     );
   }
 
+    // Small coloured badge for a single service type (HR, SpO2, etc.)
     Widget _serviceBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -717,6 +738,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     );
   }
 
+    // Show which health services a device advertises (HR, SpO2, BP, Temp)
     Widget _buildServiceBadges(ScanResult result) {
     final advertisedServices = result.advertisementData.serviceUuids;
     final hasHR = advertisedServices.contains(BleService.heartRateServiceUuid);
@@ -740,6 +762,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     );
   }
 
+  // Main screen layout
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -1058,6 +1081,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     );
   }
 
+  // Icon for the active data source (BLE, Health Connect, Fitbit, Demo)
+  // Icon representing whichever data source is currently active
   Widget _sourceIcon(VitalsSource source) {
     switch (source) {
       case VitalsSource.ble:
@@ -1072,6 +1097,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
+  // Readable name for each data source
+  // Human-readable name shown below the active source icon
   String _sourceName(VitalsSource source) {
     switch (source) {
       case VitalsSource.ble:
@@ -1085,6 +1112,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     }
   }
 
+  // Coloured badge label (LIVE, SYNCED, FITBIT, DEMO)
   Widget _sourceBadge(VitalsSource source) {
     Color color;
     String label;
@@ -1128,6 +1156,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
 // Data class for fitness platform source picker
 // ---------------------------------------------------------------------------
 
+// Holds info about a fitness app (name, icon, sync instructions)
 class _FitnessSource {
   final String name;
   final IconData icon;
@@ -1149,6 +1178,7 @@ class _FitnessSource {
 // Small helper widget used inside the Fitbit auth dialog
 // ---------------------------------------------------------------------------
 
+// A single bullet point row with an icon and label
 class _BulletRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -1174,6 +1204,7 @@ class _BulletRow extends StatelessWidget {
 // BLE scan result card
 // ---------------------------------------------------------------------------
 
+// Card showing one discovered device with name, signal, services, and connect button
 class _ScanResultCard extends StatelessWidget {
   final String deviceName;
   final bool nameUnknown;
@@ -1203,7 +1234,7 @@ class _ScanResultCard extends StatelessWidget {
     this.lastSeenLabel = '',
   });
 
-  // Returns 0-4 (number of filled signal bars).
+  // Convert RSSI to 0-4 bars (like Wi-Fi strength indicator)
   int get _signalBars {
     if (rssi >= -60) return 4;
     if (rssi >= -70) return 3;
@@ -1404,7 +1435,7 @@ class _ScanResultCard extends StatelessWidget {
   }
 }
 
-// Small inline label chip used inside scan result cards.
+// Tiny rounded label chip (e.g. "Last used", "Connected")
 class _ChipLabel extends StatelessWidget {
   final String label;
   final Color color;
@@ -1434,7 +1465,7 @@ class _ChipLabel extends StatelessWidget {
   }
 }
 
-// Four-bar signal strength widget (like WiFi bars).
+// Four-bar signal strength widget (like Wi-Fi bars)
 class _SignalBars extends StatelessWidget {
   final int bars; // 0-4
   final Color color;

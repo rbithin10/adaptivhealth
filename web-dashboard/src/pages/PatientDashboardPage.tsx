@@ -33,6 +33,7 @@ import { User, AlertResponse, VitalSignResponse } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 
+// Stats shown at a glance on the patient's personal health page
 interface PatientStats {
   latestHeartRate: number;
   latestSpO2: number;
@@ -42,6 +43,7 @@ interface PatientStats {
   avgHeartRate: number;
 }
 
+// Helper to read HTTP status from error objects (used for 404 checks)
 const getHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== 'object') return undefined;
   const record = error as { response?: { status?: number } };
@@ -50,6 +52,8 @@ const getHttpStatus = (error: unknown): number | undefined => {
 
 const PatientDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+
+  // The patient's key numbers displayed on the dashboard
   const [stats, setStats] = useState<PatientStats>({
     latestHeartRate: 0,
     latestSpO2: 0,
@@ -58,17 +62,23 @@ const PatientDashboardPage: React.FC = () => {
     riskScore: 0,
     avgHeartRate: 72,
   });
+  // Whether data is still being fetched
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The logged-in patient's profile
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Historical vitals for the heart-rate chart
   const [vitalHistory, setVitalHistory] = useState<VitalSignResponse[]>([]);
+  // Recent health alerts for this patient
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
 
+  // Load all dashboard data when the page first opens
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fetch the patient's profile, vitals, risk score, history, and alerts
   const loadData = async () => {
     try {
       // Get current user info
@@ -159,6 +169,7 @@ const PatientDashboardPage: React.FC = () => {
     }
   };
 
+  // Sign out and go back to the login screen
   const handleLogout = async () => {
     try {
       await api.logout();
@@ -222,6 +233,7 @@ const PatientDashboardPage: React.FC = () => {
 
       {/* Main Content */}
       <main style={{ maxWidth: '1440px', margin: '0 auto', padding: '32px' }}>
+        {/* Error banner shown if the dashboard data failed to load */}
         {loadError && (
           <div
             style={{
@@ -237,7 +249,7 @@ const PatientDashboardPage: React.FC = () => {
           </div>
         )}
 
-        {/* Stats Grid */}
+        {/* Vital stats at a glance: heart rate, oxygen, blood pressure, risk level */}
         <div
           style={{
             display: 'grid',
@@ -337,7 +349,7 @@ const PatientDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Charts Section */}
+        {/* 7-day heart-rate trend chart */}
         <div style={{ marginBottom: '32px' }}>
           <div
             style={{

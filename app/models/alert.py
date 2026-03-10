@@ -83,21 +83,21 @@ class Alert(Base):
     # -------------------------------------------------------------------------
     # Massoud's original columns (already in AWS RDS - 670 rows)
     # -------------------------------------------------------------------------
-    alert_type = Column(String(50), nullable=True)  # high_hr, low_spo2
-    severity = Column(String(20), nullable=True)     # critical, warning
-    message = Column(Text, nullable=True)
-    acknowledged = Column(Boolean, default=False, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    alert_type = Column(String(50), nullable=True)   # What kind of alert (e.g. high_heart_rate, low_spo2)
+    severity = Column(String(20), nullable=True)      # How serious: info, warning, critical, or emergency
+    message = Column(Text, nullable=True)             # Human-readable description of the alert
+    acknowledged = Column(Boolean, default=False, nullable=True)  # Whether the user has seen/dismissed this alert
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)  # When the alert was created
 
     # -------------------------------------------------------------------------
-    # Bithin's extra columns (to be added via ALTER TABLE)
+    # Extra columns for the mobile app and clinician dashboard
     # -------------------------------------------------------------------------
-    title = Column(String(100), nullable=True)
-    action_required = Column(String(200), nullable=True)
-    trigger_value = Column(String(100), nullable=True)
-    threshold_value = Column(String(100), nullable=True)
-    risk_score = Column(Float, nullable=True)
-    activity_session_id = Column(Integer, nullable=True)
+    title = Column(String(100), nullable=True)             # Short headline for the alert (shown in notifications)
+    action_required = Column(String(200), nullable=True)   # What the patient or clinician should do about it
+    trigger_value = Column(String(100), nullable=True)     # The actual reading that triggered the alert (e.g. "195 BPM")
+    threshold_value = Column(String(100), nullable=True)   # The safe limit that was exceeded (e.g. "180 BPM")
+    risk_score = Column(Float, nullable=True)              # AI risk score at the time of the alert (0.0 to 1.0)
+    activity_session_id = Column(Integer, nullable=True)   # Which workout session triggered this alert (if any)
 
     # Notification tracking
     is_sent_to_user = Column(Boolean, default=False, nullable=True)

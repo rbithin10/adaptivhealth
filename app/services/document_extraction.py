@@ -46,14 +46,14 @@ def extract_text_from_pdf(file_path: str) -> str:
         Concatenated text from all pages.
     """
     try:
-        from PyPDF2 import PdfReader
-        reader = PdfReader(file_path)
+        from PyPDF2 import PdfReader  # Library for reading PDF files
+        reader = PdfReader(file_path)  # Open and parse the PDF
         pages_text = []
-        for page in reader.pages:
-            text = page.extract_text()
+        for page in reader.pages:  # Go through each page of the PDF
+            text = page.extract_text()  # Pull out the text from this page
             if text:
                 pages_text.append(text)
-        full_text = "\n\n".join(pages_text)
+        full_text = "\n\n".join(pages_text)  # Combine all pages into one string
         logger.info(f"Extracted {len(full_text)} chars from PDF ({len(reader.pages)} pages)")
         return full_text
     except Exception as e:

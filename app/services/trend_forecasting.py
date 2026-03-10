@@ -43,14 +43,15 @@ def forecast_trends(
             "forecast_days": forecast_days,
         }
 
-    hr_series = []
-    spo2_series = []
+    # Collect heart rate and oxygen data with time offsets
+    hr_series = []  # Will hold (day_number, heart_rate) pairs
+    spo2_series = []  # Will hold (day_number, blood_oxygen) pairs
 
-    base_time = _parse_timestamp(readings[0].get("timestamp"))
+    base_time = _parse_timestamp(readings[0].get("timestamp"))  # Use first reading as day zero
     for r in readings:
         ts = _parse_timestamp(r.get("timestamp"))
         if ts and base_time:
-            day_offset = (ts - base_time).total_seconds() / 86400.0
+            day_offset = (ts - base_time).total_seconds() / 86400.0  # Convert time difference to days
         else:
             day_offset = 0.0
 
@@ -78,35 +79,38 @@ def forecast_trends(
 
 def _linear_forecast(series: List[tuple], forecast_days: int) -> Dict[str, Any]:
     """Simple linear regression forecast."""
-    n = len(series)
-    xs = [p[0] for p in series]
-    ys = [p[1] for p in series]
+    n = len(series)  # How many data points we have
+    xs = [p[0] for p in series]  # The day numbers (x-axis)
+    ys = [p[1] for p in series]  # The vital sign values (y-axis)
 
-    x_mean = sum(xs) / n
-    y_mean = sum(ys) / n
+    x_mean = sum(xs) / n  # Average day number
+    y_mean = sum(ys) / n  # Average vital sign value
 
+    # Calculate the slope of the trend line (how much the value changes per day)
     numerator = sum((xs[i] - x_mean) * (ys[i] - y_mean) for i in range(n))
     denominator = sum((xs[i] - x_mean) ** 2 for i in range(n))
 
-    slope = 0.0 if denominator == 0 else numerator / denominator
-    intercept = y_mean - slope * x_mean
+    slope = 0.0 if denominator == 0 else numerator / denominator  # Rise over run
+    intercept = y_mean - slope * x_mean  # Where the line crosses the y-axis
 
-    last_day = xs[-1]
-    current_value = slope * last_day + intercept
+    last_day = xs[-1]  # The most recent day in our data
+    current_value = slope * last_day + intercept  # Fitted value for today
 
-    forecast_day = last_day + forecast_days
-    forecasted_value = slope * forecast_day + intercept
+    forecast_day = last_day + forecast_days  # The future day we're predicting
+    forecasted_value = slope * forecast_day + intercept  # Predicted value for that future day
 
+    # Calculate R-squared (how well the line fits the data, 0-1, higher = better)
     ss_res = sum((ys[i] - (slope * xs[i] + intercept)) ** 2 for i in range(n))
     ss_tot = sum((ys[i] - y_mean) ** 2 for i in range(n))
     r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
+    # Classify the trend direction based on slope size
     if abs(slope) < 0.1:
-        direction = "stable"
+        direction = "stable"  # Not really changing
     elif slope > 0:
-        direction = "increasing"
+        direction = "increasing"  # Going up over time
     else:
-        direction = "decreasing"
+        direction = "decreasing"  # Going down over time
 
     return {
         "slope_per_day": round(slope, 4),

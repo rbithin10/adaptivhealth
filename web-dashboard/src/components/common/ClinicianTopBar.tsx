@@ -1,4 +1,9 @@
+/* ClinicianTopBar — The navigation bar at the top of the page for clinicians.
+   Shows the app logo, the clinician's name, a Messages button, and Logout. */
+
+// React and hooks for tracking state and side effects
 import React, { useEffect, useState } from 'react';
+// Navigation helpers from React Router
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Heart, LogOut, MessageSquare } from 'lucide-react';
 import { api } from '../../services/api';
@@ -6,12 +11,16 @@ import { User } from '../../types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// The top navigation bar component
 const ClinicianTopBar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  // Keep track of who's logged in and how many unread messages they have
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
+  // When the page loads, fetch the current user and their unread message count
+  // Also re-check every 5 seconds so the badge stays up to date
   useEffect(() => {
     let isMounted = true;
 
@@ -42,13 +51,16 @@ const ClinicianTopBar: React.FC = () => {
     };
   }, []);
 
+  // Log out: tell the server, then go to the login page
   const handleLogout = async () => {
     await api.logout();
     navigate('/login');
   };
 
+  // Check if we're already on the messages page (to disable the Messages button)
   const isMessagesPage = location.pathname.startsWith('/messages');
 
+  // Render the top bar with logo, user name, Messages button, and Logout
   return (
     <header
       style={{

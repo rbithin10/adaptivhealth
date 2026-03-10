@@ -84,18 +84,18 @@ class ActivitySession(Base):
     # -------------------------------------------------------------------------
     # Massoud's original columns (already in AWS RDS - 3K rows)
     # -------------------------------------------------------------------------
-    start_time = Column(DateTime(timezone=True), nullable=False)
-    end_time = Column(DateTime(timezone=True), nullable=True)
-    activity_type = Column(String(50), nullable=True)
-    avg_heart_rate = Column(Integer, nullable=True)
-    peak_heart_rate = Column(Integer, nullable=True)
-    min_heart_rate = Column(Integer, nullable=True)
-    avg_spo2 = Column(Integer, nullable=True)
-    duration_minutes = Column(Integer, nullable=True)
-    calories_burned = Column(Integer, nullable=True)
-    recovery_time_minutes = Column(Integer, nullable=True)
-    risk_score = Column(Float, nullable=True)  # 0.0 to 1.0 from ML model
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    start_time = Column(DateTime(timezone=True), nullable=False)     # When the workout started
+    end_time = Column(DateTime(timezone=True), nullable=True)        # When the workout finished
+    activity_type = Column(String(50), nullable=True)                # Type of exercise (walking, cycling, swimming, etc.)
+    avg_heart_rate = Column(Integer, nullable=True)                  # Average heart rate during the session (BPM)
+    peak_heart_rate = Column(Integer, nullable=True)                 # Highest heart rate reached during exercise
+    min_heart_rate = Column(Integer, nullable=True)                  # Lowest heart rate during exercise
+    avg_spo2 = Column(Integer, nullable=True)                        # Average blood oxygen level during exercise
+    duration_minutes = Column(Integer, nullable=True)                # How long the workout lasted in minutes
+    calories_burned = Column(Integer, nullable=True)                 # Estimated calories burned during the session
+    recovery_time_minutes = Column(Integer, nullable=True)           # Minutes until heart rate returned to resting level
+    risk_score = Column(Float, nullable=True)                        # AI-calculated cardiac risk during this session (0.0 to 1.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)  # When this record was created
 
     # -------------------------------------------------------------------------
     # Bithin's extra columns (to be added via ALTER TABLE)

@@ -1,11 +1,15 @@
 /* Adaptiv Health Global Styles */
-/* Plus Jakarta Sans Typography - Medical-Grade UI Design System */
+/* This file sets the look and feel for the entire web dashboard */
+
+/* Load the Plus Jakarta Sans font from Google — it's clean and easy to read for medical data */
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
+/* Make all elements use the simpler "border-box" sizing so padding doesn't break layouts */
 * {
   box-sizing: border-box;
 }
 
+/* Set the base page styling — light background, clean font, smooth text rendering */
 html,
 body {
   margin: 0;
@@ -18,16 +22,19 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Default text colour is near-black, with comfortable line spacing */
 body {
   color: #111827;
   line-height: 1.6;
 }
 
+/* Code snippets use a monospace (typewriter) font so they stand out from normal text */
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
-/* Typography */
+/* ---- Typography: Headings ---- */
+/* All headings share the same font, are bold, and remove default browser spacing */
 h1,
 h2,
 h3,
@@ -40,26 +47,31 @@ h6 {
   color: #111827;
 }
 
+/* Remove default paragraph spacing so we control it ourselves */
 p {
   margin: 0;
 }
 
-/* Buttons */
+/* ---- Buttons ---- */
+/* Buttons use the same font as the rest of the app for a consistent look */
 button {
   font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
-/* Links */
+/* ---- Links ---- */
+/* Links are styled in the brand blue colour, with no underline */
 a {
   color: #2563eb;
   text-decoration: none;
 }
 
+/* Links get a darker blue when you hover over them */
 a:hover {
   color: #1e40af;
 }
 
-/* Form Inputs */
+/* ---- Form Inputs ---- */
+/* Text boxes, dropdowns, and text areas all share the same font and size */
 input,
 textarea,
 select {
@@ -68,29 +80,35 @@ select {
   color: #111827;
 }
 
+/* Placeholder text inside inputs is a lighter gray so it's clearly "hint text" */
 input::placeholder {
   color: #9ca3af;
 }
 
-/* Scrollbar */
+/* ---- Custom Scrollbar (Chrome/Edge) ---- */
+/* Make the scrollbar thinner and styled to match the light theme */
 ::-webkit-scrollbar {
   width: 8px;
 }
 
+/* Scrollbar track (background) */
 ::-webkit-scrollbar-track {
   background: #f3f4f6;
 }
 
+/* Scrollbar thumb (the draggable part) */
 ::-webkit-scrollbar-thumb {
   background: #d1d5db;
   border-radius: 4px;
 }
 
+/* Scrollbar thumb darkens when you hover it */
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
 
-/* Selection */
+/* ---- Text Selection ---- */
+/* When the user highlights text, it shows in light blue with dark text */
 ::selection {
   background-color: #dbeafe;
   color: #111827;

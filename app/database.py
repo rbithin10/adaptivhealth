@@ -1,68 +1,72 @@
 """
 Database setup.
 
-Connects to PostgreSQL and manages database sessions.
-Uses connection pooling to reuse connections efficiently.
+Connects to the PostgreSQL database and manages sessions (conversations
+with the database). Uses connection pooling so we reuse connections
+instead of opening a new one for every single request.
 """
 
+# SQLAlchemy is the library that lets Python talk to PostgreSQL
 from sqlalchemy import create_engine, event, text
+# declarative_base lets us define database tables as Python classes
 from sqlalchemy.ext.declarative import declarative_base
+# sessionmaker creates database session objects; Session is the type hint
 from sqlalchemy.orm import sessionmaker, Session
+# QueuePool keeps a pool of database connections ready to use
 from sqlalchemy.pool import QueuePool
+# Generator is a type hint for functions that "yield" values
 from typing import Generator
+# Logging lets us record what happens for debugging and auditing
 import logging
 
+# Import our app settings (database URL, environment, etc.)
 from app.config import settings
 
-# Configure logging for database operations
+# Set up a logger specifically for database-related messages
 logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Database Engine Configuration
 # =============================================================================
 
-# Create database engine with connection pooling
-# pool_pre_ping: Checks connections are alive before using (prevents stale connections)
-# pool_size: Number of persistent connections in the pool
-# max_overflow: Additional connections allowed during high load
-# pool_recycle: Recycle connections after this many seconds (prevents timeouts)
-# PostgreSQL with connection pooling
-# SSL is required for production (AWS RDS); disabled for local development
+# Check if we are running in production (live server) or development (local)
 _is_production = settings.environment == "production"
+# Tell PostgreSQL to always use UTC timezone for consistency
 _connect_args: dict = {"options": "-c timezone=utc"}
+# In production, force encrypted SSL connections to AWS RDS for security
 if _is_production:
     _connect_args["sslmode"] = "require"
     _connect_args["sslrootcert"] = "/etc/ssl/certs/rds-ca.pem"
 
+# Create the main database engine — this is the central connection manager
 engine = create_engine(
-    settings.database_url,
-    poolclass=QueuePool,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-    pool_recycle=3600,
-    echo=settings.debug,
-    connect_args=_connect_args,
+    settings.database_url,          # The database address from our settings
+    poolclass=QueuePool,            # Use a queue-based pool to reuse connections
+    pool_pre_ping=True,             # Test each connection is alive before using it
+    pool_size=10,                   # Keep 10 connections open and ready at all times
+    max_overflow=20,                # Allow up to 20 extra connections during busy periods
+    pool_recycle=3600,              # Replace connections after 1 hour to prevent timeouts
+    echo=settings.debug,            # Print SQL queries to console when debug mode is on
+    connect_args=_connect_args,     # Pass the timezone and SSL settings above
 )
 
 # =============================================================================
 # Session Factory
 # =============================================================================
 
-# Session factory - creates new database sessions
-# autocommit=False: Transactions are explicit
-# autoflush=False: Don't auto-flush changes (more control)
+# Create a factory that produces new database sessions on demand
+# Each session is like a short conversation with the database
 SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
+    autocommit=False,   # We control when changes are saved (not automatic)
+    autoflush=False,    # We control when pending changes are sent to the database
+    bind=engine         # Connect these sessions to our engine above
 )
 
 # =============================================================================
 # Base Model Class
 # =============================================================================
 
-# Base class for all SQLAlchemy models
+# Every database table class (User, VitalSigns, etc.) inherits from this base
 Base = declarative_base()
 
 
@@ -72,32 +76,30 @@ Base = declarative_base()
 
 def get_db() -> Generator[Session, None, None]:
     """
-    Database session dependency for FastAPI.
-    
-    Creates a new session for each request and ensures proper cleanup.
-    
-    Usage in routes:
-        @app.get("/users")
-        def get_users(db: Session = Depends(get_db)):
-            return db.query(User).all()
-    
-    Lifecycle:
-        1. Creates session at request start
-        2. Yields session for use in route
-        3. Commits on success (if changes made)
-        4. Rolls back on error
-        5. Always closes session
+    Provides a database session to each API request, then cleans up after.
+
+    How it works:
+        1. Opens a fresh database session when a request starts
+        2. Hands the session to the route so it can read/write data
+        3. Saves any changes if everything went well
+        4. Undoes all changes if something went wrong
+        5. Always closes the session when the request is done
     """
+    # Open a new database session
     db = SessionLocal()
     try:
+        # Hand over the session to the route that requested it
         yield db
-        db.commit()  # Commit any pending changes
+        # If the route finished without errors, save all pending changes
+        db.commit()
     except Exception as e:
-        db.rollback()  # Rollback on error
+        # If something went wrong, undo all changes to keep data consistent
+        db.rollback()
         logger.error(f"Database error: {str(e)}")
         raise
     finally:
-        db.close()  # Always close the session
+        # No matter what happened, close the session to free the connection
+        db.close()
 
 
 # =============================================================================
@@ -106,16 +108,13 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     """
-    Initialize database tables.
-    
-    Called on application startup in development.
-    In production, use Alembic migrations instead.
-    
-    This imports all models to register them with SQLAlchemy,
-    then creates any missing tables.
+    Create all database tables if they don't exist yet.
+
+    Called automatically when the app starts up in development.
+    In production, we use migration scripts instead for more control.
     """
-    # Import all models so SQLAlchemy knows about them
-    # This is necessary for Base.metadata to have all table definitions
+    # Import every model file so SQLAlchemy knows which tables to create
+    # Without these imports, SQLAlchemy wouldn't know about our tables
     from app.models import (
         user,
         auth_credential,
@@ -131,7 +130,7 @@ def init_db() -> None:
     
     logger.info("Creating database tables...")
     
-    # Create all tables that don't exist
+    # Look at all the model classes and create any missing tables in PostgreSQL
     Base.metadata.create_all(bind=engine)
     
     logger.info("Database tables created successfully")
@@ -139,14 +138,16 @@ def init_db() -> None:
 
 def drop_db() -> None:
     """
-    Drop all database tables.
+    Delete all database tables and their data.
     
-    WARNING: This destroys all data! Only use in development/testing.
+    WARNING: This destroys everything! Only use during development or testing.
     """
+    # Safety check — never allow this to run on the live production server
     if settings.environment == "production":
         raise RuntimeError("Cannot drop database in production!")
     
     logger.warning("Dropping all database tables...")
+    # Remove every table that SQLAlchemy knows about from the database
     Base.metadata.drop_all(bind=engine)
     logger.warning("All tables dropped")
 
@@ -157,12 +158,11 @@ def drop_db() -> None:
 
 def check_db_connection() -> bool:
     """
-    Check if database connection is healthy.
-    
-    Returns:
-        True if connection is successful, False otherwise
+    Quick test to make sure we can actually talk to the database.
+    Returns True if the connection works, False if something is wrong.
     """
     try:
+        # Try running a simple query — if this works, the database is reachable
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
@@ -171,16 +171,16 @@ def check_db_connection() -> bool:
         return False
 
 
-# ==============================
-# ===============================================
+# =============================================================================
 # Event Listeners (Audit Logging for HIPAA)
 # =============================================================================
 
 @event.listens_for(engine, "before_cursor_execute")
 def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     """
-    Event listener for SQL query logging.
-    Useful for audit trails and debugging.
+    Runs before every SQL query. In debug mode, logs what query is about to run.
+    Helps developers see exactly what the app is asking the database to do.
     """
     if settings.debug:
-        logger.debug(f"SQL: {statement[:100]}...")  # Log first 100 chars
+        # Only show the first 100 characters to keep logs readable
+        logger.debug(f"SQL: {statement[:100]}...")

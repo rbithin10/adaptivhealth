@@ -1,3 +1,4 @@
+/* RegisterPage.test.tsx — Tests for the account registration form and its validation */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,6 +12,7 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }));
 
+// Fake the register endpoint so no real accounts get created
 const mockApi = {
   register: jest.fn(),
 };
@@ -20,11 +22,13 @@ jest.mock('../services/api', () => ({
   default: mockApi,
 }));
 
+// Registration form rendering and client-side validation
 describe('RegisterPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  // All four fields (name, email, password, confirm) should be visible
   it('renders registration form fields', () => {
     render(
       <MemoryRouter>
@@ -38,6 +42,7 @@ describe('RegisterPage', () => {
     expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument();
   });
 
+  // Mismatched passwords should block submission and show an error
   it('shows error when passwords do not match', async () => {
     render(
       <MemoryRouter>

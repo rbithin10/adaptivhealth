@@ -53,7 +53,7 @@ const PatientDetailPage: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
 
-  // Core state
+  // Basic patient info and their latest readings
   const [patient, setPatient] = useState<User | null>(null);
   const [latestVitals, setLatestVitals] = useState<VitalSignResponse | null>(null);
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentResponse | null>(null);
@@ -62,7 +62,7 @@ const PatientDetailPage: React.FC = () => {
   const [activities, setActivities] = useState<ActivitySessionResponse[]>([]);
   const [vitalsHistory, setVitalsHistory] = useState<VitalSignsHistoryResponse | null>(null);
 
-  // Advanced ML state
+  // Advanced ML feature states (anomaly detection, trend forecasting, etc.)
   const [anomalyData, setAnomalyData] = useState<AnomalyDetectionResponse | null>(null);
   const [anomalyHours, setAnomalyHours] = useState(24);
   const [anomalyExpanded, setAnomalyExpanded] = useState(true);
@@ -78,6 +78,7 @@ const PatientDetailPage: React.FC = () => {
   const [recExpanded, setRecExpanded] = useState(true);
   const [recOutcomeResult, setRecOutcomeResult] = useState<'completed' | 'partial' | 'skipped' | null>(null);
   const [recOutcomeLoading, setRecOutcomeLoading] = useState(false);
+  // Natural-language AI summaries and model management
   const [riskSummaryData, setRiskSummaryData] = useState<NaturalLanguageRiskSummaryResponse | null>(null);
   const [nlSummaryLoading, setNlSummaryLoading] = useState(false);
   const [nlExpanded, setNlExpanded] = useState(true);
@@ -91,13 +92,15 @@ const PatientDetailPage: React.FC = () => {
   const [explainData, setExplainData] = useState<ExplainPredictionResponse | null>(null);
   const [explainExpanded, setExplainExpanded] = useState(true);
   const [explainLoading, setExplainLoading] = useState(false);
+  // Selectable time range for vitals history chart
   const [timeRange, setTimeRange] = useState<'1week' | '2weeks' | '1month' | '3months'>('1week');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Manual risk computation button state
   const [computingRisk, setComputingRisk] = useState(false);
   const [computeRiskMessage, setComputeRiskMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Medical Profile state
+  // Medical history: conditions and medications
   const [medicalProfile, setMedicalProfile] = useState<MedicalProfile | null>(null);
   const [medProfileExpanded, setMedProfileExpanded] = useState(true);
   const [showAddCondition, setShowAddCondition] = useState(false);
@@ -110,7 +113,7 @@ const PatientDetailPage: React.FC = () => {
   const [editingMedicationId, setEditingMedicationId] = useState<number | null>(null);
   const [editedMedication, setEditedMedication] = useState<Partial<MedicationCreate>>({});
 
-  // Document upload state
+  // Document upload and AI-powered medical data extraction
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [medicalExtractionStatus, setMedicalExtractionStatus] = useState<MedicalExtractionStatusResponse | null>(null);
   const [extractionResult, setExtractionResult] = useState<DocumentUploadResponse | null>(null);
@@ -127,11 +130,13 @@ const PatientDetailPage: React.FC = () => {
     setSnackbarOpen(true);
   };
 
+  // Reload patient data whenever the patient ID or time range changes
   useEffect(() => {
     loadPatientData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, timeRange]);
 
+  // Check if there's a pending document extraction job
   useEffect(() => {
     loadMedicalExtractionStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,6 +151,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Convert the selected time range to a number of days for the API
   const rangeToDays = (range: typeof timeRange) => {
     switch (range) {
       case '2weeks':
@@ -160,6 +166,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Load all patient data in parallel (vitals, risk, alerts, ML features, etc.)
   const loadPatientData = async () => {
     try {
       setLoading(true);
@@ -320,6 +327,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Ask the server to run the AI risk assessment for this patient
   const handleComputeRisk = async () => {
     if (!patientId) return;
     const userId = Number(patientId);
@@ -353,6 +361,7 @@ const PatientDetailPage: React.FC = () => {
     return `${diffHr} hr${diffHr > 1 ? 's' : ''} ago`;
   };
 
+  // Parse risk factors from the JSON string stored in the assessment
   const getRiskFactors = () => {
     const raw = riskAssessment?.risk_factors_json;
     if (!raw) return [] as string[];
@@ -370,6 +379,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Mark an alert as seen by the clinician
   const handleAcknowledgeAlert = async (alertId: number) => {
     try {
       await api.acknowledgeAlert(alertId);
@@ -383,6 +393,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Close out an alert with resolution notes
   const handleResolveAlert = async (alertId: number) => {
     try {
       const resolved = await api.resolveAlert(alertId, {
@@ -399,6 +410,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Generate a human-readable AI summary of the patient's risk
   const handleGenerateAiSummary = async (): Promise<void> => {
     if (!patientId) return;
     const userId = Number(patientId);
@@ -436,6 +448,7 @@ const PatientDetailPage: React.FC = () => {
     }
   };
 
+  // Run ML explainability to show which vitals drive the risk score
   const handleExplainPrediction = async (): Promise<void> => {
     if (!patient || !latestVitals) return;
     setExplainLoading(true);
@@ -482,7 +495,7 @@ const PatientDetailPage: React.FC = () => {
     );
   }
 
-  // Helper function to get vital status
+  // Classify a vital reading as stable, warning, or critical
   const getVitalStatus = (value: number, type: 'hr' | 'spo2' | 'bp'): 'stable' | 'warning' | 'critical' => {
     if (type === 'hr') {
       if (value > 130) return 'critical';

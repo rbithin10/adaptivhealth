@@ -8,21 +8,31 @@ Displays:
 - AI-generated health insights via the NL Coach endpoint with static fallback
 */
 
+// Tools for encoding/decoding data (like converting JSON text to usable objects)
 import 'dart:convert';
+// The core Flutter toolkit for building visual interfaces
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+// Gives access to system features like the clipboard
 import 'package:flutter/services.dart';
+// Provider lets different parts of the app share data without passing it manually
 import 'package:provider/provider.dart';
+// Library for drawing interactive line charts and graphs
 import 'package:fl_chart/fl_chart.dart';
+// Saves small pieces of data on the device (like cached insights)
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/widgets.dart';
+// The floating AI health coach that appears on top of screens
 import '../widgets/ai_coach_overlay.dart';
 import '../services/api_client.dart';
+// On-device AI that runs risk predictions without needing the internet
 import '../services/edge_ai_store.dart';
 
+// The main health dashboard where patients can view all their health data
 class HealthScreen extends StatefulWidget {
+  // The connection to the server for fetching health data
   final ApiClient apiClient;
 
   const HealthScreen({
@@ -36,49 +46,60 @@ class HealthScreen extends StatefulWidget {
 
 class _HealthScreenState extends State<HealthScreen>
     with SingleTickerProviderStateMixin {
+  // Controls which tab is shown (Trends, History, or Insights)
   late TabController _tabController;
+  // Whether we're still fetching data from the server
   bool _isLoading = true;
+  // All the patient's health data collected from the server
   Map<String, dynamic> _healthData = {};
 
-  // Profile fields used by edge ML predictions
+  // Patient's age — used to calculate safe heart rate limits
   int? _userAge;
+  // The patient's normal resting heart rate
   int? _baselineHr;
+  // The maximum safe heart rate (calculated as 220 minus age)
   int? _maxSafeHr;
 
-  // Latest ML risk score (0.0–1.0); null = not yet loaded
+  // How risky the AI thinks the patient's health is (0 = safe, 1 = high risk)
   double? _riskScore;
 
-  // Timestamp of last successful data fetch
+  // When we last successfully fetched fresh data from the server
   DateTime? _lastSync;
 
-  // Trends tab — expanded metric key ('hr' | 'bp' | 'spo2' | 'hrv' | null)
+  // Which metric chart is currently expanded (heart rate, blood pressure, etc.)
   String? _expandedMetric;
 
-  // Trends tab — chart time window in days
+  // How many days of data to show in the trend charts (7 or 30)
   int _trendRange = 7;
 
-  // History tab — active filter
+  // Which type of history events to show (all, vitals, workouts, or alerts)
   String _historyFilter = 'all';
 
-  // Insights tab
+  // Whether AI insights are currently being generated
   bool _isInsightsLoading = false;
+  // The list of AI-generated health tips and observations
   List<Map<String, dynamic>> _aiInsights = [];
+  // Whether insights have been fetched at least once this session
   bool _insightsLoaded = false;
-  DateTime? _insightsCachedAt; // when the cached insights were saved
-  bool _insightsFromCache = false; // true when showing stale cached data
+  // When the saved insights were originally created
+  DateTime? _insightsCachedAt;
+  // Whether we're showing old saved insights instead of fresh ones
+  bool _insightsFromCache = false;
 
   @override
   void initState() {
     super.initState();
+    // Set up the 3 tabs: Trends, History, and Insights
     _tabController = TabController(length: 3, vsync: this);
-    // Auto-load AI insights when the Insights tab is first opened
+    // When the user switches to the Insights tab, ask the AI for tips
     _tabController.addListener(() {
       if (_tabController.index == 2 && !_insightsLoaded) {
         _loadAiInsights();
       }
     });
+    // Start fetching all health data from the server
     _loadHealthData();
-    // Restore last-known-good insights immediately on open
+    // Show any previously saved insights right away while fresh ones load
     _loadCachedInsights();
   }
 
@@ -88,10 +109,12 @@ class _HealthScreenState extends State<HealthScreen>
     super.dispose();
   }
 
+  // Fetch all health data from the server (vitals, history, activities, alerts, risk)
   Future<void> _loadHealthData() async {
+    // Show a loading spinner while we wait for data
     setState(() => _isLoading = true);
 
-    // Load all data sources in parallel
+    // Ask for everything at once to speed things up
     final results = await Future.wait([
       widget.apiClient.getCurrentUser().catchError((_) => <String, dynamic>{}),
       widget.apiClient.getLatestVitals().catchError(
@@ -117,6 +140,7 @@ class _HealthScreenState extends State<HealthScreen>
       ),
     ]);
 
+    // Store results into named variables for easier use
     final profile       = results[0] as Map<String, dynamic>;
     final vitals        = results[1] as Map<String, dynamic>;
     final vitalsHistory = results[2] as List<dynamic>;
@@ -124,22 +148,23 @@ class _HealthScreenState extends State<HealthScreen>
     final alertsPayload = results[4] as Map<String, dynamic>;
     final riskPayload   = results[5] as Map<String, dynamic>;
 
-    // Extract profile fields for edge ML
+    // Pull out the patient's age and resting heart rate for AI calculations
     final age        = (profile['age'] as num?)?.toInt();
     final baselineHr = (profile['baseline_hr'] as num?)?.toInt();
     if (age != null && age > 0) {
       _userAge    = age;
       _baselineHr = baselineHr ?? 72;
+      // Standard formula: maximum safe heart rate = 220 minus your age
       _maxSafeHr  = 220 - age;
     }
 
-    // ML risk score
+    // Save the AI risk score if one was returned
     final rawRisk = riskPayload['risk_score'];
     if (rawRisk != null) {
       _riskScore = (rawRisk as num).toDouble();
     }
 
-    // Normalise alerts list from different response shapes
+    // The server might send alerts in different formats, so we check both
     List<dynamic> alertsList = [];
     if (alertsPayload['alerts'] is List) {
       alertsList = alertsPayload['alerts'] as List<dynamic>;
@@ -147,6 +172,7 @@ class _HealthScreenState extends State<HealthScreen>
       alertsList = alertsPayload['items'] as List<dynamic>;
     }
 
+    // Bundle everything into one map for easy access throughout the screen
     _healthData = {
       'vitals': vitals.isNotEmpty
           ? vitals
@@ -162,11 +188,12 @@ class _HealthScreenState extends State<HealthScreen>
       'alerts': alertsList,
     };
 
+    // Record when we last got fresh data, and stop the loading spinner
     _lastSync = DateTime.now();
     setState(() => _isLoading = false);
   }
 
-  /// Request personalised health insights from the AI coach.
+  // Ask the AI coach for personalised health tips based on current readings
   Future<void> _loadAiInsights() async {
     if (_isInsightsLoading || _insightsLoaded) return;
     setState(() => _isInsightsLoading = true);
@@ -207,7 +234,7 @@ class _HealthScreenState extends State<HealthScreen>
     }
   }
 
-  /// Persist AI insights to SharedPreferences so they survive app restarts.
+  // Save AI insights to the device so they survive app restarts
   Future<void> _saveInsightsCache(List<Map<String, dynamic>> insights) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -219,7 +246,7 @@ class _HealthScreenState extends State<HealthScreen>
     }
   }
 
-  /// Load last-known-good insights from SharedPreferences.
+  // Load previously saved insights from the device storage
   Future<void> _loadCachedInsights() async {
     try {
       final prefs  = await SharedPreferences.getInstance();
@@ -246,6 +273,7 @@ class _HealthScreenState extends State<HealthScreen>
     }
   }
 
+  // Try to extract insight items from the AI's text response
   List<Map<String, dynamic>> _parseAiInsights(String response) {
     try {
       final start = response.indexOf('[');
@@ -267,11 +295,13 @@ class _HealthScreenState extends State<HealthScreen>
   // Derived health score from ML risk (0 = highest risk, 100 = lowest risk)
   // -------------------------------------------------------------------------
 
+  // Turn the risk score into a 0-100 health score (higher is healthier)
   int get _healthScore {
     if (_riskScore == null) return 85;
     return ((1.0 - _riskScore!) * 100).round().clamp(10, 100);
   }
 
+  // Show how long ago the data was last refreshed (e.g. "5m ago")
   String _syncLabel() {
     if (_lastSync == null) return 'Loading…';
     final diff = DateTime.now().difference(_lastSync!);
@@ -284,6 +314,7 @@ class _HealthScreenState extends State<HealthScreen>
   // Chart helpers — build FlSpot list from vitals history
   // -------------------------------------------------------------------------
 
+  // Build chart data points from stored vitals history
   List<FlSpot> _buildSpots(String metricKey) {
     final raw    = _healthData['vitalsHistory'] as List<dynamic>? ?? [];
     final cutoff = DateTime.now().subtract(Duration(days: _trendRange));
@@ -330,6 +361,7 @@ class _HealthScreenState extends State<HealthScreen>
     }).toList();
   }
 
+  // Whether the patient has any real recorded vitals (not just sample data)
   bool get _hasRealHistory {
     return (_healthData['vitalsHistory'] as List<dynamic>? ?? []).isNotEmpty;
   }
@@ -338,6 +370,7 @@ class _HealthScreenState extends State<HealthScreen>
   // History tab helpers
   // -------------------------------------------------------------------------
 
+  // Combine vitals, workouts, and alerts into one timeline sorted by date
   List<Map<String, dynamic>> _buildMergedHistory() {
     final vitalsHistory = _healthData['vitalsHistory'] as List<dynamic>? ?? [];
     final activities    = _healthData['activities']    as List<dynamic>? ?? [];
@@ -399,6 +432,7 @@ class _HealthScreenState extends State<HealthScreen>
     return DateTime.tryParse(ts) ?? DateTime(2000);
   }
 
+  // Group timeline events under date headings like "Today" or "Mon 05 Jan"
   List<Map<String, dynamic>> _groupByDate(List<Map<String, dynamic>> events) {
     final Map<String, List<Map<String, dynamic>>> sections = {};
     final now       = DateTime.now();
@@ -453,6 +487,7 @@ class _HealthScreenState extends State<HealthScreen>
   // Share — copies a plain-text health summary to the system clipboard
   // -------------------------------------------------------------------------
 
+  // Copy a plain-text health report to the clipboard so the patient can share it
   void _shareHealthSummary() {
     final vitals    = _healthData['vitals'] as Map<String, dynamic>? ?? {};
     final hr        = vitals['heart_rate'] ?? '—';
@@ -589,13 +624,24 @@ class _HealthScreenState extends State<HealthScreen>
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  _riskScore == null ? '—' : _healthScore.toString(),
-                  style: AdaptivTypography.metricValue.copyWith(
-                    color: Colors.white,
-                    fontSize: 36,
-                  ),
-                ),
+                Builder(builder: (ctx) {
+                  int? liveScore;
+                  try {
+                    final edgeStore = Provider.of<EdgeAiStore>(ctx);
+                    final prediction = edgeStore.latestPrediction;
+                    if (prediction != null) {
+                      liveScore = ((1.0 - prediction.riskScore) * 100).round().clamp(10, 100);
+                    }
+                  } catch (_) {}
+                  liveScore ??= _riskScore != null ? _healthScore : null;
+                  return Text(
+                    liveScore?.toString() ?? '—',
+                    style: AdaptivTypography.metricValue.copyWith(
+                      color: Colors.white,
+                      fontSize: 36,
+                    ),
+                  );
+                }),
               ],
             ),
             const Spacer(),
@@ -625,6 +671,7 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
+  // Build the vitals overview section showing current readings and AI risk
   Widget _buildVitalsSection(Brightness brightness) {
     final vitals   = _healthData['vitals'] as Map<String, dynamic>? ?? {};
     final history  = _healthData['vitalsHistory'] as List<dynamic>? ?? [];
@@ -781,22 +828,21 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
+  // Decide if a heart rate reading is safe, slightly concerning, or dangerous
   VitalStatus _getHRStatus(int hr) {
     if (hr < 50 || hr > 120) return VitalStatus.warning;
     if (hr > 100) return VitalStatus.caution;
     return VitalStatus.safe;
   }
 
+  // Decide if a blood pressure reading is safe, elevated, or critical
   VitalStatus _getBPStatus(int systolic) {
     if (systolic > 140) return VitalStatus.critical;
     if (systolic > 130) return VitalStatus.warning;
     return VitalStatus.safe;
   }
 
-  /// Extract up to [points]-1 historical values for [field] from
-  /// [vitalsHistory] (newest-first API list) and append [current] as the
-  /// final point.  Left-pads with [current] when fewer readings exist so
-  /// the sparkline always has exactly [points] values.
+  // Build a small sparkline (mini trend line) from recent readings for a vital
   List<double> _sparklinesFrom({
     required List<dynamic> history,
     required String field,
@@ -818,7 +864,7 @@ class _HealthScreenState extends State<HealthScreen>
     return [...taken, current];
   }
 
-  /// Switch to the Trends tab and expand the corresponding metric card.
+  // When a vital card is tapped, jump to the Trends tab and expand that metric
   void _showVitalDetail(String vital) {
     final Map<String, String> vitalToKey = {
       'Heart Rate': 'hr',
@@ -1173,6 +1219,7 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
+  // Build the scrollable list of history events grouped by date
   Widget _buildHistoryList(
       List<Map<String, dynamic>> events, Brightness brightness) {
     final sections = _groupByDate(events);
@@ -1202,6 +1249,7 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
+  // Build a single history timeline card (vital reading, workout, or alert)
   Widget _buildHistoryItem(Map<String, dynamic> item, Brightness brightness) {
     final type = item['type'] as String? ?? 'vitals';
 
@@ -1308,6 +1356,7 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
+  // A small coloured label showing the status of a history event
   Widget _buildStatusBadge(String status) {
     Color color;
     String label;
@@ -1350,6 +1399,7 @@ class _HealthScreenState extends State<HealthScreen>
   // Insights tab — AI-powered with static fallback
   // -------------------------------------------------------------------------
 
+  // Build the Insights tab showing AI tips and general cardio advice
   Widget _buildInsightsTab(Brightness brightness) {
     if (_isInsightsLoading) {
       return ListView(
@@ -1472,7 +1522,7 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
-  /// Return a human-readable relative age for cached insight data.
+  // Show how old the cached insights are (e.g. "Cached • 3h ago")
   String _relativeCacheAge(DateTime cachedAt) {
     final diff = DateTime.now().difference(cachedAt);
     if (diff.inMinutes < 2)  return 'Cached • just now';
@@ -1481,6 +1531,7 @@ class _HealthScreenState extends State<HealthScreen>
     return 'Cached • ${diff.inDays}d ago';
   }
 
+  // Generic health tips shown when AI insights aren't available
   List<Map<String, dynamic>> _staticInsights() {
     return [
       {'title': 'Heart Health',        'description': 'Your resting heart rate has been stable. Keep up the good work!',             'icon': Icons.favorite,            'color': AdaptivColors.stable},
@@ -1490,6 +1541,7 @@ class _HealthScreenState extends State<HealthScreen>
     ];
   }
 
+  // Build a single insight card with icon, title, and description
   Widget _buildInsightCard(Map<String, dynamic> insight, Brightness brightness) {
     final title       = insight['title']       as String? ?? 'Health Tip';
     final description = insight['description'] as String? ?? '';
@@ -1532,7 +1584,7 @@ class _HealthScreenState extends State<HealthScreen>
     );
   }
 
-  /// Loading shimmer placeholder for AI insights.
+  // A grey placeholder card shown while AI insights are loading
   Widget _shimmerCard(Brightness brightness) {
     return Container(
       height: 80,
@@ -1574,6 +1626,7 @@ class _HealthScreenState extends State<HealthScreen>
 // Metric definition helper — keeps trend-card data in one place
 // ---------------------------------------------------------------------------
 
+// Simple data holder for each metric's chart information
 class _MetricDef {
   final String key;
   final String title;
@@ -1594,6 +1647,7 @@ class _MetricDef {
   });
 }
 
+// Keeps the tab bar pinned at the top when scrolling the health screen
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   final TabController tabController;
   final Brightness brightness;

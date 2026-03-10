@@ -25,8 +25,8 @@ class MessageCreate(BaseModel):
     
     Sender is inferred from authentication.
     """
-    receiver_id: int = Field(..., description="User ID of the message receiver")
-    content: str = Field(..., min_length=1, max_length=1000, description="Message content")
+    receiver_id: int = Field(..., description="User ID of the message receiver")  # Who should receive this message
+    content: str = Field(..., min_length=1, max_length=1000, description="Message content")  # The actual text of the message (1-1000 characters)
 
     @field_validator("content")
     @classmethod
@@ -43,13 +43,13 @@ class MessageResponse(BaseModel):
     
     Includes sender, receiver, content, timestamps, and read state.
     """
-    message_id: int = Field(..., description="Unique message ID")
-    sender_id: int = Field(..., description="User ID of sender")
-    receiver_id: int = Field(..., description="User ID of receiver")
-    content: str = Field(..., description="Message content")
-    sent_at: datetime = Field(..., description="When the message was sent")
-    is_read: bool = Field(..., description="Whether the message has been read")
-    read_at: Optional[datetime] = Field(None, description="When the message was marked as read")
+    message_id: int = Field(..., description="Unique message ID")  # Unique number for this message
+    sender_id: int = Field(..., description="User ID of sender")  # Who wrote this message
+    receiver_id: int = Field(..., description="User ID of receiver")  # Who should see this message
+    content: str = Field(..., description="Message content")  # The actual text that was sent
+    sent_at: datetime = Field(..., description="When the message was sent")  # Date and time the message was sent
+    is_read: bool = Field(..., description="Whether the message has been read")  # Has the receiver opened/read it yet?
+    read_at: Optional[datetime] = Field(None, description="When the message was marked as read")  # When they read it (empty if unread)
 
     class Config:
         from_attributes = True
@@ -61,12 +61,12 @@ class InboxSummaryResponse(BaseModel):
     
     Shows patients with new/recent messages and unread count.
     """
-    patient_id: int = Field(..., description="Patient user ID")
-    patient_name: str = Field(..., description="Patient full name")
-    last_message_content: str = Field(..., description="Content of last message")
-    last_message_sender_id: int = Field(..., description="Who sent the last message")
-    last_message_sent_at: datetime = Field(..., description="When last message was sent")
-    unread_count: int = Field(..., description="Number of unread messages from patient")
+    patient_id: int = Field(..., description="Patient user ID")  # The patient's unique ID
+    patient_name: str = Field(..., description="Patient full name")  # The patient's name
+    last_message_content: str = Field(..., description="Content of last message")  # What the most recent message said
+    last_message_sender_id: int = Field(..., description="Who sent the last message")  # Who sent that last message
+    last_message_sent_at: datetime = Field(..., description="When last message was sent")  # When the last message was sent
+    unread_count: int = Field(..., description="Number of unread messages from patient")  # How many messages the clinician hasn't read yet
 
     class Config:
         from_attributes = True

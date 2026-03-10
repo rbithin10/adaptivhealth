@@ -18,8 +18,9 @@ class HomeRecentActivity extends StatelessWidget {
     required this.onViewAll,
   });
 
-  // ─── activity type helpers ────────────────────────────────────────────────
+  // ─── activity type helpers ── pick the right icon, colour, and image for each workout type
 
+  // Choose an icon based on what kind of exercise was done
   static IconData _activityIcon(String? type) {
     switch (type?.toLowerCase()) {
       case 'running':       return Icons.directions_run;
@@ -33,6 +34,7 @@ class HomeRecentActivity extends StatelessWidget {
     }
   }
 
+  // Pick a colour for each activity type (different colours help visually distinguish them)
   static Color _activityColor(String? type) {
     switch (type?.toLowerCase()) {
       case 'running':       return AdaptivColors.warning;
@@ -46,6 +48,7 @@ class HomeRecentActivity extends StatelessWidget {
     }
   }
 
+  // Find the matching exercise image asset, if one exists
   static String? _activityImage(String? type) {
     switch (type?.toLowerCase()) {
       case 'walking':       return 'assets/exercises/walking.png';
@@ -60,6 +63,7 @@ class HomeRecentActivity extends StatelessWidget {
     }
   }
 
+  // Convert a timestamp into a friendly label like "5m ago", "2h ago", "Yesterday"
   static String _relativeTime(String? isoString) {
     if (isoString == null || isoString.isEmpty) return '';
     try {
@@ -76,6 +80,7 @@ class HomeRecentActivity extends StatelessWidget {
     }
   }
 
+  // Build a subtitle like "30 min • Peak 142 BPM" from the activity data
   static String _activitySubtitle(Map<String, dynamic> a) {
     final parts = <String>[];
     final dur  = a['duration_minutes'];
@@ -97,7 +102,7 @@ class HomeRecentActivity extends StatelessWidget {
         .join(' ');
   }
 
-  // ─── build ────────────────────────────────────────────────────────────────
+  // ─── build ── render the section with a header and list of activity items
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +135,7 @@ class HomeRecentActivity extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             if (snapshot.connectionState == ConnectionState.waiting)
+              // Show a loading spinner while activities are being fetched
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(
@@ -143,6 +149,7 @@ class HomeRecentActivity extends StatelessWidget {
             else if (snapshot.hasError ||
                 !snapshot.hasData ||
                 snapshot.data!.isEmpty)
+              // Show a friendly message if there's nothing to display
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Center(
@@ -154,6 +161,7 @@ class HomeRecentActivity extends StatelessWidget {
                 ),
               )
             else
+              // Render one row per activity session
               ...snapshot.data!.map((item) {
                 final a    = item as Map<String, dynamic>;
                 final type = a['activity_type'] as String?;

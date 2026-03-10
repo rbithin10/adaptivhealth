@@ -27,6 +27,7 @@ class HomeRehabCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if the user is enrolled in a rehab programme — if not, show nothing
     final rehabPhase = user['rehab_phase'] as String? ?? 'not_in_rehab';
     if (rehabPhase == 'not_in_rehab') return const SizedBox.shrink();
 
@@ -43,6 +44,7 @@ class HomeRehabCard extends StatelessWidget {
           );
         }
 
+        // Extract progress info from the API response
         final data = snapshot.data;
         if (data == null || data.isEmpty) return const SizedBox.shrink();
 
@@ -53,12 +55,14 @@ class HomeRehabCard extends StatelessWidget {
         final sessionsThis = progress?['sessions_completed_this_week']   as int? ?? 0;
         final sessionsReq  = progress?['sessions_required_this_week']    as int? ?? 3;
 
+        // Determine which phase and whether the programme is complete
         final isPhase2    = programType == 'phase_2_light';
         final label       = isPhase2 ? 'Phase II Rehab' : 'Phase III';
         final isCompleted = status == 'completed';
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
+          // Tapping the card opens the full Rehab Programme screen
           child: GestureDetector(
             onTap: () {
               Navigator.push(

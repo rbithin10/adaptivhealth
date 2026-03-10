@@ -1,21 +1,28 @@
+/* App.css — Global reset and base styles for the Adaptiv Health dashboard */
+
+/* Remove all default spacing and use a simpler box model for every element */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+/* Set the main font for the entire page to a clean, medical-friendly typeface */
 body {
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
     'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans',
     'Helvetica Neue', sans-serif;
+  /* Make text look sharper on Mac and Windows screens */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Use a monospace (typewriter-style) font for any code snippets shown on screen */
 code {
   font-family: 'Roboto Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
+/* The main app container fills the full screen height with a light gray background */
 .App {
   min-height: 100vh;
   background-color: #F9FAFB;

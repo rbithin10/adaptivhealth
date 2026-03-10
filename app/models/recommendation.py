@@ -73,29 +73,29 @@ class ExerciseRecommendation(Base):
         index=True
     )
 
-    # Recommendation content
-    title = Column(String(100), nullable=False)
-    suggested_activity = Column(String(100), nullable=False)
-    intensity_level = Column(String(20), default="moderate")
-    duration_minutes = Column(Integer, nullable=False)
-    target_heart_rate_min = Column(Integer, nullable=True)
-    target_heart_rate_max = Column(Integer, nullable=True)
-    description = Column(Text, nullable=True)
-    warnings = Column(Text, nullable=True)
+    # What the recommendation says to do
+    title = Column(String(100), nullable=False)                # Short headline (e.g. "Light Walking Session")
+    suggested_activity = Column(String(100), nullable=False)   # The specific exercise to do
+    intensity_level = Column(String(20), default="moderate")   # How hard: low, moderate, high, or very_high
+    duration_minutes = Column(Integer, nullable=False)         # How long the workout should last
+    target_heart_rate_min = Column(Integer, nullable=True)     # Minimum safe heart rate to aim for
+    target_heart_rate_max = Column(Integer, nullable=True)     # Maximum safe heart rate to stay under
+    description = Column(Text, nullable=True)                  # Detailed instructions for the workout
+    warnings = Column(Text, nullable=True)                     # Safety warnings specific to this patient
 
-    # Status
-    status = Column(String(20), default="pending")
-    is_completed = Column(Boolean, default=False)
+    # Recommendation tracking
+    status = Column(String(20), default="pending")             # Whether the patient has started/completed it
+    is_completed = Column(Boolean, default=False)              # True if the patient finished the recommended workout
 
-    # AI generation info
-    generated_by = Column(String(50), default="cloud_ai")
-    model_name = Column(String(100), nullable=True)
-    confidence_score = Column(Float, nullable=True)
-    based_on_risk_assessment_id = Column(Integer, nullable=True)
+    # Which AI generated this recommendation and how confident it was
+    generated_by = Column(String(50), default="cloud_ai")      # Source: cloud_ai or edge_ai
+    model_name = Column(String(100), nullable=True)            # Name of the model that made this recommendation
+    confidence_score = Column(Float, nullable=True)            # How confident the AI is (0.0 to 1.0)
+    based_on_risk_assessment_id = Column(Integer, nullable=True)  # Which risk assessment this was based on
 
-    # Validity
-    valid_from = Column(DateTime(timezone=True), server_default=func.now())
-    valid_until = Column(DateTime(timezone=True), nullable=True)
+    # When this recommendation is valid
+    valid_from = Column(DateTime(timezone=True), server_default=func.now())  # Start of validity period
+    valid_until = Column(DateTime(timezone=True), nullable=True)             # End of validity (None = no expiry)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -7,14 +7,14 @@ richer fallback when available.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../services/mock_vitals_service.dart';
+import '../../providers/vitals_provider.dart';
 import '../../theme/colors.dart';
 import '../../theme/typography.dart';
 
 /// Line chart showing heart-rate readings from the current session or
 /// the last 50 backend-stored readings, whichever has data.
 class HomeSparkline extends StatelessWidget {
-  final ValueNotifier<List<VitalReading>> vitalsHistoryNotifier;
+  final ValueNotifier<List<VitalsReading>> vitalsHistoryNotifier;
   final Future<List<dynamic>> vitalHistoryFuture;
 
   const HomeSparkline({
@@ -25,6 +25,7 @@ class HomeSparkline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Try to load historical vitals from the API, fall back to live readings
     return FutureBuilder<List<dynamic>>(
       future: vitalHistoryFuture,
       builder: (context, snapshot) {
@@ -63,8 +64,9 @@ class HomeSparkline extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
+                // Re-render the chart whenever new live readings arrive from BLE/mock
                 // ValueListenableBuilder re-renders when new live readings arrive.
-                ValueListenableBuilder<List<VitalReading>>(
+                ValueListenableBuilder<List<VitalsReading>>(
                   valueListenable: vitalsHistoryNotifier,
                   builder: (context, _, __) => SizedBox(
                     height: 100,
@@ -90,7 +92,7 @@ class HomeSparkline extends StatelessWidget {
 
 class _SparklineContent extends StatelessWidget {
   final AsyncSnapshot<List<dynamic>> snapshot;
-  final List<VitalReading> liveHistory;
+  final List<VitalsReading> liveHistory;
 
   const _SparklineContent({
     required this.snapshot,
@@ -129,7 +131,7 @@ class _SparklineContent extends StatelessWidget {
     return _SparklineChart(points: dataPoints.reversed.toList());
   }
 
-  Widget _fromLive(List<VitalReading> readings) {
+  Widget _fromLive(List<VitalsReading> readings) {
     final pts = readings
         .asMap()
         .entries
@@ -247,7 +249,7 @@ class _SparklineChart extends StatelessWidget {
 
 class _SparklineTimeLabels extends StatelessWidget {
   final AsyncSnapshot<List<dynamic>> snapshot;
-  final List<VitalReading> liveHistory;
+  final List<VitalsReading> liveHistory;
 
   const _SparklineTimeLabels({
     required this.snapshot,

@@ -1,3 +1,6 @@
+/* AdvancedMLPanel — A collapsible panel that shows AI anomaly detection results.
+   If anomalies were found, the header turns amber as a visual warning. */
+
 import React from 'react';
 import { ChevronDown, ChevronUp, Radar } from 'lucide-react';
 import {
@@ -6,6 +9,7 @@ import {
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: anomaly data, whether it's open, and its child content
 interface AdvancedMLPanelProps {
   anomalyData: AnomalyDetectionResponse | null;
   expanded: boolean;
@@ -13,6 +17,7 @@ interface AdvancedMLPanelProps {
   children: React.ReactNode;
 }
 
+// The collapsible ML panel component
 const AdvancedMLPanel: React.FC<AdvancedMLPanelProps> = ({
   anomalyData,
   expanded,

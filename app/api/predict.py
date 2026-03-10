@@ -123,15 +123,15 @@ class RecommendationResponse(BaseModel):
 def _get_recent_vitals_window(
     db: Session, user_id: int, window_minutes: int = 30
 ) -> list[VitalSignRecord]:
-    since = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    since = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)  # How far back to look
     return (
         db.query(VitalSignRecord)
         .filter(
-            VitalSignRecord.user_id == user_id,
-            VitalSignRecord.timestamp >= since,
-            VitalSignRecord.is_valid == True
+            VitalSignRecord.user_id == user_id,  # Only this patient's readings
+            VitalSignRecord.timestamp >= since,  # Within the time window
+            VitalSignRecord.is_valid == True  # Skip any flagged-bad readings
         )
-        .order_by(VitalSignRecord.timestamp.asc())
+        .order_by(VitalSignRecord.timestamp.asc())  # Oldest first
         .all()
     )
 
@@ -144,19 +144,19 @@ def _aggregate_session_features_from_vitals(vitals: list[VitalSignRecord]) -> di
     if not vitals:
         raise ValueError("No vitals to aggregate")
 
-    hrs = [v.heart_rate for v in vitals]
-    spo2s = [v.spo2 for v in vitals if v.spo2 is not None]
+    hrs = [v.heart_rate for v in vitals]  # Collect all heart rate readings
+    spo2s = [v.spo2 for v in vitals if v.spo2 is not None]  # Collect all valid SpO2 readings
 
-    start = vitals[0].timestamp
-    end = vitals[-1].timestamp
-    duration_minutes = max(1, int((end - start).total_seconds() / 60)) if start and end else 10
+    start = vitals[0].timestamp  # When the monitoring window started
+    end = vitals[-1].timestamp  # When it ended
+    duration_minutes = max(1, int((end - start).total_seconds() / 60)) if start and end else 10  # How long in minutes
 
-    avg_hr = int(sum(hrs) / len(hrs))
-    peak_hr = int(max(hrs))
-    min_hr = int(min(hrs))
-    avg_spo2 = int(sum(spo2s) / len(spo2s)) if spo2s else 97
+    avg_hr = int(sum(hrs) / len(hrs))  # Average heart rate across all readings
+    peak_hr = int(max(hrs))  # Highest heart rate recorded
+    min_hr = int(min(hrs))  # Lowest heart rate recorded
+    avg_spo2 = int(sum(spo2s) / len(spo2s)) if spo2s else 97  # Average blood oxygen level
 
-    activity_type = vitals[-1].activity_type or "walking"
+    activity_type = vitals[-1].activity_type or "walking"  # Use the latest reading's activity type
 
     # Recovery time is not directly observable from a vitals window.
     # For now, use a safe default or infer from phase if you store it.
@@ -183,25 +183,25 @@ def _build_drivers(user: User, features: dict[str, Any]) -> list[str]:
     Human-readable explanations so the AI feels real in UI.
     Keep it short and decisive.
     """
-    drivers = []
+    drivers = []  # Human-readable reasons explaining why the risk is what it is
 
-    baseline = user.baseline_hr or 72
-    max_safe = user.max_safe_hr or (220 - (user.age or 55))
+    baseline = user.baseline_hr or 72  # Resting heart rate (default 72 if unknown)
+    max_safe = user.max_safe_hr or (220 - (user.age or 55))  # Maximum safe HR based on age
 
     peak = features["peak_heart_rate"]
     avg = features["avg_heart_rate"]
     spo2 = features["avg_spo2"]
 
-    if peak > max_safe:
+    if peak > max_safe:  # Heart rate went above what's considered safe
         drivers.append(f"Peak heart rate exceeded safe limit ({peak} > {max_safe}).")
-    if avg - baseline >= 25:
+    if avg - baseline >= 25:  # Heart rate is much higher than resting
         drivers.append(f"Average heart rate elevated vs baseline ({avg} vs {baseline}).")
-    if spo2 <= 92:
-        drivers.append(f"Average SpO₂ is low ({spo2}%).")
-    if features["duration_minutes"] >= 45 and peak > int(0.8 * max_safe):
+    if spo2 <= 92:  # Blood oxygen is dangerously low
+        drivers.append(f"Average SpO\u2082 is low ({spo2}%).")
+    if features["duration_minutes"] >= 45 and peak > int(0.8 * max_safe):  # Long workout at high intensity
         drivers.append("Sustained high intensity for long duration.")
 
-    if not drivers:
+    if not drivers:  # No concerns found — everything looks normal
         drivers.append("Vitals are within expected safe limits.")
 
     return drivers
@@ -338,9 +338,9 @@ def _compute_risk_assessment(
         ),
     }
 
-    adjusted_max_hr = get_adjusted_max_hr(user.age or 55, med_flags["is_on_beta_blocker"])
+    adjusted_max_hr = get_adjusted_max_hr(user.age or 55, med_flags["is_on_beta_blocker"])  # Lower max HR if on beta blockers
 
-    start_time = time.time()
+    start_time = time.time()  # Start timing the AI prediction
     result = service.predict_risk(
         age=user.age or 55,
         baseline_hr=user.baseline_hr or 72,
@@ -353,19 +353,19 @@ def _compute_risk_assessment(
         recovery_time_minutes=features["recovery_time_minutes"],
         activity_type=features["activity_type"],
     )
-    inference_ms = (time.time() - start_time) * 1000
+    inference_ms = (time.time() - start_time) * 1000  # How long the prediction took in milliseconds
 
-    adjusted_score, med_adjustments = apply_medical_adjustments(result["risk_score"], med_flags)
+    adjusted_score, med_adjustments = apply_medical_adjustments(result["risk_score"], med_flags)  # Adjust risk for medications
     result["risk_score"] = adjusted_score
-    if adjusted_score >= 0.80:
+    if adjusted_score >= 0.80:  # Reclassify risk level based on adjusted score
         result["risk_level"] = "high"
     elif adjusted_score >= 0.50:
         result["risk_level"] = "moderate"
     else:
         result["risk_level"] = "low"
-    drivers.extend(med_adjustments)
+    drivers.extend(med_adjustments)  # Add any medication-related risk factors
 
-    ra = RiskAssessment(
+    ra = RiskAssessment(  # Save the risk assessment to the database
         user_id=user_id,
         risk_level=result["risk_level"],
         risk_score=result["risk_score"],
@@ -387,7 +387,7 @@ def _compute_risk_assessment(
     db.commit()
     db.refresh(ra)
 
-    prev_rec = (
+    prev_rec = (  # Check what exercise was last recommended to avoid repeats
         db.query(ExerciseRecommendation)
         .filter(ExerciseRecommendation.user_id == user_id)
         .order_by(desc(ExerciseRecommendation.created_at))
@@ -395,7 +395,7 @@ def _compute_risk_assessment(
     )
     last_activity = prev_rec.suggested_activity if prev_rec else None
 
-    rec_payload = _generate_recommendation_payload(
+    rec_payload = _generate_recommendation_payload(  # Pick a new exercise recommendation
         user,
         ra.risk_level,
         ra.risk_score,
@@ -403,7 +403,7 @@ def _compute_risk_assessment(
         last_activity=last_activity,
         medical_flags=med_flags,
     )
-    rec = ExerciseRecommendation(
+    rec = ExerciseRecommendation(  # Save the new exercise recommendation to the database
         user_id=user_id,
         title=rec_payload["title"],
         suggested_activity=rec_payload["suggested_activity"],

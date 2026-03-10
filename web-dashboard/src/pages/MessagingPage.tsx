@@ -19,22 +19,29 @@ import ClinicianTopBar from '../components/common/ClinicianTopBar';
 const MessagingPage: React.FC = () => {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // List of patient conversations in the inbox sidebar
   const [inbox, setInbox] = useState<InboxSummaryResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The patient conversation currently open
   const [selectedPatient, setSelectedPatient] = useState<InboxSummaryResponse | null>(null);
+  // Messages in the currently open conversation
   const [messages, setMessages] = useState<MessageResponse[]>([]);
+  // Text the clinician is typing in the message box
   const [newMessage, setNewMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  // Auto-scroll anchor at the bottom of the chat
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Timer for polling new messages every few seconds
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const selectedPatientRef = useRef<InboxSummaryResponse | null>(null);
 
-  // Scroll to bottom when messages change
+  // Scroll the chat window to the newest message
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // On mount: load current user, inbox, and start polling for new messages
   useEffect(() => {
     const initialize = async () => {
       const user = await loadCurrentUser();
@@ -43,6 +50,7 @@ const MessagingPage: React.FC = () => {
       }
       await loadInbox();
 
+      // Poll every 3 seconds: refresh the open chat, or refresh inbox if no chat is open
       pollingIntervalRef.current = setInterval(() => {
         const selected = selectedPatientRef.current;
         if (selected) {
@@ -63,14 +71,17 @@ const MessagingPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the ref in sync so the polling interval sees the latest selection
   useEffect(() => {
     selectedPatientRef.current = selectedPatient;
   }, [selectedPatient]);
 
+  // Auto-scroll whenever new messages arrive
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  // Verify the user is a clinician; redirect otherwise
   const loadCurrentUser = async (): Promise<User | null> => {
     try {
       const user = await api.getCurrentUser();
@@ -88,6 +99,7 @@ const MessagingPage: React.FC = () => {
     }
   };
 
+  // Fetch the inbox list (all patient conversations)
   const loadInbox = async () => {
     try {
       setError(null);
@@ -102,6 +114,7 @@ const MessagingPage: React.FC = () => {
     }
   };
 
+  // Fetch the full message thread for a patient and mark unread messages as read
   const loadMessages = async (patientId: number) => {
     try {
       const threadMessages = await api.getMessageThread(patientId, 100);
@@ -120,12 +133,14 @@ const MessagingPage: React.FC = () => {
     }
   };
 
+  // When a clinician clicks a patient name in the inbox
   const handleSelectPatient = async (patient: InboxSummaryResponse) => {
     setSelectedPatient(patient);
     setMessages([]);
     await loadMessages(patient.patient_id);
   };
 
+  // Send the clinician's message to the selected patient
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedPatient || sendingMessage) return;
 
@@ -142,12 +157,14 @@ const MessagingPage: React.FC = () => {
     }
   };
 
+  // Go back from the chat view to the inbox list
   const handleBackToInbox = () => {
     setSelectedPatient(null);
     setMessages([]);
     loadInbox();
   };
 
+  // Show timestamps in a human-friendly way (e.g. "5m ago", "2d ago")
   const formatTime = (isoDate: string): string => {
     const date = new Date(isoDate);
     const now = new Date();

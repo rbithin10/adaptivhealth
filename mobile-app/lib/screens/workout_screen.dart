@@ -168,6 +168,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         appBar: AppBar(
           elevation: 0,
           backgroundColor: AdaptivColors.getSurfaceColor(brightness),
+          foregroundColor: AdaptivColors.getTextColor(brightness),
+          iconTheme: IconThemeData(
+            color: AdaptivColors.getTextColor(brightness),
+          ),
           title: Text(
             'Workout',
             style: GoogleFonts.dmSans(

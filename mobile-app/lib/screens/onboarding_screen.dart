@@ -19,25 +19,26 @@ Data is sent to:
   - PUT /api/v1/users/me/medical-history  (conditions, medications, allergies)
 */
 
+// Tools for encoding/decoding JSON data
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+// Custom fonts for a polished look
 import 'package:google_fonts/google_fonts.dart';
+// Saves small pieces of data on the device (like whether onboarding is done)
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../services/api_client.dart';
 
-/// Key prefix for onboarding completion.
-/// We append the user email to make it user-specific.
+// Storage key prefix — we add the user's email to make it unique per person
 const String _kOnboardingCompletePrefix = 'onboarding_complete_';
 
-/// Get the user-specific onboarding key.
+// Build the full storage key for a specific user's onboarding status
 String _getOnboardingKey(String userEmail) {
   return '$_kOnboardingCompletePrefix${userEmail.toLowerCase()}';
 }
 
-/// Check whether the current user has completed onboarding.
-/// Pass the user's email to make this user-specific.
+// Check if this patient has already finished the onboarding wizard
 Future<bool> hasCompletedOnboarding(String userEmail) async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -53,7 +54,7 @@ Future<bool> hasCompletedOnboarding(String userEmail) async {
   }
 }
 
-/// Mark onboarding as finished for the current user.
+// Save that this patient has finished onboarding so it won't show again
 Future<void> markOnboardingComplete(String userEmail) async {
   if (kDebugMode) {
     debugPrint('DEBUG markOnboardingComplete: Marking onboarding as complete for $userEmail');
@@ -63,7 +64,7 @@ Future<void> markOnboardingComplete(String userEmail) async {
   await prefs.setBool(key, true);
 }
 
-/// Clear onboarding flag for a specific user or all users.
+// Reset onboarding so it shows again (useful for testing or account switches)
 Future<void> clearOnboardingFlag([String? userEmail]) async {
   if (kDebugMode) {
     debugPrint('DEBUG clearOnboardingFlag: Clearing onboarding flag for ${userEmail ?? "all users"}');
@@ -89,8 +90,11 @@ Future<void> clearOnboardingFlag([String? userEmail]) async {
 // Onboarding Screen
 // ---------------------------------------------------------------------------
 
+// The step-by-step new patient setup wizard
 class OnboardingScreen extends StatefulWidget {
+  // Connection to the server for saving the patient's profile
   final ApiClient apiClient;
+  // Called when the wizard is done so the app moves to the home screen
   final VoidCallback onComplete;
 
   const OnboardingScreen({
@@ -104,43 +108,52 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
+  // Controls which wizard page is shown
   final PageController _pageController = PageController();
+  // Which step the patient is currently on (0–7)
   int _currentPage = 0;
+  // Total number of steps in the onboarding wizard
   static const int _totalPages = 8;
 
-  // Health profile (step 2)
+  // Step 2 — Basic health measurements
   final _ageController = TextEditingController();
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
 
-  // Fitness & Rehab (step 3)
+  // Step 3 — How active the patient is and any exercise limitations
   String? _activityLevel;
   final List<String> _selectedLimitations = [];
+  // Whether the patient is in cardiac rehabilitation
   String _rehabPhase = 'not_in_rehab';
 
-  // Goals & Wellbeing (step 4)
+  // Step 4 — What the patient wants to achieve
   String? _primaryGoal;
+  // Self-reported stress level (1–10)
   int _stressLevel = 5;
   String? _sleepQuality;
 
-  // Lifestyle Screening (step 5)
+  // Step 5 — Lifestyle habits that affect heart health
   String _smokingStatus = 'never';
   String _alcoholFrequency = 'never';
+  // Hours spent sitting each day
   double _sedentaryHours = 4.0;
+  // PHQ-2 depression screening scores (0–3 each)
   int _phq2Score1 = 0;
   int _phq2Score2 = 0;
 
-  // Medical background (step 6)
+  // Step 6 — Medical conditions, medications, and allergies
   final List<String> _selectedConditions = [];
   final _medicationsController = TextEditingController();
   final _allergiesController = TextEditingController();
 
-  // Emergency contact (step 4)
+  // Step 7 — Emergency contact person
   final _emergencyNameController = TextEditingController();
   final _emergencyPhoneController = TextEditingController();
 
+  // Whether we're currently saving the patient's data to the server
   bool _isSaving = false;
 
+  // List of common heart conditions patients can select from
   static const List<String> _commonConditions = [
     'Hypertension',
     'Heart Failure',
@@ -170,6 +183,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Navigation
   // ---------------------------------------------------------------------------
 
+  // Move to the next wizard page with a smooth slide animation
   void _nextPage() {
     if (_currentPage < _totalPages - 1) {
       _pageController.nextPage(
@@ -179,6 +193,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  // Go back to the previous wizard page
   void _previousPage() {
     if (_currentPage > 0) {
       _pageController.previousPage(
@@ -192,6 +207,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Submit data & finish
   // ---------------------------------------------------------------------------
 
+  // Save all the patient's answers to the server and finish the wizard
   Future<void> _finishOnboarding() async {
     setState(() => _isSaving = true);
 
@@ -374,6 +390,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Progress bar
   // ---------------------------------------------------------------------------
 
+  // Build the step progress bar at the top showing how far the patient is
   Widget _buildProgressBar(Brightness brightness) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
@@ -401,6 +418,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 1: Welcome
   // ---------------------------------------------------------------------------
 
+  // Step 1: Welcome page introducing what the app does
   Widget _buildWelcomePage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -481,6 +499,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
+  // A card highlighting one feature of the app (monitoring, fitness, alerts)
   Widget _featureCard({
     required IconData icon,
     required String title,
@@ -544,6 +563,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 2: Health Profile
   // ---------------------------------------------------------------------------
 
+  // Step 2: Collect the patient's age, weight, and height
   Widget _buildHealthProfilePage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -652,6 +672,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 3: Fitness & Rehab
   // ---------------------------------------------------------------------------
 
+  // Step 3: Ask about fitness level, exercise limitations, and rehab status
   Widget _buildFitnessRehabPage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -850,6 +871,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 4: Goals & Wellbeing
   // ---------------------------------------------------------------------------
 
+  // Step 4: Ask about health goals, stress, and sleep quality
   Widget _buildGoalsWellbeingPage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -1050,6 +1072,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 5: Lifestyle Screening
   // ---------------------------------------------------------------------------
 
+  // Step 5: Ask about smoking, alcohol, sitting time, and mood check
   Widget _buildLifestyleScreeningPage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -1248,6 +1271,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
+  // Build a single PHQ-2 question with 4 answer options (mood screening)
   Widget _buildPhq2Question({
     required Brightness brightness,
     required String question,
@@ -1343,6 +1367,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 6: Medical Background
   // ---------------------------------------------------------------------------
 
+  // Step 6: Collect medical conditions, medications, and allergies
   Widget _buildMedicalBackgroundPage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -1477,6 +1502,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 6: Emergency Contact
   // ---------------------------------------------------------------------------
 
+  // Step 7: Collect emergency contact name and phone number
   Widget _buildEmergencyContactPage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -1568,6 +1594,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Step 7: All Set
   // ---------------------------------------------------------------------------
 
+  // Step 8: Show a summary of everything the patient entered
   Widget _buildAllSetPage(Brightness brightness) {
     final textColor = AdaptivColors.getTextColor(brightness);
     final secondaryText = AdaptivColors.getSecondaryTextColor(brightness);
@@ -1746,6 +1773,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Bottom bar (Back / Next / Finish buttons)
   // ---------------------------------------------------------------------------
 
+  // The Back / Next / Finish buttons at the bottom of each step
   Widget _buildBottomBar(Brightness brightness) {
     final isLastPage = _currentPage == _totalPages - 1;
     final isFirstPage = _currentPage == 0;
@@ -1826,6 +1854,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Shared UI helpers
   // ---------------------------------------------------------------------------
 
+  // A styled label shown above each form field
   Widget _fieldLabel(String text, Brightness brightness) {
     return Text(
       text,
@@ -1837,6 +1866,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
+  // A consistently styled text input box used throughout the wizard
   Widget _styledTextField({
     required TextEditingController controller,
     required String hint,
@@ -1882,6 +1912,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 // Summary item model (used on final page)
 // ---------------------------------------------------------------------------
 
+// Holds one row of the summary shown on the final "All Set" page
 class _SummaryItem {
   final IconData icon;
   final String label;
@@ -1889,7 +1920,7 @@ class _SummaryItem {
   const _SummaryItem(this.icon, this.label, this.value);
 }
 
-/// Reusable data class for activity-level and goal selection cards.
+// Holds the icon, label, and description for activity level / goal options
 class _ActivityOption {
   final IconData icon;
   final String label;

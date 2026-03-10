@@ -1,59 +1,59 @@
-// Adaptiv Health Color System
-// Based on clinical monitoring conventions (ISO 3864 compliant)
-// Reference: Design Guide Part 2
+/* colors.ts — Every colour used across the Adaptiv Health dashboard */
+/* These follow medical industry conventions so red = danger, green = safe, yellow = caution */
 
 export const colors = {
-  // Primary brand colors
+
+  // ---- Brand colours: the main "Adaptiv Health" blue used for buttons, links, etc. ----
   primary: {
-    default: '#2563EB',      // Buttons, active nav, links, primary actions
-    dark: '#1E40AF',         // Hover states, pressed buttons, headers
-    light: '#DBEAFE',        // Selected row backgrounds, light badges
-    ultralight: '#EFF6FF',   // Page backgrounds, card hover states
+    default: '#2563EB',      // Standard blue for buttons and links
+    dark: '#1E40AF',         // Darker blue shown when you hover or press a button
+    light: '#DBEAFE',        // Light blue used for selected rows and subtle highlights
+    ultralight: '#EFF6FF',   // Very faint blue used for card backgrounds on hover
   },
 
-  // Clinical status: Critical (High Risk)
+  // ---- Critical / High Risk: red tones indicating danger or urgent attention ----
   critical: {
-    background: '#FEF2F2',
-    border: '#FCA5A5',
-    badge: '#EF4444',
-    text: '#991B1B',
+    background: '#FEF2F2',   // Soft red background for alert cards
+    border: '#FCA5A5',       // Red border around critical items
+    badge: '#EF4444',        // Bright red for badges and icons
+    text: '#991B1B',         // Dark red for readable text on red backgrounds
   },
 
-  // Clinical status: Warning (Moderate Risk)
+  // ---- Warning / Moderate Risk: yellow/amber tones indicating caution ----
   warning: {
-    background: '#FFFBEB',
-    border: '#FCD34D',
-    badge: '#F59E0B',
-    text: '#92400E',
+    background: '#FFFBEB',   // Soft yellow background for warning cards
+    border: '#FCD34D',       // Yellow border around warning items
+    badge: '#F59E0B',        // Amber for warning badges and icons
+    text: '#92400E',         // Dark amber for readable text on yellow backgrounds
   },
 
-  // Clinical status: Stable (Low Risk)
+  // ---- Stable / Low Risk: green tones indicating everything is healthy ----
   stable: {
-    background: '#F0FDF4',
-    border: '#86EFAC',
-    badge: '#22C55E',
-    text: '#166534',
+    background: '#F0FDF4',   // Soft green background for "all good" cards
+    border: '#86EFAC',       // Green border around stable items
+    badge: '#22C55E',        // Bright green for healthy-status badges
+    text: '#166534',         // Dark green for readable text on green backgrounds
   },
 
-  // Neutral palette
+  // ---- Neutral palette: grays used for text, borders, and backgrounds ----
   neutral: {
-    '900': '#111827',    // Primary text (headings, body text)
-    '800': '#1F2937',    // Dark body text, emphasis text
-    '700': '#374151',    // Secondary text (descriptions, subtitles)
-    '600': '#4B5563',    // Medium gray text, icons
-    '500': '#6B7280',    // Tertiary text (timestamps, metadata)
-    '400': '#9CA3AF',    // Light gray text, placeholder text
-    '300': '#D1D5DB',    // Borders, dividers, disabled states
-    '200': '#E5E7EB',    // Light borders, subtle dividers
-    '100': '#F3F4F6',    // Card backgrounds, table alternating rows
-    '50': '#F9FAFB',     // Page background (dashboard)
-    white: '#FFFFFF',    // Card surfaces, input backgrounds
+    '900': '#111827',    // Darkest text — used for main headings and important body text
+    '800': '#1F2937',    // Slightly lighter dark text for emphasis
+    '700': '#374151',    // Medium-dark text for descriptions and subtitles
+    '600': '#4B5563',    // Medium gray for icons and secondary information
+    '500': '#6B7280',    // Gray for timestamps, metadata, and tertiary text
+    '400': '#9CA3AF',    // Light gray for placeholder text and faded labels
+    '300': '#D1D5DB',    // Borders and divider lines between sections
+    '200': '#E5E7EB',    // Very light borders and subtle separators
+    '100': '#F3F4F6',    // Alternating table row backgrounds and card fills
+    '50': '#F9FAFB',     // Page background — the lightest gray
+    white: '#FFFFFF',    // Pure white for card surfaces and input fields
   },
 
-  // Utility colors for charts and data visualization
+  // ---- Chart colours: used in graphs and data visualizations ----
   chart: {
-    teal: '#14B8A6',     // Health score distribution chart
-    blue: '#2563EB',     // Heart rate trend
-    success: '#22C55E',  // Positive metrics
+    teal: '#14B8A6',     // Used in health score distribution charts
+    blue: '#2563EB',     // Heart rate trend line colour
+    success: '#22C55E',  // Positive metric indicators
   },
 } as const;

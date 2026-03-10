@@ -1,4 +1,8 @@
+/* VitalsPanel — Displays a patient's current vital signs (heart rate, SpO2, blood pressure)
+   as cards, plus a line chart showing their vitals history over time. */
+
 import React from 'react';
+// Icons for each vital sign type
 import { Heart, Wind, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
 import {
   LineChart,
@@ -14,6 +18,7 @@ import { RiskAssessmentResponse, VitalSignResponse, VitalSignsHistoryResponse } 
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: vital sign data, history, time range, and status helpers
 interface VitalsPanelProps {
   latestVitals: VitalSignResponse | null;
   vitalsHistory: VitalSignsHistoryResponse | null;
@@ -25,6 +30,7 @@ interface VitalsPanelProps {
   getVitalStatus: (value: number, type: 'hr' | 'spo2' | 'bp') => 'stable' | 'warning' | 'critical';
 }
 
+// The vitals display component with live readings and historical chart
 const VitalsPanel: React.FC<VitalsPanelProps> = ({
   latestVitals,
   vitalsHistory,

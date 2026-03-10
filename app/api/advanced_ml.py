@@ -138,28 +138,28 @@ async def detect_vital_anomalies(
     Doctors/admins can pass user_id to view a patient's anomalies.
     """
     # Determine target user: doctor/admin can query any patient
-    target_user_id = current_user.user_id
+    target_user_id = current_user.user_id  # Default to the logged-in user
     if user_id is not None and user_id != current_user.user_id:
-        if current_user.role not in ("clinician", "admin"):
+        if current_user.role not in ("clinician", "admin"):  # Only doctors/admins can view other patients
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only clinicians or admins can view other users' data.",
             )
         target_user_id = user_id
 
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)  # Calculate the lookback window
     vitals = (
         db.query(VitalSignRecord)
         .filter(
-            VitalSignRecord.user_id == target_user_id,
-            VitalSignRecord.timestamp >= since,
-            VitalSignRecord.is_valid == True,
+            VitalSignRecord.user_id == target_user_id,  # This patient's vitals only
+            VitalSignRecord.timestamp >= since,  # Within the specified time window
+            VitalSignRecord.is_valid == True,  # Skip flagged-bad readings
         )
-        .order_by(VitalSignRecord.timestamp.asc())
+        .order_by(VitalSignRecord.timestamp.asc())  # Oldest first for time-series analysis
         .all()
     )
 
-    readings = [
+    readings = [  # Convert database records to simple dicts for the anomaly detector
         {
             "heart_rate": v.heart_rate,
             "spo2": v.spo2,
@@ -168,7 +168,7 @@ async def detect_vital_anomalies(
         for v in vitals
     ]
 
-    result = detect_anomalies(readings, z_threshold=z_threshold)
+    result = detect_anomalies(readings, z_threshold=z_threshold)  # Run the Z-score anomaly analysis
     result["user_id"] = target_user_id
     result["window_hours"] = hours
     return result
@@ -220,7 +220,7 @@ async def forecast_vital_trends(
         .all()
     )
 
-    readings = [
+    readings = [  # Convert vitals to simple dicts for the forecasting engine
         {
             "heart_rate": v.heart_rate,
             "spo2": v.spo2,
@@ -229,7 +229,7 @@ async def forecast_vital_trends(
         for v in vitals
     ]
 
-    result = forecast_trends(readings, forecast_days=forecast_days)
+    result = forecast_trends(readings, forecast_days=forecast_days)  # Run linear regression to predict future trends
     result["user_id"] = target_user_id
     result["analysis_days"] = days
     return result
@@ -283,13 +283,13 @@ async def optimize_baseline(
         .all()
     )
 
-    resting_readings = [
+    resting_readings = [  # Filter to only low HR readings that represent resting state
         {"heart_rate": v.heart_rate}
         for v in vitals
         if v.heart_rate is not None and v.heart_rate < 100
     ]
 
-    result = compute_optimized_baseline(
+    result = compute_optimized_baseline(  # Calculate the best resting HR baseline from clean data
         resting_readings=resting_readings,
         current_baseline=target_user.baseline_hr,
     )
@@ -351,10 +351,10 @@ async def apply_baseline_optimization(
     )
 
     if result.get("adjusted") and result.get("new_baseline"):
-        target_user.baseline_hr = result["new_baseline"]
-        db.commit()
+        target_user.baseline_hr = result["new_baseline"]  # Update the patient's resting HR in their profile
+        db.commit()  # Save changes
         db.refresh(target_user)
-        result["applied"] = True
+        result["applied"] = True  # Tell the caller the change was applied
         logger.info(
             "Baseline updated for user %s by %s: %s -> %s",
             target_user.user_id,
@@ -529,20 +529,20 @@ async def get_natural_language_risk_summary(
         .order_by(desc(RiskAssessment.assessment_date))
         .first()
     )
-    if not ra:
+    if not ra:  # Can't generate a summary without a risk assessment on file
         raise HTTPException(status_code=404, detail="No risk assessments found")
 
     import json as _json
-    drivers = _json.loads(ra.risk_factors_json) if ra.risk_factors_json else []
+    drivers = _json.loads(ra.risk_factors_json) if ra.risk_factors_json else []  # Parse the stored risk factors
 
-    summary = format_risk_summary(
+    summary = format_risk_summary(  # Build a plain-English risk summary from templates
         risk_score=ra.risk_score,
         risk_level=ra.risk_level,
         drivers=drivers if isinstance(drivers, list) else [str(drivers)],
         patient_name=target_user.full_name,
     )
 
-    if use_cloud_ai:
+    if use_cloud_ai:  # Optionally enhance the summary using Google Gemini AI
         try:
             summary = generate_ai_risk_summary(
                 risk_score=ra.risk_score,
@@ -602,9 +602,9 @@ async def check_retraining_readiness(
     if status_data.get("metadata"):
         last_date = status_data["metadata"].get("retrained_at")
 
-    total_records = db.query(RiskAssessment).count()
+    total_records = db.query(RiskAssessment).count()  # How many risk assessments exist in the database
 
-    result = evaluate_retraining_readiness(
+    result = evaluate_retraining_readiness(  # Check if we have enough new data to retrain the model
         new_records_count=total_records,
         last_retrain_date=last_date,
     )
@@ -700,10 +700,10 @@ async def explain_risk_prediction(
         activity_type=request.activity_type,
     )
 
-    explanation = explain_prediction(
+    explanation = explain_prediction(  # Calculate which features had the biggest impact on the risk score
         prediction_result=prediction,
         feature_columns=ml_prediction.feature_columns or [],
         model=ml_prediction.model,
     )
 
-    return explanation
+    return explanation  # Returns feature importance values similar to SHAP

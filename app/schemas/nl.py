@@ -45,53 +45,61 @@ from datetime import datetime, date
 # =============================================================================
 
 class RiskLevel(str):
-    LOW = "LOW"
-    MODERATE = "MODERATE"
-    HIGH = "HIGH"
+    """How risky the patient's readings are."""
+    LOW = "LOW"  # Everything looks normal
+    MODERATE = "MODERATE"  # Some readings slightly off
+    HIGH = "HIGH"  # Readings suggest potential danger
 
 
 class SafetyStatus(str):
-    SAFE = "SAFE"
-    CAUTION = "CAUTION"
-    UNSAFE = "UNSAFE"
+    """Whether it's safe for the patient to exercise."""
+    SAFE = "SAFE"  # Good to go
+    CAUTION = "CAUTION"  # Proceed carefully
+    UNSAFE = "UNSAFE"  # Should not exercise right now
 
 
 class ActivityType(str):
-    WALKING = "WALKING"
-    CYCLING = "CYCLING"
-    OTHER = "OTHER"
+    """Types of exercise the patient can do."""
+    WALKING = "WALKING"  # Walking at various speeds
+    CYCLING = "CYCLING"  # Stationary or outdoor cycling
+    OTHER = "OTHER"  # Any other exercise
 
 
 class IntensityLevel(str):
-    LIGHT = "LIGHT"
-    MODERATE = "MODERATE"
-    VIGOROUS = "VIGOROUS"
+    """How hard the exercise should be."""
+    LIGHT = "LIGHT"  # Easy, gentle effort
+    MODERATE = "MODERATE"  # Medium effort
+    VIGOROUS = "VIGOROUS"  # High effort, demanding
 
 
 class AlertType(str):
-    HIGH_HEART_RATE = "HIGH_HEART_RATE"
-    LOW_OXYGEN = "LOW_OXYGEN"
-    OTHER = "OTHER"
+    """Types of health alerts the system can create."""
+    HIGH_HEART_RATE = "HIGH_HEART_RATE"  # Heart rate too fast
+    LOW_OXYGEN = "LOW_OXYGEN"  # Blood oxygen too low
+    OTHER = "OTHER"  # Any other type of alert
 
 
 class SeverityLevel(str):
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
+    """How serious an alert is."""
+    LOW = "LOW"  # Minor concern
+    MEDIUM = "MEDIUM"  # Moderate concern
+    HIGH = "HIGH"  # Serious, needs attention
 
 
 class RecommendedAction(str):
-    CONTINUE = "CONTINUE"
-    SLOW_DOWN = "SLOW_DOWN"
-    STOP_AND_REST = "STOP_AND_REST"
-    CONTACT_DOCTOR = "CONTACT_DOCTOR"
-    EMERGENCY = "EMERGENCY"
+    """What the patient should do based on their readings."""
+    CONTINUE = "CONTINUE"  # Keep going, all is well
+    SLOW_DOWN = "SLOW_DOWN"  # Reduce effort
+    STOP_AND_REST = "STOP_AND_REST"  # Stop exercising and rest
+    CONTACT_DOCTOR = "CONTACT_DOCTOR"  # Call your doctor soon
+    EMERGENCY = "EMERGENCY"  # Call emergency services now
 
 
 class TrendDirection(str):
-    IMPROVING = "IMPROVING"
-    STABLE = "STABLE"
-    WORSENING = "WORSENING"
+    """Which direction a health metric is trending."""
+    IMPROVING = "IMPROVING"  # Getting better
+    STABLE = "STABLE"  # Staying the same
+    WORSENING = "WORSENING"  # Getting worse
 
 
 # =============================================================================

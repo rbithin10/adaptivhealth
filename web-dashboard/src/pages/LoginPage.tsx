@@ -20,6 +20,7 @@ import { FavoriteOutlined } from '@mui/icons-material';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 
+// Pull a readable error message from the server response, or fall back to a default
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (!error || typeof error !== 'object') return fallback;
   const record = error as {
@@ -30,14 +31,19 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+
+  // Login form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Forgot-password flow fields (shown when user clicks "Forgot password?")
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetMessage, setResetMessage] = useState('');
 
+  // Handle the login form submission
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -50,6 +56,7 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
+      // Save tokens so the user stays logged in
       const response = await api.login(email, password);
       localStorage.setItem('token', response.access_token);
       if (response.refresh_token) {
@@ -60,7 +67,7 @@ const LoginPage: React.FC = () => {
       const user = await api.getCurrentUser();
       localStorage.setItem('user', JSON.stringify(user));
       
-      // Role-based routing
+      // Send admins to the admin page, everyone else to the main dashboard
       const role = user.user_role;
       if (role === 'admin') {
         navigate('/admin');
@@ -74,6 +81,7 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  // Send a password reset link to the user's email
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -90,6 +98,7 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  // If the user clicked "Forgot password?", show the reset email form instead
   if (showForgotPassword) {
     return (
       <Container maxWidth="sm">
@@ -140,6 +149,7 @@ const LoginPage: React.FC = () => {
     );
   }
 
+  // -- Main login form --
   return (
     <Container maxWidth="sm">
       <Box
@@ -170,6 +180,7 @@ const LoginPage: React.FC = () => {
             </Typography>
           </Box>
 
+          {/* Error banner (e.g. wrong password) */}
           {error && (
             <Alert severity="error" sx={{ mb: 3 }}>
               {error}

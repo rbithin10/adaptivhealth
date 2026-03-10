@@ -30,35 +30,40 @@ import '../models/edge_prediction.dart';
 // Edge AI Store
 // ============================================================================
 
+// The main brain of the on-device AI system — connects all the pieces together
 class EdgeAiStore extends ChangeNotifier {
-  // Services
+  // The machine learning model that predicts heart risk on the phone itself
   final EdgeMLService _mlService = EdgeMLService();
+  // Checks if vital signs are outside safe limits (no AI needed, just math)
   final EdgeAlertService _alertService = EdgeAlertService();
+  // Gets the user's GPS location for emergencies (works without internet)
   final GpsLocationService _gpsService = GpsLocationService();
+  // Sends saved health data to the server when internet becomes available
   late final CloudSyncService _syncService;
 
-  // ---- Observable State (UI reads these) ----
+  // ---- These values are shown on screen (the UI reads them) ----
 
-  // Whether edge AI is initialized and ready
+  // Whether the AI system is set up and ready to make predictions
   bool isReady = false;
 
-  // Whether edge AI is currently initializing
+  // Whether the AI system is currently loading (show a spinner)
   bool isInitializing = false;
 
-  // Latest edge risk prediction
+  // The most recent risk prediction from the AI model
   EdgeRiskPrediction? latestPrediction;
 
-  // Active threshold alerts (currently displayed to user)
+  // Any active health alerts (like "heart rate too high")
   List<ThresholdAlert> activeAlerts = [];
 
-  // Latest GPS emergency alert (if any)
+  // The most recent emergency alert with GPS location (if any)
   GpsEmergencyAlert? latestEmergency;
 
-  // Error message (null = no error)
+  // Error message to show the user (null means everything is fine)
   String? error;
 
-  // Sync status
+  // Whether we're currently sending data to the server
   bool isSyncing = false;
+  // How many health readings are waiting to be sent to the server
   int pendingSyncCount = 0;
   CloudSyncState syncState = CloudSyncState.idle;
   bool isConnectivityOnline = false;
@@ -71,28 +76,37 @@ class EdgeAiStore extends ChangeNotifier {
   String? lastQueueEventMessage;
   DateTime? lastQueueEventAt;
 
-  // Model info
+  // Which version of the AI model is loaded
   String modelVersion = 'unknown';
+  // Whether the AI model file was successfully loaded from the app's assets
   bool modelLoaded = false;
+  // Safety flag to prevent updates after the screen is closed
   bool _isDisposed = false;
+  // When we last showed a critical health notification (to avoid spamming)
   DateTime? _lastEdgeAlertNotificationAt;
+  // Whether the PREVIOUS reading was critical (to detect new critical episodes)
   bool _wasCriticalPreviousCycle = false;
 
-  // ---- Rolling window for realistic ML features ----
-  // The Random Forest was trained on activity sessions (30+ readings), not
-  // single-point vitals. A single reading gives hr_range=0 and produces
-  // degenerate 50/50 output. We accumulate a 12-reading window (~1 min at
-  // 5s intervals) so min/max/avg diverge as the scenario progresses.
+  // ---- Collect recent readings for better AI predictions ----
+  // The AI model needs multiple readings to see trends (not just one number).
+  // We keep the last 12 heart rate and SpO2 readings (~1 minute of data)
+  // so the model can see patterns like "heart rate is rising" or "SpO2 is dropping".
   final List<int> _hrWindow = [];
   final List<int> _spo2Window = [];
+  // Keep up to 12 readings in the window
   static const int _windowSize = 12;
+  // When the current reading window started
   DateTime? _windowStart;
 
   // ---- Constructor ----
 
+  // Set up the AI store with a connection to the server for syncing data
   EdgeAiStore(Dio dio) {
+    // Create the cloud sync service with our server connection
     _syncService = CloudSyncService(dio);
+    // Listen for sync status changes and update our own status to match
     _syncService.setStateListener(() {
+      // Don't update if the screen was already closed
       if (_isDisposed) return;
       isSyncing = _syncService.isSyncing;
       pendingSyncCount = _syncService.pendingCount;
@@ -195,28 +209,33 @@ class EdgeAiStore extends ChangeNotifier {
       bpSystolic: bpSystolic,
     );
 
-    // Step 2: Accumulate rolling window, then run ML on window stats.
-    // The model was trained on activity sessions (30+ readings), not single
-    // points. Using a window gives realistic hr_range / hr_elevation features
-    // instead of the degenerate hr_range=0 that produces 50/50 output.
+    // Step 2: Add this reading to our recent history window, then run the AI model
+    // The AI needs multiple readings to see trends — one reading alone isn't enough
     _hrWindow.add(heartRate);
     if (spo2 != null) _spo2Window.add(spo2);
+    // If we have more than 12 readings, remove the oldest one
     if (_hrWindow.length > _windowSize) _hrWindow.removeAt(0);
     if (_spo2Window.length > _windowSize) _spo2Window.removeAt(0);
+    // Remember when the current window started
     _windowStart ??= DateTime.now();
 
+    // Only run the AI model if it's loaded and we have enough data
     if (_mlService.isReady &&
         age != null &&
         baselineHr != null &&
         maxSafeHr != null &&
         _hrWindow.length >= 3) {
+      // Calculate average, highest, and lowest heart rate from recent readings
       final avgHr = (_hrWindow.reduce((a, b) => a + b) / _hrWindow.length).round();
       final peakHr = _hrWindow.reduce(max);
       final minHr = _hrWindow.reduce(min);
+      // Average blood oxygen level, or use current reading, or default to 97% (normal)
       final avgSpo2 = _spo2Window.isNotEmpty
           ? (_spo2Window.reduce((a, b) => a + b) / _spo2Window.length).round()
           : (spo2 ?? 97);
+      // How many minutes have passed since we started collecting readings
       final elapsedMin = DateTime.now().difference(_windowStart!).inSeconds / 60.0;
+      // Clamp duration between 1 and 30 minutes for the AI model
       final durationMin = max(1, min(elapsedMin.round(), durationMinutes ?? 30));
 
       latestPrediction = _mlService.predictRisk(
@@ -238,7 +257,7 @@ class EdgeAiStore extends ChangeNotifier {
     // block the UI from showing the updated risk score.
     notifyListeners();
 
-    // Step 3: GPS emergency if critical alert or high ML risk (background)
+    // Step 3: If something is critically wrong, capture the user's GPS location for emergency
     final isCritical = activeAlerts.any((a) => a.severity == 'critical') ||
         (latestPrediction != null && latestPrediction!.riskScore >= 0.80);
 
@@ -375,13 +394,17 @@ class EdgeAiStore extends ChangeNotifier {
     });
   }
 
+  // Show a push notification if a NEW critical episode starts (but don't spam every 5 seconds)
   void _maybeNotifyCriticalDetection(bool isCritical) {
     final now = DateTime.now();
+    // Only notify if this is a NEW critical episode (wasn't critical before)
     final isNewCriticalCycle = isCritical && !_wasCriticalPreviousCycle;
     final lastNotified = _lastEdgeAlertNotificationAt;
+    // Don't send another notification if we sent one less than 5 minutes ago
     final outsideDebounce =
         lastNotified == null || now.difference(lastNotified) >= const Duration(minutes: 5);
 
+    // Only show notification if it's a new critical episode AND we haven't notified recently
     if (isNewCriticalCycle && outsideDebounce) {
       NotificationService.instance.showAlert(
         title: 'Health Alert',

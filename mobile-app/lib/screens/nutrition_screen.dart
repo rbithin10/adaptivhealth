@@ -1,13 +1,23 @@
-import 'dart:io';
+/*
+Nutrition Screen.
 
-import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+Tracks the patient's daily food intake with calorie and macro (protein, carbs,
+fat) goals. Users can log meals by scanning a barcode, taking a photo, or
+manual entry. Goals are personalised based on the user's profile (age, weight,
+activity level) when available, or use sensible defaults.
+*/
 
-import '../services/api_client.dart';
-import 'recipe_library_screen.dart';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
+import 'dart:io'; // Needed to pass the captured photo file to the API
+
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:image_picker/image_picker.dart'; // Opens the device camera to photograph food
+import 'package:mobile_scanner/mobile_scanner.dart'; // Reads barcodes via the device camera
+
+import '../services/api_client.dart'; // Sends nutrition data to our backend server
+import 'recipe_library_screen.dart'; // The recipe browsing screen users can navigate to
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../utils/validators.dart'; // Shared input validation helpers
 
 class NutritionScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -19,9 +29,12 @@ class NutritionScreen extends StatefulWidget {
 }
 
 class _NutritionScreenState extends State<NutritionScreen> {
+  // Loading and scanning state
   bool _isLoading = false;
   bool _isProcessingScan = false;
   String? _errorMessage;
+
+  // Logged food entries and running totals for the day
   List<Map<String, dynamic>> _entries = [];
   int _totalCount = 0;
   int _totalCaloriesToday = 0;
@@ -29,17 +42,20 @@ class _NutritionScreenState extends State<NutritionScreen> {
   int _totalCarbsToday = 0;
   int _totalFatToday = 0;
 
-  static const int _defaultGoalCalories = 2000; // default goals — personalise when profile available.
+  // Fallback goals used when we can't personalise from the user's profile
+  static const int _defaultGoalCalories = 2000;
   static const int _defaultGoalProteinGrams = 120; // default goals — personalise when profile available.
   static const int _defaultGoalCarbsGrams = 250; // default goals — personalise when profile available.
   static const int _defaultGoalFatGrams = 70; // default goals — personalise when profile available.
 
+  // Active daily goals (may be overwritten with personalised values)
   int _goalCalories = _defaultGoalCalories;
   int _goalProteinGrams = _defaultGoalProteinGrams;
   int _goalCarbsGrams = _defaultGoalCarbsGrams;
   int _goalFatGrams = _defaultGoalFatGrams;
   bool _usingDefaultGoals = true;
 
+  // On load: calculate personalised goals then fetch today's entries
   @override
   void initState() {
     super.initState();
@@ -47,6 +63,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     _loadNutritionEntries();
   }
 
+  // Calculate calorie & macro goals from the user's profile using Mifflin-St Jeor
   Future<void> _loadPersonalizedGoals() async {
     try {
       final profile = await widget.apiClient.getCurrentUser();
@@ -87,6 +104,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  // Map activity level string to a TDEE multiplier
   double _activityMultiplier(String? activityLevel) {
     switch (activityLevel) {
       case 'very_active':
@@ -101,6 +119,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  // Safely convert any value to a decimal number (used for weight/height)
   double? _toDouble(dynamic value) {
     if (value is double) return value;
     if (value is int) return value.toDouble();
@@ -108,7 +127,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     return null;
   }
 
-  /// Load recent nutrition entries from backend
+  // Fetch recent nutrition entries from the backend
   Future<void> _loadNutritionEntries() async {
     setState(() {
       _isLoading = true;
@@ -136,6 +155,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  // Sum up calories and macros for entries logged today only
   Map<String, int> _calculateTodayTotals(List<Map<String, dynamic>> entries) {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
@@ -169,6 +189,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     };
   }
 
+  // Read the date/time from an entry, converting it to the user's local timezone
   DateTime? _parseEntryTimestamp(Map<String, dynamic> entry) {
     final raw = entry['timestamp'] ?? entry['created_at'];
     if (raw is String) {
@@ -181,6 +202,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     return null;
   }
 
+  // Safely convert any value to a whole number (returns 0 when it can't)
   int _toInt(dynamic value) {
     if (value is int) return value;
     if (value is num) return value.round();
@@ -188,7 +210,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     return 0;
   }
 
-  /// Show dialog to create new nutrition entry
+  // Show the manual "Log Meal" dialog
   Future<void> _showAddEntryDialog() async {
     String mealType = 'breakfast';
     final caloriesController = TextEditingController();
@@ -284,13 +306,41 @@ class _NutritionScreenState extends State<NutritionScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final calories = int.tryParse(caloriesController.text);
-              if (calories == null || calories <= 0) {
+              final caloriesError =
+                  Validators.required(caloriesController.text) ??
+                  Validators.calories(caloriesController.text);
+              if (caloriesError != null) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter valid calories')),
+                  SnackBar(content: Text(caloriesError)),
                 );
                 return;
               }
+
+              final proteinError = Validators.macroGrams(proteinController.text);
+              if (proteinError != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(proteinError)),
+                );
+                return;
+              }
+
+              final carbsError = Validators.macroGrams(carbsController.text);
+              if (carbsError != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(carbsError)),
+                );
+                return;
+              }
+
+              final fatError = Validators.macroGrams(fatController.text);
+              if (fatError != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(fatError)),
+                );
+                return;
+              }
+
+              final calories = int.parse(caloriesController.text.trim());
 
               try {
                 await widget.apiClient.createNutritionEntry(
@@ -299,9 +349,15 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   description: descriptionController.text.isEmpty
                       ? null
                       : descriptionController.text,
-                  proteinGrams: int.tryParse(proteinController.text),
-                  carbsGrams: int.tryParse(carbsController.text),
-                  fatGrams: int.tryParse(fatController.text),
+                  proteinGrams: proteinController.text.trim().isEmpty
+                      ? null
+                      : int.parse(proteinController.text.trim()),
+                  carbsGrams: carbsController.text.trim().isEmpty
+                      ? null
+                      : int.parse(carbsController.text.trim()),
+                  fatGrams: fatController.text.trim().isEmpty
+                      ? null
+                      : int.parse(fatController.text.trim()),
                 );
                 if (context.mounted) {
                   Navigator.pop(context, true);
@@ -331,7 +387,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
-  /// Delete nutrition entry
+  // Delete a nutrition entry after confirmation
   Future<void> _deleteEntry(int entryId) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -370,6 +426,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  // Take a photo of food and use AI to estimate its nutrition
   Future<void> _scanFoodFromCamera() async {
     if (_isProcessingScan) return;
 
@@ -416,6 +473,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  // Scan a product barcode and look up its nutrition info
   Future<void> _scanFoodByBarcode() async {
     if (_isProcessingScan) return;
 
@@ -467,6 +525,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
+  // Pull nutrition values from various possible response shapes
   Map<String, dynamic> _extractDetectedNutrition(
     Map<String, dynamic> raw, {
     required String fallbackDescription,
@@ -503,6 +562,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     };
   }
 
+  // Let the user review and edit auto-detected nutrition before saving
   Future<bool?> _showNutritionConfirmationDialog({
     required String title,
     required Map<String, dynamic> initialData,
@@ -604,13 +664,41 @@ class _NutritionScreenState extends State<NutritionScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final calories = int.tryParse(caloriesController.text);
-              if (calories == null || calories <= 0) {
+              final caloriesError =
+                  Validators.required(caloriesController.text) ??
+                  Validators.calories(caloriesController.text);
+              if (caloriesError != null) {
                 ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(content: Text('Please enter valid calories')),
+                  SnackBar(content: Text(caloriesError)),
                 );
                 return;
               }
+
+              final proteinError = Validators.macroGrams(proteinController.text);
+              if (proteinError != null) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(content: Text(proteinError)),
+                );
+                return;
+              }
+
+              final carbsError = Validators.macroGrams(carbsController.text);
+              if (carbsError != null) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(content: Text(carbsError)),
+                );
+                return;
+              }
+
+              final fatError = Validators.macroGrams(fatController.text);
+              if (fatError != null) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(content: Text(fatError)),
+                );
+                return;
+              }
+
+              final calories = int.parse(caloriesController.text.trim());
 
               try {
                 await widget.apiClient.createNutritionEntry(
@@ -619,9 +707,15 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   description: descriptionController.text.trim().isEmpty
                       ? null
                       : descriptionController.text.trim(),
-                  proteinGrams: int.tryParse(proteinController.text),
-                  carbsGrams: int.tryParse(carbsController.text),
-                  fatGrams: int.tryParse(fatController.text),
+                  proteinGrams: proteinController.text.trim().isEmpty
+                      ? null
+                      : int.parse(proteinController.text.trim()),
+                  carbsGrams: carbsController.text.trim().isEmpty
+                      ? null
+                      : int.parse(carbsController.text.trim()),
+                  fatGrams: fatController.text.trim().isEmpty
+                      ? null
+                      : int.parse(fatController.text.trim()),
                 );
 
                 if (dialogContext.mounted) {
@@ -652,6 +746,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     return result;
   }
 
+  // Row of action buttons: Scan Food, Scan Barcode, Recipes
   Widget _buildNutritionActionRow() {
     return Row(
       children: [
@@ -692,6 +787,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Reusable outlined button used inside the action row
   Widget _buildNutritionActionButton({
     required String label,
     required IconData icon,
@@ -710,6 +806,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Main screen layout
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -764,6 +861,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Decides what to show: a spinner while loading, an error message, or the actual nutrition content
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
@@ -829,6 +927,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Card showing daily calorie & macro progress bars
   Widget _buildDailyGoalsCard() {
     final progress = (_totalCaloriesToday / _goalCalories).clamp(0.0, 1.0);
 
@@ -889,6 +988,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // A single column inside the goals card showing one macro (e.g. "Protein 45/120g")
   Widget _buildGoalItem(String label, String value) {
     return Column(
       children: [
@@ -904,6 +1004,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Placeholder shown when the user hasn't logged any meals yet
   Widget _buildEmptyEntriesState() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 32),
@@ -930,6 +1031,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Card for a single logged meal entry (swipe to delete)
   Widget _buildNutritionCard(Map<String, dynamic> entry) {
     final entryId = entry['entry_id'] as int;
     final mealType = entry['meal_type'] as String;
@@ -954,6 +1056,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
       timeAgo = 'Just now';
     }
 
+    // Pick an icon and colour based on the meal type
     IconData icon;
     Color iconColor;
     switch (mealType) {
@@ -1080,12 +1183,14 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
+  // Turn "breakfast" into "Breakfast" for display
   String _capitalize(String text) {
     if (text.isEmpty) return text;
     return text[0].toUpperCase() + text.substring(1);
   }
 }
 
+// Full-screen barcode scanner using the device camera
 class MobileScannerWidget extends StatefulWidget {
   const MobileScannerWidget({super.key});
 
@@ -1094,8 +1199,8 @@ class MobileScannerWidget extends StatefulWidget {
 }
 
 class _MobileScannerWidgetState extends State<MobileScannerWidget> {
-  final MobileScannerController _scannerController = MobileScannerController();
-  bool _didDetectBarcode = false;
+  final MobileScannerController _scannerController = MobileScannerController(); // Controls the camera
+  bool _didDetectBarcode = false; // Prevents reading the same barcode twice
 
   @override
   void dispose() {
@@ -1103,6 +1208,7 @@ class _MobileScannerWidgetState extends State<MobileScannerWidget> {
     super.dispose();
   }
 
+  // Called every time the camera sees a barcode — we only use the first one
   void _handleBarcodeCapture(BarcodeCapture capture) {
     if (_didDetectBarcode) {
       return;

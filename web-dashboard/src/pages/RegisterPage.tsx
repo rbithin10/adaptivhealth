@@ -22,6 +22,7 @@ import { FavoriteOutlined } from '@mui/icons-material';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 
+// Dropdown options for the gender field
 const GENDER_OPTIONS = [
   { value: 'male', label: 'Male' },
   { value: 'female', label: 'Female' },
@@ -31,23 +32,30 @@ const GENDER_OPTIONS = [
 
 const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
+
+  // Registration form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
+
+  // Optional profile fields
   const [age, setAge] = useState('');
   const [gender, setGender] = useState('');
   const [phone, setPhone] = useState('');
+
+  // UI state: loading spinner, error/success messages
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // When the user clicks "Create Account"
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    // Client-side validation
+    // Make sure the passwords match and meet strength requirements
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
       return;
@@ -68,6 +76,7 @@ const RegisterPage: React.FC = () => {
       return;
     }
 
+    // Send the registration data to the server
     setLoading(true);
 
     try {
@@ -80,6 +89,7 @@ const RegisterPage: React.FC = () => {
         phone: phone || undefined,
       });
 
+      // Account created — redirect to login after a short delay
       setSuccess('Account created successfully! Redirecting to login...');
       setTimeout(() => {
         navigate('/login');
@@ -94,6 +104,7 @@ const RegisterPage: React.FC = () => {
     }
   };
 
+  // -- Registration form UI --
   return (
     <Container maxWidth="sm">
       <Box

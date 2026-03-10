@@ -38,18 +38,18 @@ class Message(Base):
     # -------------------------------------------------------------------------
     # Primary Key
     # -------------------------------------------------------------------------
-    message_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    message_id = Column(Integer, primary_key=True, index=True, autoincrement=True)  # Unique ID for each message
 
     # -------------------------------------------------------------------------
-    # Foreign Keys
+    # Foreign Keys — who sent and who received the message
     # -------------------------------------------------------------------------
-    sender_id = Column(
+    sender_id = Column(  # The user who wrote and sent this message
         Integer,
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
         index=True
     )
-    receiver_id = Column(
+    receiver_id = Column(  # The user who should receive this message
         Integer,
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
@@ -57,18 +57,17 @@ class Message(Base):
     )
 
     # -------------------------------------------------------------------------
-    # Message Content (encrypted)
+    # Message Content (encrypted for privacy)
     # -------------------------------------------------------------------------
-    content = Column(Text, nullable=False)
-    # Encrypted content stored for persistence (AES-256-GCM)
-    encrypted_content = Column(Text, nullable=True)
-    is_read = Column(Boolean, default=False, nullable=False)
-    read_at = Column(DateTime(timezone=True), nullable=True)
+    content = Column(Text, nullable=False)  # The actual text of the message
+    encrypted_content = Column(Text, nullable=True)  # Same message but encrypted for secure storage
+    is_read = Column(Boolean, default=False, nullable=False)  # Has the receiver opened and read this message?
+    read_at = Column(DateTime(timezone=True), nullable=True)  # The exact time the receiver read the message
 
     # -------------------------------------------------------------------------
     # Timestamps
     # -------------------------------------------------------------------------
-    sent_at = Column(
+    sent_at = Column(  # When the message was sent
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
@@ -76,14 +75,14 @@ class Message(Base):
     )
 
     # -------------------------------------------------------------------------
-    # Indexes
+    # Indexes — speed up searching messages between users
     # -------------------------------------------------------------------------
     __table_args__ = (
-        Index("idx_messages_sender_receiver", "sender_id", "receiver_id"),
-        Index("idx_messages_receiver_sender", "receiver_id", "sender_id"),
-        Index("idx_messages_sender_time", "sender_id", "sent_at"),
-        Index("idx_messages_receiver_time", "receiver_id", "sent_at"),
-        Index("idx_messages_pair_time", "sender_id", "receiver_id", "sent_at"),
+        Index("idx_messages_sender_receiver", "sender_id", "receiver_id"),  # Find conversations between two people
+        Index("idx_messages_receiver_sender", "receiver_id", "sender_id"),  # Same but looking from the receiver's side
+        Index("idx_messages_sender_time", "sender_id", "sent_at"),  # Find messages sent by someone, sorted by time
+        Index("idx_messages_receiver_time", "receiver_id", "sent_at"),  # Find messages received by someone, sorted by time
+        Index("idx_messages_pair_time", "sender_id", "receiver_id", "sent_at"),  # Full conversation history in order
         {"extend_existing": True}
     )
 

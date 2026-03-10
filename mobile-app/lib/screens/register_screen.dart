@@ -5,11 +5,12 @@ New users enter their details here to create an account.
 After successful registration, they return to the Login screen.
 */
 
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
-import '../services/api_client.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import 'package:google_fonts/google_fonts.dart'; // Custom font support
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../services/api_client.dart'; // Talks to our backend server
+import '../utils/validators.dart'; // Shared input validation helpers
 
 class RegisterScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -26,20 +27,20 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _phoneController = TextEditingController();
+  final _formKey = GlobalKey<FormState>(); // Validates all fields before submitting
+  final _nameController = TextEditingController(); // User's full name
+  final _emailController = TextEditingController(); // User's email address
+  final _passwordController = TextEditingController(); // User's chosen password
+  final _confirmPasswordController = TextEditingController(); // Must match password
+  final _ageController = TextEditingController(); // Optional age
+  final _phoneController = TextEditingController(); // Optional phone number
 
-  bool _isLoading = false;
-  bool _showPassword = false;
-  bool _showConfirmPassword = false;
-  String? _errorMessage;
-  String? _successMessage;
-  String _selectedGender = '';
+  bool _isLoading = false; // True while the request is being sent
+  bool _showPassword = false; // Toggle password visibility
+  bool _showConfirmPassword = false; // Toggle confirm password visibility
+  String? _errorMessage; // Shown when registration fails
+  String? _successMessage; // Shown briefly before redirecting to login
+  String _selectedGender = ''; // User's chosen gender option
 
   static const List<String> _genderOptions = [
     'male',
@@ -48,6 +49,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     'prefer not to say',
   ];
 
+  // Clean up text controllers when this screen is removed
   @override
   void dispose() {
     _nameController.dispose();
@@ -59,6 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  // Validate the form, send the new account data to the server, then redirect to login
   void _handleRegister() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -101,6 +104,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  // Build the registration form with all fields and submit button
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -230,12 +234,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                           ),
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Full name is required';
-                          }
-                          return null;
-                        },
+                        validator: Validators.name,
                       ),
                       const SizedBox(height: 16),
 
@@ -257,15 +256,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Email is required';
-                          }
-                          if (!value.contains('@')) {
-                            return 'Please enter a valid email';
-                          }
-                          return null;
-                        },
+                        validator: Validators.email,
                       ),
                       const SizedBox(height: 16),
 
@@ -300,21 +291,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         obscureText: !_showPassword,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Password is required';
-                          }
-                          if (value.length < 8) {
-                            return 'Password must be at least 8 characters';
-                          }
-                          if (!value.contains(RegExp(r'[0-9]'))) {
-                            return 'Password must contain at least one digit';
-                          }
-                          if (!value.contains(RegExp(r'[a-zA-Z]'))) {
-                            return 'Password must contain at least one letter';
-                          }
-                          return null;
-                        },
+                        validator: Validators.password,
                       ),
                       const SizedBox(height: 16),
 
@@ -348,15 +325,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         obscureText: !_showConfirmPassword,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please confirm your password';
-                          }
-                          if (value != _passwordController.text) {
-                            return 'Passwords do not match';
-                          }
-                          return null;
-                        },
+                        validator: (value) =>
+                            Validators.confirmPassword(value, _passwordController.text),
                       ),
                       const SizedBox(height: 16),
 
@@ -378,15 +348,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value != null && value.isNotEmpty) {
-                            final age = int.tryParse(value);
-                            if (age == null || age < 1 || age > 120) {
-                              return 'Age must be between 1 and 120';
-                            }
-                          }
-                          return null;
-                        },
+                        validator: Validators.age,
                       ),
                       const SizedBox(height: 16),
 
@@ -441,6 +403,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         keyboardType: TextInputType.phone,
+                        validator: Validators.phone,
                       ),
                       const SizedBox(height: 24),
 

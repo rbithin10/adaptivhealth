@@ -60,7 +60,7 @@ def _save_nutrition_entry(
     timestamp: Optional[datetime] = None,
 ) -> NutritionEntry:
     """Persist a nutrition entry and return the saved model."""
-    nutrition_entry = NutritionEntry(
+    nutrition_entry = NutritionEntry(  # Create a new meal log record
         user_id=current_user.user_id,
         meal_type=meal_type,
         description=description,
@@ -68,12 +68,12 @@ def _save_nutrition_entry(
         protein_grams=protein_grams,
         carbs_grams=carbs_grams,
         fat_grams=fat_grams,
-        timestamp=timestamp or datetime.now(timezone.utc),
+        timestamp=timestamp or datetime.now(timezone.utc),  # Default to right now if no time given
     )
 
-    db.add(nutrition_entry)
-    db.commit()
-    db.refresh(nutrition_entry)
+    db.add(nutrition_entry)  # Add to database
+    db.commit()  # Save permanently
+    db.refresh(nutrition_entry)  # Reload to get the auto-generated ID
     return nutrition_entry
 
 
@@ -156,14 +156,14 @@ async def log_meal_consumption(
     existing mobile/dashboard behavior.
     """
     try:
-        item_names = [item.food_name for item in log_data.items if item.food_name]
+        item_names = [item.food_name for item in log_data.items if item.food_name]  # Collect food names from the items list
         desc_parts: List[str] = []
         if item_names:
-            desc_parts.append(", ".join(item_names))
+            desc_parts.append(", ".join(item_names))  # Join food names into a readable string
         if log_data.notes:
-            desc_parts.append(f"notes: {log_data.notes}")
+            desc_parts.append(f"notes: {log_data.notes}")  # Include any freeform notes
         if log_data.meal_id:
-            desc_parts.append(f"meal_id: {log_data.meal_id}")
+            desc_parts.append(f"meal_id: {log_data.meal_id}")  # Link back to a recommended meal
         description = " | ".join(desc_parts) if desc_parts else None
 
         nutrition_entry = _save_nutrition_entry(
@@ -175,13 +175,13 @@ async def log_meal_consumption(
             timestamp=log_data.timestamp,
         )
 
-        has_recommendation_link = bool(log_data.meal_id)
-        has_item_details = len(log_data.items) > 0
-        adherence = 0.95 if has_recommendation_link and has_item_details else 0.85
+        has_recommendation_link = bool(log_data.meal_id)  # Was this meal linked to a recommendation?
+        has_item_details = len(log_data.items) > 0  # Did the user provide food item details?
+        adherence = 0.95 if has_recommendation_link and has_item_details else 0.85  # Higher score if following recommendations
 
-        feedback = "Excellent choice! High fiber and nutrient-dense."
+        feedback = "Excellent choice! High fiber and nutrient-dense."  # Default positive feedback
         if log_data.satisfaction_rating is not None and log_data.satisfaction_rating <= 5:
-            feedback = "Logged successfully. Consider adjusting portions or meal choices for better adherence."
+            feedback = "Logged successfully. Consider adjusting portions or meal choices for better adherence."  # Gentle nudge for low satisfaction
 
         return NutritionLogResponse(
             log_id=f"log_{nutrition_entry.entry_id}",
@@ -231,10 +231,10 @@ async def get_recent_nutrition_entries(
         # Get total count for this user
         total_count = db.query(func.count(NutritionEntry.entry_id)).filter(
             NutritionEntry.user_id == current_user.user_id
-        ).scalar()
+        ).scalar()  # How many total entries exist for this user
         
         # Get recent entries ordered by timestamp descending
-        entries = (
+        entries = (  # Fetch the most recent meals, newest first
             db.query(NutritionEntry)
             .filter(NutritionEntry.user_id == current_user.user_id)
             .order_by(desc(NutritionEntry.timestamp))
@@ -288,8 +288,8 @@ async def delete_nutrition_entry(
     """
     # Find entry
     entry = db.query(NutritionEntry).filter(
-        NutritionEntry.entry_id == entry_id,
-        NutritionEntry.user_id == current_user.user_id
+        NutritionEntry.entry_id == entry_id,  # Match the specific entry
+        NutritionEntry.user_id == current_user.user_id  # Only allow deleting your own entries
     ).first()
     
     if not entry:
@@ -620,12 +620,12 @@ _CARDIAC_DIET_LIBRARY: Dict[str, Dict] = {
 }
 
 # Reuse the high-risk plan for critical level
-_CARDIAC_DIET_LIBRARY["critical"] = _CARDIAC_DIET_LIBRARY["high"]
+_CARDIAC_DIET_LIBRARY["critical"] = _CARDIAC_DIET_LIBRARY["high"]  # Critical patients get the same strict diet as high-risk
 
 
 def _build_daily_summary(meals: List[Dict]) -> Dict:
     """Aggregate nutritional totals across all meals."""
-    totals = {
+    totals = {  # Start with zeros and add up each meal's nutrition
         "total_calories": 0,
         "total_potassium_mg": 0,
         "total_protein_grams": 0,
@@ -644,7 +644,7 @@ def _build_daily_summary(meals: List[Dict]) -> Dict:
 
 def _build_status_vs_goals(summary: Dict, goals: Dict) -> Dict:
     """Compare meal totals against daily goals."""
-    potassium_pct = round(summary["total_potassium_mg"] / goals["potassium_mg"] * 100)
+    potassium_pct = round(summary["total_potassium_mg"] / goals["potassium_mg"] * 100)  # How much of the daily potassium goal was met
     return {
         "potassium": f"{potassium_pct}% of recommended daily intake",
         "water": f"Track throughout the day ({goals['water_liters']} liters goal)",
@@ -699,7 +699,7 @@ async def get_nutrition_recommendations(
         recommendation_date = date.today()
 
     # --- Look up the user's latest risk assessment ---------------------------
-    latest_risk = (
+    latest_risk = (  # Find the most recent risk score for this patient
         db.query(RiskAssessment)
         .filter(RiskAssessment.user_id == current_user.user_id)
         .order_by(desc(RiskAssessment.assessment_date))
@@ -708,22 +708,22 @@ async def get_nutrition_recommendations(
 
     # Determine risk level (fall back to user.risk_level or "low")
     if latest_risk:
-        risk_level = (latest_risk.risk_level or "low").lower()
+        risk_level = (latest_risk.risk_level or "low").lower()  # Use the assessed risk level
     elif current_user.risk_level:
-        risk_level = current_user.risk_level.lower()
+        risk_level = current_user.risk_level.lower()  # Fall back to the user's profile risk
     else:
-        risk_level = "low"
+        risk_level = "low"  # Default to low risk if nothing is on record
 
     # Clamp to known keys
-    if risk_level not in _CARDIAC_DIET_LIBRARY:
+    if risk_level not in _CARDIAC_DIET_LIBRARY:  # Make sure the risk level has a matching meal plan
         risk_level = "low"
 
     # --- Build the recommendation from the diet library ----------------------
-    plan = _CARDIAC_DIET_LIBRARY[risk_level]
-    goals = plan["goals"]
-    meals = plan["meals"]
-    daily_summary = _build_daily_summary(meals)
-    status_vs_goals = _build_status_vs_goals(daily_summary, goals)
+    plan = _CARDIAC_DIET_LIBRARY[risk_level]  # Pick the right meal plan for this risk level
+    goals = plan["goals"]  # Daily nutrition targets
+    meals = plan["meals"]  # Suggested meals for the day
+    daily_summary = _build_daily_summary(meals)  # Add up all the nutrition across meals
+    status_vs_goals = _build_status_vs_goals(daily_summary, goals)  # Compare totals to daily targets
 
     logger.info(
         f"Nutrition recommendations generated: user_id={current_user.user_id}, "
@@ -773,10 +773,10 @@ async def get_nutrition_progress(
             detail="end_date must be on or after start_date",
         )
 
-    start_ts = datetime.combine(start_dt, datetime.min.time(), tzinfo=timezone.utc)
-    end_ts = datetime.combine(end_dt, datetime.max.time(), tzinfo=timezone.utc)
+    start_ts = datetime.combine(start_dt, datetime.min.time(), tzinfo=timezone.utc)  # Start of the first day
+    end_ts = datetime.combine(end_dt, datetime.max.time(), tzinfo=timezone.utc)  # End of the last day
 
-    entries = (
+    entries = (  # Get all nutrition entries in the date range
         db.query(NutritionEntry)
         .filter(
             NutritionEntry.user_id == current_user.user_id,
@@ -787,27 +787,27 @@ async def get_nutrition_progress(
         .all()
     )
 
-    grouped = {}
+    grouped = {}  # Group entries by date so we can summarise each day
     for entry in entries:
         key = entry.timestamp.date().isoformat()
         grouped.setdefault(key, []).append(entry)
 
     daily_summaries = []
-    daily_calories = []
-    daily_adherence_scores = []
+    daily_calories = []  # Track daily calorie totals for trend analysis
+    daily_adherence_scores = []  # Track how closely user followed recommendations
     for day_key in sorted(grouped.keys()):
         day_entries = grouped[day_key]
-        total_calories = sum(item.calories or 0 for item in day_entries)
+        total_calories = sum(item.calories or 0 for item in day_entries)  # Add up all calories for this day
 
-        linked_count = 0
+        linked_count = 0  # Count entries that reference a recommended meal
         for item in day_entries:
             description = (item.description or "").lower()
-            if "meal_id:" in description:
+            if "meal_id:" in description:  # Entry was linked to our recommendation system
                 linked_count += 1
 
-        adherence_score = 0.0
+        adherence_score = 0.0  # Calculate how closely this day followed advice
         if day_entries:
-            adherence_score = round((linked_count / len(day_entries)) * 0.4 + 0.55, 2)
+            adherence_score = round((linked_count / len(day_entries)) * 0.4 + 0.55, 2)  # Base score + bonus for following recommendations
 
         daily_summaries.append({
             "date": day_key,
@@ -819,22 +819,22 @@ async def get_nutrition_progress(
         daily_calories.append(total_calories)
         daily_adherence_scores.append(adherence_score)
 
-    days_total = (end_dt - start_dt).days + 1
-    days_tracked = len(daily_summaries)
-    avg_calories = round(sum(daily_calories) / days_tracked, 2) if days_tracked else 0
-    avg_adherence = round(sum(daily_adherence_scores) / days_tracked, 2) if days_tracked else 0
+    days_total = (end_dt - start_dt).days + 1  # Total days in the requested range
+    days_tracked = len(daily_summaries)  # How many days had at least one entry
+    avg_calories = round(sum(daily_calories) / days_tracked, 2) if days_tracked else 0  # Average daily calories
+    avg_adherence = round(sum(daily_adherence_scores) / days_tracked, 2) if days_tracked else 0  # Average adherence score
 
-    calorie_trend = "No data"
+    calorie_trend = "No data"  # Determine if calorie intake is going up, down, or staying flat
     if len(daily_calories) >= 2:
-        delta = daily_calories[-1] - daily_calories[0]
+        delta = daily_calories[-1] - daily_calories[0]  # Compare last day to first day
         if abs(delta) <= 100:
-            calorie_trend = "Stable"
+            calorie_trend = "Stable"  # Within 100 calories — no significant change
         elif delta > 100:
-            calorie_trend = "Increasing"
+            calorie_trend = "Increasing"  # Eating more over time
         else:
-            calorie_trend = "Decreasing"
+            calorie_trend = "Decreasing"  # Eating less over time
 
-    adherence_trend = "No data"
+    adherence_trend = "No data"  # Determine if recommendation adherence is improving or declining
     if len(daily_adherence_scores) >= 2:
         delta = daily_adherence_scores[-1] - daily_adherence_scores[0]
         if abs(delta) <= 0.05:
@@ -844,7 +844,7 @@ async def get_nutrition_progress(
         else:
             adherence_trend = "Declining"
 
-    consistency_text = f"Good - {days_tracked}/{days_total} days logged" if days_total else "No period selected"
+    consistency_text = f"Good - {days_tracked}/{days_total} days logged" if days_total else "No period selected"  # How consistently the user logged meals
 
     return {
         "period": {

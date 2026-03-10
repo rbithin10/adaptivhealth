@@ -36,15 +36,18 @@ import { typography } from '../theme/typography';
 import StatCard from '../components/cards/StatCard';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
+// Base URL for the backend API and whether live alert push (SSE) is enabled
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 const ENABLE_ALERT_PUSH = process.env.REACT_APP_ENABLE_ALERT_PUSH === 'true';
 
+// Top-level stats shown on the dashboard cards
 interface Stats {
   totalPatients: number;
   activeMonitoring: number;
   criticalAlerts: number;
 }
 
+// Summary of how many patients sent readings in the last 24 hours
 interface MonitoringSummary {
   patientsWithReadings24h: number;
   patientsWithoutReadings24h: number;
@@ -74,6 +77,7 @@ const getHttpStatus = (error: unknown): number | undefined => {
   return typeof status === 'number' ? status : undefined;
 };
 
+// Normalize the alert stats response from the API into a consistent shape
 const normalizeAlertStats = (raw: unknown): AlertStatsResponse => {
   const rawRecord = toRecord(raw);
   const inputSeverity = toRecord(rawRecord.by_severity ?? rawRecord.severity_breakdown);
@@ -97,6 +101,7 @@ const normalizeAlertStats = (raw: unknown): AlertStatsResponse => {
   };
 };
 
+// Ordered weekday labels for chart x-axis
 const WEEKDAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const toWeekdayLabel = (timestamp?: string): string => {
@@ -108,35 +113,45 @@ const toWeekdayLabel = (timestamp?: string): string => {
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+
+  // Overview numbers (patient count, monitoring, critical alerts)
   const [stats, setStats] = useState<Stats>({
     totalPatients: 0,
     activeMonitoring: 0,
     criticalAlerts: 0,
   });
+  // Page-level state
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [alertStats, setAlertStats] = useState<AlertStatsResponse | null>(null);
+  // Five most recent alerts shown in the bottom widget
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
   const [dataWarning, setDataWarning] = useState<string | null>(null);
+  // Consent requests a clinician still needs to approve
   const [pendingConsent, setPendingConsent] = useState<PendingConsentRequest[]>([]);
+  // 24-hour monitoring coverage stats
   const [monitoringSummary, setMonitoringSummary] = useState<MonitoringSummary>({
     patientsWithReadings24h: 0,
     patientsWithoutReadings24h: 0,
     totalReadings24h: 0,
     highOrCriticalRiskPatients: 0,
   });
+  // Heart-rate trend line-chart data (top 5 highest-risk patients)
   const [hrTrendData, setHrTrendData] = useState<HrTrendPoint[]>([]);
   const [hrTrendSeries, setHrTrendSeries] = useState<HrTrendSeries[]>([]);
+  // Bar chart: how many patients fall into each risk bucket
   const [healthScoreData, setHealthScoreData] = useState<
     Array<{ range: string; count: number }>
   >([]);
 
+  // Load everything when the page first opens
   useEffect(() => {
     loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Refresh just the alert widgets (called by polling, SSE, and focus events)
   const refreshAlertWidgets = async (): Promise<boolean> => {
     try {
       const [statsResponse, alertsResponse] = await Promise.all([
@@ -167,6 +182,8 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  // Set up live alert refreshing: poll every second, listen for SSE pushes
+  // and window-focus / visibility-change events
   useEffect(() => {
     if (!currentUser) return;
 
@@ -246,6 +263,7 @@ const DashboardPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.user_id]);
 
+  // Main data loader: fetches the user, patient list, alert stats, charts
   const loadDashboardData = async () => {
     setLoading(true);
     setLoadError(null);
@@ -263,13 +281,14 @@ const DashboardPage: React.FC = () => {
       const user = await withTimeout(api.getCurrentUser());
       setCurrentUser(user);
 
-      // Redirect admin to admin page
+      // If this user is an admin, send them to the admin page instead
       const role = user.user_role;
       if (role === 'admin') {
         navigate('/admin');
         return;
       }
 
+      // Fetch patients, alert stats, and recent alerts in parallel
       const [usersResult, statsResult, alertsResult] =
         await withTimeout(
           Promise.allSettled([
@@ -323,6 +342,7 @@ const DashboardPage: React.FC = () => {
         return userRole === 'patient';
       });
 
+      // For each patient, load their 7-day vital history and latest risk score
       if (patientUsers.length > 0) {
         const [historyResults, riskResults] = await Promise.all([
           Promise.allSettled(
@@ -333,6 +353,7 @@ const DashboardPage: React.FC = () => {
           ),
         ]);
 
+        // Count how many patients fall in each risk category
         const riskCounts = {
           low: 0,
           moderate: 0,
@@ -380,6 +401,7 @@ const DashboardPage: React.FC = () => {
           }
         });
 
+        // Calculate the 24-hour monitoring coverage numbers
         const nowMs = Date.now();
         let patientsWithReadings24h = 0;
         let totalReadings24h = 0;
@@ -404,6 +426,7 @@ const DashboardPage: React.FC = () => {
           highOrCriticalRiskPatients: riskCounts.high + riskCounts.critical,
         });
 
+        // Build the heart-rate trend chart data for the top 5 highest-risk patients
         const highestRiskPatients = [...patientUsers]
           .map((patient) => ({
             ...patient,
@@ -482,6 +505,7 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  // Format a timestamp as "X min ago" or "X hrs ago"
   const formatTimeAgo = (isoDate?: string) => {
     if (!isoDate) return 'Just now';
     const date = new Date(isoDate);

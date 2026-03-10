@@ -150,18 +150,19 @@ def get_current_session_plan(program: RehabProgram, user: User) -> SessionPlanRe
     """
     Build the plan for the next session based on the current week template.
     """
-    template = _get_week_template(program)
-    max_hr = user.max_safe_hr or user.calculate_max_heart_rate()
+    template = _get_week_template(program)  # Get this week's exercise plan
+    max_hr = user.max_safe_hr or user.calculate_max_heart_rate()  # Get the patient's max safe heart rate
 
-    target_hr_min = int(max_hr * template["hr_pct_low"])
-    target_hr_max = int(max_hr * template["hr_pct_high"])
+    # Calculate the target heart rate range for this week
+    target_hr_min = int(max_hr * template["hr_pct_low"])  # Lower bound of safe HR during exercise
+    target_hr_max = int(max_hr * template["hr_pct_high"])  # Upper bound of safe HR during exercise
 
-    # Pick activity: cycle through list
+    # Rotate through available activities (e.g., walking, stretching, cycling)
     activities = template["activities"]
-    activity_idx = program.current_session_in_week % len(activities)
+    activity_idx = program.current_session_in_week % len(activities)  # Pick the next activity in rotation
     activity_type = activities[activity_idx]
 
-    session_number = program.current_session_in_week + 1
+    session_number = program.current_session_in_week + 1  # Next session number (1-based)
 
     return SessionPlanResponse(
         activity_type=activity_type,
@@ -188,17 +189,18 @@ def complete_session(
     - >= 80% of this week's sessions must have vitals_in_safe_range == True.
     If both conditions are met the program advances to the next week.
     """
-    template = _get_week_template(program)
-    max_hr = user.max_safe_hr or user.calculate_max_heart_rate()
-    hr_ceiling = int(max_hr * template["hr_pct_high"])
+    template = _get_week_template(program)  # Get the plan for this week
+    max_hr = user.max_safe_hr or user.calculate_max_heart_rate()  # Patient's maximum safe heart rate
+    hr_ceiling = int(max_hr * template["hr_pct_high"])  # The highest HR they should reach during exercise
 
-    # Evaluate safety
+    # Check if the patient's peak heart rate stayed within the safe zone
     safe = True
     if session_data.peak_heart_rate is not None:
-        safe = session_data.peak_heart_rate <= hr_ceiling
+        safe = session_data.peak_heart_rate <= hr_ceiling  # Was peak HR below the ceiling?
 
-    session_number = program.current_session_in_week + 1
+    session_number = program.current_session_in_week + 1  # This session's number
 
+    # Record what happened during this session in the database
     log_entry = RehabSessionLog(
         program_id=program.program_id,
         user_id=user.user_id,
@@ -213,14 +215,14 @@ def complete_session(
     )
     db.add(log_entry)
 
-    # Increment session count
+    # Update how many sessions they've done this week
     program.current_session_in_week = session_number
-    sessions_required = template["sessions_required"]
+    sessions_required = template["sessions_required"]  # How many sessions needed to advance
 
-    # Check progression gate
+    # Progression gate: check if the patient is ready to move to the next week
     advanced = False
-    if program.current_session_in_week >= sessions_required:
-        # Count safe sessions this week
+    if program.current_session_in_week >= sessions_required:  # Have they done enough sessions?
+        # Count how many sessions this week had safe vitals
         week_logs = (
             db.query(RehabSessionLog)
             .filter(
@@ -229,22 +231,21 @@ def complete_session(
             )
             .all()
         )
-        # Include the current (not yet flushed) log
-        all_logs = list(week_logs) + [log_entry]
-        safe_count = sum(1 for lg in all_logs if lg.vitals_in_safe_range)
-        safe_pct = safe_count / len(all_logs) if all_logs else 0
+        all_logs = list(week_logs) + [log_entry]  # Include the current session too
+        safe_count = sum(1 for lg in all_logs if lg.vitals_in_safe_range)  # How many were safe
+        safe_pct = safe_count / len(all_logs) if all_logs else 0  # Percentage of safe sessions
 
-        if safe_pct >= 0.80:
+        if safe_pct >= 0.80:  # At least 80% of sessions must have been safe to advance
             advanced = True
-            program.current_session_in_week = 0
-            program.current_week += 1
+            program.current_session_in_week = 0  # Reset session counter for the new week
+            program.current_week += 1  # Move to the next week
 
+            # Check if the program is complete (Phase 2 has a fixed 4-week duration)
             if program.program_type == "phase_2_light" and program.current_week > len(PHASE_2_LIGHT):
-                program.status = "completed"
+                program.status = "completed"  # Program finished!
                 logger.info(f"Rehab program completed for user {user.user_id}")
             elif program.program_type == "phase_3_maintenance":
-                # Maintenance loops — reset week to 1
-                program.current_week = 1
+                program.current_week = 1  # Maintenance loops back — start over
 
     db.commit()
     db.refresh(program)

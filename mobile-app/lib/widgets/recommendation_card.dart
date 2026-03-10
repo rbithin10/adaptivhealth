@@ -18,11 +18,14 @@ RecommendationCard(
 ```
 */
 
+// Flutter's UI toolkit
 import 'package:flutter/material.dart';
+// Our custom brand colors
 import '../theme/colors.dart';
+// Our custom text styles
 import '../theme/typography.dart';
 
-/// Activity types for recommendations
+// The types of exercise the app can recommend
 enum ActivityType {
   walking,
   running,
@@ -36,41 +39,42 @@ enum ActivityType {
   other,
 }
 
-/// Heart rate zones
+// Heart rate zones — how hard the heart is working during exercise
 enum HRZone {
-  resting,  // <70 BPM
-  light,    // 70-100 BPM (50-60% max)
-  moderate, // 100-140 BPM (60-70% max)
-  hard,     // 140-170 BPM (70-85% max)
-  maximum,  // 170+ BPM (85%+ max)
+  resting,  // Relaxed: below 70 BPM
+  light,    // Easy effort: 70-100 BPM (50-60% of max)
+  moderate, // Medium effort: 100-140 BPM (60-70% of max)
+  hard,     // Tough effort: 140-170 BPM (70-85% of max)
+  maximum,  // All-out effort: 170+ BPM (85%+ of max)
 }
 
+// A card that shows a personalized workout recommendation
 class RecommendationCard extends StatelessWidget {
-  /// Type of activity
+  // What kind of exercise (walking, running, yoga, etc.)
   final ActivityType activityType;
   
-  /// Recommendation title
+  // The name of the recommendation (e.g. "Morning Walk")
   final String title;
   
-  /// Brief description
+  // A short description of the recommendation
   final String? description;
   
-  /// Recommended duration
+  // How long the workout should last
   final Duration duration;
   
-  /// Target heart rate zone
+  // What heart rate zone to aim for during the workout
   final HRZone? targetHRZone;
   
-  /// AI confidence score (0.0 - 1.0)
+  // How confident the AI is that this is a good recommendation (0-100%)
   final double? confidence;
   
-  /// Whether this is a priority recommendation
+  // Whether this recommendation is marked as high-priority (shows a star)
   final bool isPriority;
   
-  /// Callback when user taps to start
+  // What happens when the user taps "Start Workout"
   final VoidCallback? onStart;
   
-  /// Callback when user dismisses
+  // What happens when the user taps the X to dismiss
   final VoidCallback? onDismiss;
 
   const RecommendationCard({
@@ -134,6 +138,7 @@ class RecommendationCard extends StatelessWidget {
     }
   }
 
+  // Each activity type has its own color for the icon and button
   Color get _activityColor {
     switch (activityType) {
       case ActivityType.walking:
@@ -159,6 +164,7 @@ class RecommendationCard extends StatelessWidget {
     }
   }
 
+  // Convert the duration into a readable label like "30 min" or "1h 15m"
   String get _durationText {
     final mins = duration.inMinutes;
     if (mins < 60) {
@@ -173,6 +179,7 @@ class RecommendationCard extends StatelessWidget {
     }
   }
 
+  // Convert the HR zone into a human-readable label like "Light" or "Hard"
   String get _hrZoneLabel {
     if (targetHRZone == null) return '';
     switch (targetHRZone!) {
@@ -189,6 +196,7 @@ class RecommendationCard extends StatelessWidget {
     }
   }
 
+  // Each HR zone has a different color (green for easy, red for max)
   Color get _hrZoneColor {
     if (targetHRZone == null) return AdaptivColors.text500;
     switch (targetHRZone!) {
@@ -207,10 +215,12 @@ class RecommendationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The main card container with rounded corners and a subtle shadow
     return Container(
       decoration: BoxDecoration(
         color: AdaptivColors.white,
         borderRadius: BorderRadius.circular(16),
+        // Priority recommendations get a highlighted border
         border: Border.all(
           color: isPriority 
               ? AdaptivColors.primary.withOpacity(0.3)
@@ -229,12 +239,12 @@ class RecommendationCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Header with activity icon and dismiss
+          // Top section: activity icon, title, description, and dismiss X
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
             child: Row(
               children: [
-                // Activity icon
+                // Round colored box with the activity icon or exercise image
                 Container(
                   width: 44,
                   height: 44,
@@ -242,6 +252,7 @@ class RecommendationCard extends StatelessWidget {
                     color: _activityColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
+                  // Show the exercise image if available, fall back to icon
                   child: _exerciseImageAsset != null
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(12),
@@ -262,7 +273,7 @@ class RecommendationCard extends StatelessWidget {
                         ),
                 ),
                 const SizedBox(width: 12),
-                // Title and description
+                // Recommendation name and description text
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,7 +314,7 @@ class RecommendationCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                // Dismiss button
+                // X button to dismiss this recommendation
                 if (onDismiss != null)
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
@@ -321,20 +332,20 @@ class RecommendationCard extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Info chips (duration, HR zone, confidence)
+          // Small info badges showing duration, target HR zone, and AI confidence
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                // Duration chip
+                // How long the workout should take
                 _InfoChip(
                   icon: Icons.timer_outlined,
                   label: _durationText,
                   color: AdaptivColors.text600,
                 ),
-                // HR Zone chip
+                // Target heart rate zone (e.g. "Light", "Moderate")
                 if (targetHRZone != null)
                   _InfoChip(
                     icon: Icons.favorite_outline,
@@ -342,7 +353,7 @@ class RecommendationCard extends StatelessWidget {
                     color: _hrZoneColor,
                     bgColor: _hrZoneColor.withOpacity(0.1),
                   ),
-                // AI Confidence chip
+                // How well the AI thinks this workout fits the user
                 if (confidence != null)
                   _InfoChip(
                     icon: Icons.auto_awesome,
@@ -356,7 +367,7 @@ class RecommendationCard extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // Action button
+          // "Start Workout" button at the bottom of the card
           if (onStart != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -393,11 +404,15 @@ class RecommendationCard extends StatelessWidget {
   }
 }
 
-/// Small info chip for displaying duration, HR zone, etc.
+// A small colored badge with an icon and label (used for duration, HR zone, etc.)
 class _InfoChip extends StatelessWidget {
+  // The small icon on the left side of the badge
   final IconData icon;
+  // The text label (e.g. "30 min", "Light", "87% match")
   final String label;
+  // The color for the icon and text
   final Color color;
+  // Optional background color for the badge
   final Color? bgColor;
 
   const _InfoChip({
@@ -409,6 +424,7 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A rounded pill-shaped badge with icon + text
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -433,12 +449,17 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
-/// Compact recommendation card for list views
+// A smaller version of the recommendation card, used in scrollable lists
 class CompactRecommendationCard extends StatelessWidget {
+  // What kind of exercise
   final ActivityType activityType;
+  // The workout name
   final String title;
+  // How long the workout should take
   final Duration duration;
+  // Target heart rate zone
   final HRZone? targetHRZone;
+  // What happens when the user taps this card
   final VoidCallback? onTap;
 
   const CompactRecommendationCard({
@@ -498,6 +519,7 @@ class CompactRecommendationCard extends StatelessWidget {
     }
   }
 
+  // Each activity type gets its own color (compact version groups some together)
   Color get _activityColor {
     switch (activityType) {
       case ActivityType.walking:
@@ -519,6 +541,7 @@ class CompactRecommendationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Tappable compact card with icon, title, duration, and arrow
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -530,6 +553,7 @@ class CompactRecommendationCard extends StatelessWidget {
         ),
         child: Row(
           children: [
+            // Activity icon in a colored circle
             Container(
               width: 40,
               height: 40,

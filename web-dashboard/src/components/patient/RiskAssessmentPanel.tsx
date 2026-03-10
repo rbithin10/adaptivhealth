@@ -1,9 +1,15 @@
+/* RiskAssessmentPanel — Shows the AI-generated risk assessment for a patient.
+   Displays the risk level, contributing factors, and a recommendation.
+   Clinicians can trigger a re-computation of the risk score. */
+
 import React from 'react';
+// Icons: warning triangle and refresh spinner
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { RecommendationResponse, RiskAssessmentResponse } from '../../types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
+// What this panel needs: risk data, recommendation, and a handler to recompute
 interface RiskAssessmentPanelProps {
   riskAssessment: RiskAssessmentResponse | null;
   recommendation: RecommendationResponse | null;
@@ -13,6 +19,7 @@ interface RiskAssessmentPanelProps {
   onComputeRisk: () => void;
 }
 
+// The risk assessment display component
 const RiskAssessmentPanel: React.FC<RiskAssessmentPanelProps> = ({
   riskAssessment,
   recommendation,

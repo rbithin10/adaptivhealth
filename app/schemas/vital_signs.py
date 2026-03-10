@@ -43,14 +43,14 @@ class VitalSignBase(BaseModel):
     Base schema for vital sign measurements.
     Core cardiovascular metrics from wearable devices.
     """
-    heart_rate: int = Field(..., ge=30, le=250, description="Heart rate in BPM")
-    spo2: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation percentage")
-    blood_pressure_systolic: Optional[int] = Field(None, ge=70, le=250, description="Systolic blood pressure (mmHg)")
-    blood_pressure_diastolic: Optional[int] = Field(None, ge=40, le=150, description="Diastolic blood pressure (mmHg)")
-    hrv: Optional[float] = Field(None, ge=0, description="Heart rate variability (RMSSD in ms)")
-    source_device: Optional[str] = Field(None, max_length=100, description="Wearable device name (e.g., 'Fitbit Charge 6')")
-    device_id: Optional[str] = Field(None, max_length=255, description="Unique device identifier")
-    timestamp: Optional[datetime] = Field(None, description="Measurement timestamp (UTC)")
+    heart_rate: int = Field(..., ge=30, le=250, description="Heart rate in BPM")  # Heartbeats per minute (must be 30-250)
+    spo2: Optional[float] = Field(None, ge=0, le=100, description="Blood oxygen saturation percentage")  # Blood oxygen level as a percentage (0-100%)
+    blood_pressure_systolic: Optional[int] = Field(None, ge=70, le=250, description="Systolic blood pressure (mmHg)")  # Top number of blood pressure reading
+    blood_pressure_diastolic: Optional[int] = Field(None, ge=40, le=150, description="Diastolic blood pressure (mmHg)")  # Bottom number of blood pressure reading
+    hrv: Optional[float] = Field(None, ge=0, description="Heart rate variability (RMSSD in ms)")  # How much time varies between heartbeats (higher is usually healthier)
+    source_device: Optional[str] = Field(None, max_length=100, description="Wearable device name (e.g., 'Fitbit Charge 6')")  # Which wearable device took the reading
+    device_id: Optional[str] = Field(None, max_length=255, description="Unique device identifier")  # The unique ID of the wearable device
+    timestamp: Optional[datetime] = Field(None, description="Measurement timestamp (UTC)")  # When the reading was taken
     
     @field_validator('blood_pressure_systolic', 'blood_pressure_diastolic')
     def validate_blood_pressure(cls, v):
@@ -116,18 +116,18 @@ class VitalSignResponse(BaseModel):
     Schema for vital sign data in API responses.
     Includes system-generated fields and decrypted data.
     """
-    id: int = Field(..., description="Record ID")
-    user_id: int = Field(..., description="User ID")
-    heart_rate: int = Field(..., description="Heart rate in BPM")
-    spo2: Optional[float] = Field(None, description="Blood oxygen saturation percentage")
-    blood_pressure: Optional[dict] = Field(None, description="Blood pressure as {'systolic': int, 'diastolic': int}")
-    hrv: Optional[float] = Field(None, description="Heart rate variability")
-    source_device: Optional[str] = Field(None, description="Wearable device name")
-    is_valid: bool = Field(..., description="Data validity flag")
-    confidence_score: Optional[float] = Field(None, description="AI confidence score")
-    activity_phase: Optional[str] = Field(None, description="Activity phase (resting, active, etc.)")
-    timestamp: datetime = Field(..., description="Measurement timestamp")
-    created_at: datetime = Field(..., description="Record creation timestamp")
+    id: int = Field(..., description="Record ID")  # Unique number for this vital sign record
+    user_id: int = Field(..., description="User ID")  # Which patient this reading belongs to
+    heart_rate: int = Field(..., description="Heart rate in BPM")  # Heartbeats per minute
+    spo2: Optional[float] = Field(None, description="Blood oxygen saturation percentage")  # Blood oxygen level
+    blood_pressure: Optional[dict] = Field(None, description="Blood pressure as {'systolic': int, 'diastolic': int}")  # Blood pressure as top/bottom numbers
+    hrv: Optional[float] = Field(None, description="Heart rate variability")  # Time variation between heartbeats
+    source_device: Optional[str] = Field(None, description="Wearable device name")  # Which device took this reading
+    is_valid: bool = Field(..., description="Data validity flag")  # Is this reading trustworthy?
+    confidence_score: Optional[float] = Field(None, description="AI confidence score")  # How confident the AI is that this reading is accurate
+    activity_phase: Optional[str] = Field(None, description="Activity phase (resting, active, etc.)")  # Was the patient resting or exercising?
+    timestamp: datetime = Field(..., description="Measurement timestamp")  # When the vital sign was recorded
+    created_at: datetime = Field(..., description="Record creation timestamp")  # When this database record was created
     
     class Config:
         from_attributes = True

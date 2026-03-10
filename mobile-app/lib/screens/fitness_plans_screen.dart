@@ -6,13 +6,13 @@ cardiovascular health profile. Shows personalized workout
 recommendations with target HR zones and confidence scores.
 */
 
-import 'package:flutter/material.dart';
-import '../theme/colors.dart';
-import '../theme/typography.dart';
-import '../widgets/widgets.dart';
-import '../services/api_client.dart';
-import 'recovery_screen.dart';
-import 'workout_screen.dart';
+import 'package:flutter/material.dart'; // Core Flutter UI toolkit
+import '../theme/colors.dart'; // App colour palette
+import '../theme/typography.dart'; // Shared text styles
+import '../widgets/widgets.dart'; // Reusable UI components (WeekView, RecommendationCard, etc.)
+import '../services/api_client.dart'; // Talks to our backend server
+import 'recovery_screen.dart'; // Post-workout recovery screen
+import 'workout_screen.dart'; // Active workout timer screen
 
 class FitnessPlansScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -87,6 +87,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
 
   DateTime _selectedDate = DateTime.now();
 
+  // Set up the tab controller and fetch fitness plans when the screen opens
   @override
   void initState() {
     super.initState();
@@ -94,12 +95,14 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     _loadPlans();
   }
 
+  // Clean up the tab controller when the screen closes
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
 
+  // Fetch AI workout recommendation, activity history, and user profile from the server
   Future<void> _loadPlans() async {
     setState(() => _isLoading = true);
 
@@ -293,6 +296,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     ];
   }
 
+  // Filter plans based on the selected chip (Cardio, Strength, Recovery, HIIT)
   List<FitnessPlan> get _filteredPlans {
     if (_selectedFilter == 'All') return _plans;
     
@@ -316,6 +320,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     }).toList();
   }
 
+  // Build the full plans screen: header, week view, filter chips, plan cards, and weekly summary
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -343,12 +348,16 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'Fitness Plans',
-                            style: AdaptivTypography.screenTitle,
+                          Expanded(
+                            child: Text(
+                              'Fitness Plans',
+                              style: AdaptivTypography.screenTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           TextButton.icon(
                             onPressed: () {
                               Navigator.of(context).push(
@@ -362,6 +371,8 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
                             label: const Text('Recovery'),
                             style: TextButton.styleFrom(
                               foregroundColor: AdaptivColors.primary,
+                              visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
                           ),
                         ],
@@ -419,6 +430,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // Horizontal row of filter buttons (All, Cardio, Strength, Recovery, HIIT)
   Widget _buildFilterChips() {
     return Container(
       height: 48,
@@ -460,6 +472,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // Gradient banner explaining that plans are AI-powered and personalised
   Widget _buildAIHeader() {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -523,6 +536,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // A single fitness plan card using the shared RecommendationCard widget
   Widget _buildPlanCard(FitnessPlan plan) {
     return RecommendationCard(
       activityType: plan.activityType,
@@ -537,6 +551,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // Card showing this week's activity totals and progress toward the weekly goal
   Widget _buildWeeklySummary() {
     final stats = _computeThisWeek(_activities);
     final hasData = stats.sessionsCompleted > 0;
@@ -570,22 +585,27 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
           ),
           const SizedBox(height: 16),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildSummaryItem(
-                'Active Days',
-                hasData ? stats.activeDays.toString() : '—',
-                Icons.directions_run,
+              Expanded(
+                child: _buildSummaryItem(
+                  'Active Days',
+                  hasData ? stats.activeDays.toString() : '—',
+                  Icons.directions_run,
+                ),
               ),
-              _buildSummaryItem(
-                'Minutes',
-                hasData ? stats.totalMinutes.toString() : '—',
-                Icons.timer,
+              Expanded(
+                child: _buildSummaryItem(
+                  'Minutes',
+                  hasData ? stats.totalMinutes.toString() : '—',
+                  Icons.timer,
+                ),
               ),
-              _buildSummaryItem(
-                'Calories',
-                hasData ? stats.totalCalories.toString() : '—',
-                Icons.local_fire_department,
+              Expanded(
+                child: _buildSummaryItem(
+                  'Calories',
+                  hasData ? stats.totalCalories.toString() : '—',
+                  Icons.local_fire_department,
+                ),
               ),
             ],
           ),
@@ -603,11 +623,16 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
                       color: AdaptivColors.text600,
                     ),
                   ),
-                  Text(
-                    '${stats.sessionsCompleted}/${_WeekStats.sessionsGoal} workouts',
-                    style: AdaptivTypography.label.copyWith(
-                      color: AdaptivColors.primary,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      '${stats.sessionsCompleted}/${_WeekStats.sessionsGoal} workouts',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: AdaptivTypography.label.copyWith(
+                        color: AdaptivColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -629,6 +654,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // One column in the weekly summary showing an icon, value, and label
   Widget _buildSummaryItem(String label, String value, IconData icon) {
     return Column(
       children: [
@@ -650,6 +676,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // Open the active workout screen for the chosen plan
   void _startWorkout(FitnessPlan plan) {
     Navigator.push(
       context,
@@ -662,6 +689,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     );
   }
 
+  // Convert our enum to the exercise key the workout screen expects
   String _activityTypeToExerciseKey(ActivityType activityType) {
     switch (activityType) {
       case ActivityType.walking:
@@ -685,6 +713,7 @@ class _FitnessPlansScreenState extends State<FitnessPlansScreen>
     }
   }
 
+  // Remove a plan from the list when the user swipes it away
   void _dismissPlan(FitnessPlan plan) {
     setState(() {
       _plans.removeWhere((p) => p.id == plan.id);

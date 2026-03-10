@@ -103,6 +103,25 @@ samples, guidance on mobile development, and a full API reference.
 - 📈 **Historical Data**: Track health trends over time
 - 👤 **User Profile**: Personalized health management
 
+## 📁 Project Structure
+
+```
+lib/
+├── config/              # Platform detection helpers (Android/iOS/Web)
+├── models/              # Data models (vital signs, predictions, user profile, etc.)
+├── providers/           # State management (auth, vitals, theme)
+├── screens/             # Full-page views (login, dashboard, health, fitness, etc.)
+│   └── home/            # Modular Home tab widgets (heart rate ring, vitals grid, etc.)
+├── services/            # Backend communication & device integrations
+│   ├── ble/             # Bluetooth Low Energy device pairing & data
+│   ├── fitbit/          # Fitbit OAuth & data sync
+│   └── health/          # Apple Health / Google Fit integration
+├── theme/               # Colours, typography, dark mode support
+├── utils/               # Shared helpers (date formatting, activity icons, etc.)
+├── widgets/             # Reusable UI components (vital cards, charts, badges, etc.)
+└── main.dart            # App entry point
+```
+
 ## Design Philosophy
 
 The app follows modern health app design conventions inspired by popular applications like:
