@@ -560,6 +560,9 @@ class ApiClient {
     required int sessionId,
     required int avgHeartRate,
     required int maxHeartRate,
+    String? activityType,
+    int? durationMinutes,
+    int? caloriesBurned,
   }) async {
     try {
       final response = await _dio.post(
@@ -568,6 +571,9 @@ class ApiClient {
           'end_time': DateTime.now().toIso8601String(), // When the exercise ended
           'avg_heart_rate': avgHeartRate, // Average HR during the workout
           'peak_heart_rate': maxHeartRate, // Highest HR recorded during the workout
+          if (activityType != null) 'activity_type': activityType,
+          if (durationMinutes != null && durationMinutes > 0) 'duration_minutes': durationMinutes,
+          if (caloriesBurned != null && caloriesBurned > 0) 'calories_burned': caloriesBurned,
         },
       );
       final responseData = response.data;
@@ -628,6 +634,98 @@ class ApiClient {
   /// Backward-compatible wrapper.
   Future<Map<String, dynamic>> getRecommendation() async {
     return getLatestRecommendation();
+  }
+
+  /// Mark a recommendation as completed or partially completed.
+  Future<Map<String, dynamic>> completeRecommendation(
+    int recommendationId, {
+    int? actualMinutes,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/recommendations/$recommendationId/complete',
+        data: actualMinutes != null ? {'actual_minutes': actualMinutes} : {},
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Get today's recovery score breakdown.
+  Future<Map<String, dynamic>> getDailyRecoveryScore({String? date}) async {
+    try {
+      final response = await _dio.get(
+        '/recovery/daily-score',
+        queryParameters: date != null ? {'date': date} : null,
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Get last 7 days of recovery scores.
+  Future<List<Map<String, dynamic>>> getWeeklyRecoveryScores() async {
+    try {
+      final response = await _dio.get('/recovery/weekly-scores');
+      final data = response.data;
+      if (data is Map && data['scores'] is List) {
+        return List<Map<String, dynamic>>.from(data['scores']);
+      }
+      if (data is List) {
+        return List<Map<String, dynamic>>.from(data);
+      }
+      return [];
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  // ============ Sleep Endpoints ============
+
+  /// Log a sleep entry.
+  Future<Map<String, dynamic>> logSleep({
+    required DateTime bedtime,
+    required DateTime wakeTime,
+    required int qualityRating,
+    String? notes,
+  }) async {
+    try {
+      final data = {
+        'bedtime': bedtime.toIso8601String(),
+        'wake_time': wakeTime.toIso8601String(),
+        'quality_rating': qualityRating,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      };
+      final response = await _dio.post('/sleep', data: data);
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Get the most recent sleep entry.
+  Future<Map<String, dynamic>> getLatestSleep() async {
+    try {
+      final response = await _dio.get('/sleep/latest');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  /// Get sleep history for the last N days.
+  Future<Map<String, dynamic>> getSleepHistory({int days = 7}) async {
+    try {
+      final response = await _dio.get(
+        '/sleep',
+        queryParameters: {'days': days},
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
   }
 
   // ============ Alert Endpoints ============

@@ -55,6 +55,7 @@ import {
   MedicationCreate,
   DocumentUploadResponse,
   MedicalExtractionStatusResponse,
+  ClinicalNote,
 } from '../types';
 
 // The server address — uses an environment variable if set, otherwise the live production URL
@@ -641,14 +642,38 @@ class ApiService {
 
   // Get an easy-to-read summary of a patient's risk level in plain English
   async getNaturalLanguageRiskSummary(
-    userId: number
+    userId: number,
+    audience: 'clinician' | 'patient' = 'clinician'
   ): Promise<NaturalLanguageRiskSummaryResponse> {
     const response = await this.client.get<NaturalLanguageRiskSummaryResponse>(
       '/risk-summary/natural-language',
-      { params: { user_id: userId } }
+      { params: { user_id: userId, audience } }
     );
     return response.data;
   }
+
+  // ── Clinical Notes ────────────────────────────────────────────────────────
+
+  async getClinicalNotes(userId: number): Promise<ClinicalNote[]> {
+    const response = await this.client.get(`/clinical-notes/${userId}`);
+    return response.data;
+  }
+
+  async createClinicalNote(userId: number, content: string): Promise<ClinicalNote> {
+    const response = await this.client.post('/clinical-notes', { user_id: userId, content });
+    return response.data;
+  }
+
+  async updateClinicalNote(noteId: number, content: string): Promise<ClinicalNote> {
+    const response = await this.client.patch(`/clinical-notes/${noteId}`, { content });
+    return response.data;
+  }
+
+  async deleteClinicalNote(noteId: number): Promise<void> {
+    await this.client.delete(`/clinical-notes/${noteId}`);
+  }
+
+  // ── Model Retraining ──────────────────────────────────────────────────────
 
   // Check whether the AI model is currently being retrained (clinician-only)
   async getRetrainingStatus(): Promise<RetrainingStatusResponse> {

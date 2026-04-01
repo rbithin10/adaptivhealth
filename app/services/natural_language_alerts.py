@@ -146,34 +146,155 @@ def format_risk_summary(
     risk_level: str,
     drivers: List[str],
     patient_name: Optional[str] = None,
+    heart_rate: Optional[int] = None,
+    spo2: Optional[float] = None,
+    systolic_bp: Optional[int] = None,
+    diastolic_bp: Optional[int] = None,
+    hrv: Optional[float] = None,
+    assessment_date: Optional[str] = None,
+    clinical_notes: Optional[List[str]] = None,
+    patient_age: Optional[int] = None,
 ) -> str:
     """
-    Convert a risk assessment into a plain-language summary.
+    Clinician-focused risk summary built entirely from structured data.
+    Produces a detailed 4-6 sentence paragraph suitable for a clinical dashboard.
     """
-    name = patient_name.split()[0] if patient_name else "Your"
-    possessive = f"{name}'s" if patient_name else "Your"
+    name = patient_name or "The patient"
+    level_label = risk_level.upper()
+    score_pct = int(round(risk_score * 100))
+
+    # Sentence 1 — status overview
+    if risk_level in ("critical", "high"):
+        status = (
+            f"{name} is currently assessed at {level_label} cardiac risk "
+            f"(score: {score_pct}%), indicating immediate clinical attention is warranted."
+        )
+    elif risk_level == "moderate":
+        status = (
+            f"{name} is currently assessed at {level_label} cardiac risk "
+            f"(score: {score_pct}%), suggesting closer monitoring of vital trends."
+        )
+    else:
+        status = (
+            f"{name} is currently assessed at {level_label} cardiac risk "
+            f"(score: {score_pct}%), with vitals largely within acceptable parameters."
+        )
+
+    # Sentence 2 — contributing factors
+    if drivers and drivers != ["Vitals are within expected safe limits."]:
+        active_drivers = [d for d in drivers if "within expected" not in d]
+        if active_drivers:
+            factor_list = "; ".join(active_drivers[:4])
+            factors = f"Key contributing factors include: {factor_list}."
+        else:
+            factors = "No significant risk factors were identified in the current assessment."
+    else:
+        factors = "No significant risk factors were identified in the current assessment."
+
+    # Sentence 3 — vitals snapshot
+    vitals_parts = []
+    if heart_rate is not None:
+        vitals_parts.append(f"HR {heart_rate} BPM")
+    if spo2 is not None:
+        vitals_parts.append(f"SpO\u2082 {spo2:.0f}%")
+    if systolic_bp is not None and diastolic_bp is not None:
+        vitals_parts.append(f"BP {systolic_bp}/{diastolic_bp} mmHg")
+    elif systolic_bp is not None:
+        vitals_parts.append(f"SBP {systolic_bp} mmHg")
+    if hrv is not None:
+        vitals_parts.append(f"HRV {hrv:.1f} ms")
+
+    if vitals_parts:
+        vitals_snap = f"Vitals at assessment: {', '.join(vitals_parts)}."
+    else:
+        vitals_snap = ""
+
+    # Sentence 4 — monitoring focus
+    if risk_level in ("critical", "high"):
+        focus = (
+            "Recommend continuous monitoring of heart rate and oxygen saturation; "
+            "consider escalation protocol if values deteriorate further."
+        )
+    elif risk_level == "moderate":
+        focus = (
+            "Recommend increased monitoring frequency and review of activity intensity "
+            "to prevent progression to high-risk status."
+        )
+    else:
+        focus = (
+            "Routine monitoring is sufficient. Encourage adherence to the current "
+            "rehabilitation programme."
+        )
+
+    # Sentence 5 — clinician notes context
+    notes_line = ""
+    if clinical_notes:
+        latest = clinical_notes[0][:120] + ("..." if len(clinical_notes[0]) > 120 else "")
+        count = len(clinical_notes)
+        notes_line = (
+            f"Latest clinician note ({count} total): \"{latest}\""
+        )
+
+    parts = [status, factors]
+    if vitals_snap:
+        parts.append(vitals_snap)
+    parts.append(focus)
+    if notes_line:
+        parts.append(notes_line)
+
+    return " ".join(parts)
+
+
+def format_patient_risk_summary(
+    risk_score: float,
+    risk_level: str,
+    drivers: List[str],
+    patient_name: Optional[str] = None,
+    heart_rate: Optional[int] = None,
+    spo2: Optional[float] = None,
+) -> str:
+    """
+    Patient-friendly risk summary in plain, reassuring language.
+    Avoids clinical jargon. Suitable for the patient's own mobile/web screen.
+    """
+    first_name = patient_name.split()[0] if patient_name else "You"
+    greeting = f"Hi {first_name}."
 
     if risk_level in ("critical", "high"):
-        opener = f"{possessive} health readings show some concerning patterns."
+        status = (
+            "Your recent health readings show some patterns that need attention. "
+            "Your care team has been notified."
+        )
+        action = (
+            "We recommend you rest, avoid strenuous activity, and contact your "
+            "healthcare provider today."
+        )
     elif risk_level == "moderate":
-        opener = f"{possessive} readings are slightly outside the normal range."
+        status = (
+            "Your recent health readings are slightly outside your normal range. "
+            "Nothing alarming, but worth keeping an eye on."
+        )
+        action = (
+            "Take it easy for now, stay hydrated, and keep monitoring your vitals "
+            "as usual."
+        )
     else:
-        opener = f"{possessive} readings look good overall."
+        status = "Your recent health readings look good overall. Keep it up!"
+        action = "Continue following your rehabilitation plan and stay active."
 
-    plain_drivers = [_simplify_driver(d) for d in drivers[:3]]
+    # Plain-language driver mention (1 max, simplified)
+    plain_drivers = [_simplify_driver(d) for d in drivers if "within expected" not in d]
+    detail = ""
     if plain_drivers:
-        details = " Specifically: " + "; ".join(plain_drivers) + "."
-    else:
-        details = ""
+        detail = f"We noticed: {plain_drivers[0].lower()}."
 
-    if risk_level in ("critical", "high"):
-        action = " Please rest and consider contacting your healthcare provider."
-    elif risk_level == "moderate":
-        action = " Take it easy and keep monitoring your vitals."
-    else:
-        action = " Keep up the good work!"
+    vitals_note = ""
+    parts = [greeting, status]
+    if detail:
+        parts.append(detail)
+    parts.append(action)
 
-    return opener + details + action
+    return " ".join(parts)
 
 
 _DEFAULT_MESSAGE = {

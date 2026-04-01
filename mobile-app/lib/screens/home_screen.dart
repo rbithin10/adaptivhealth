@@ -39,8 +39,10 @@ import 'notifications_screen.dart';
 import 'rehab_program_screen.dart';
 import 'history_screen.dart';
 import 'device_pairing_screen.dart';
+import 'sleep_screen.dart';
 import '../widgets/sos_button.dart';
 import 'home/home_heart_rate_ring.dart';
+import 'home/home_recovery_score_ring.dart';
 import 'home/home_quick_actions.dart';
 import 'home/home_rehab_card.dart';
 import 'home/home_recent_activity.dart';
@@ -75,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<Map<String, dynamic>> _recommendationFuture;
   late Future<List<dynamic>> _activitiesFuture;
   late Future<List<dynamic>> _vitalHistoryFuture;
+  late Future<Map<String, dynamic>> _dailyScoreFuture;
 
   // All API calls combined into one future so the screen doesn't flicker
   late Future<Map<String, dynamic>> _combinedFuture;
@@ -208,6 +211,10 @@ class _HomeScreenState extends State<HomeScreen> {
       (e) => <dynamic>[],
     );
 
+    _dailyScoreFuture = widget.apiClient.getDailyRecoveryScore().catchError(
+      (e) => <String, dynamic>{'score': 0, 'risk_level': 'low'},
+    );
+
     // Combine the three API calls into one stable future. Setting this once
     // here means the FutureBuilder in _buildHomeTab() never resets to
     // ConnectionState.waiting when mock-vitals trigger a redraw.
@@ -245,13 +252,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: AdaptivColors.getBackgroundColor(brightness),
       drawer: Drawer(
+        backgroundColor: AdaptivColors.getSurfaceColor(brightness),
         child: SafeArea(
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
               DrawerHeader(
-                decoration: const BoxDecoration(
-                  color: AdaptivColors.primaryUltralight,
+                decoration: BoxDecoration(
+                  color: brightness == Brightness.dark
+                      ? AdaptivColors.surface900
+                      : AdaptivColors.primaryUltralight,
                 ),
                 child: Align(
                   alignment: Alignment.bottomLeft,
@@ -305,6 +315,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => HistoryScreen(apiClient: widget.apiClient),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.nights_stay_outlined),
+                title: const Text('Doctor Messages'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => DoctorMessagingScreen(apiClient: widget.apiClient),
                     ),
                   );
                 },
@@ -500,9 +522,9 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Nutrition',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.message_outlined),
-            activeIcon: Icon(Icons.message),
-            label: 'Messages',
+            icon: Icon(Icons.nights_stay_outlined),
+            activeIcon: Icon(Icons.nights_stay),
+            label: 'Sleep',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
@@ -522,7 +544,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'home',
             'health',
             'fitness',
-            'wellness',
+            'sleep',
             'recovery',
             'nutrition',
             'messaging',
@@ -546,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 2:
         return NutritionScreen(apiClient: widget.apiClient);
       case 3:
-        return DoctorMessagingScreen(apiClient: widget.apiClient);
+        return SleepScreen(apiClient: widget.apiClient);
       case 4:
         return ProfileScreen(
           apiClient: widget.apiClient,
@@ -739,10 +761,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     final edgeRiskLevel = prediction?.riskLevel ?? riskLevel;
                     final edgeRiskColor = AdaptivColors.getRiskColor(edgeRiskLevel);
 
+                    final screenWidth = MediaQuery.sizeOf(context).width;
+                    final cardPadding = screenWidth < 360 ? 12.0 : 20.0;
+
                     return Column(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(20),
+                          padding: EdgeInsets.all(cardPadding),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.9),
                             borderRadius: BorderRadius.circular(20),
@@ -756,12 +781,62 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           child: Column(
                             children: [
-                              Center(
-                                child: HomeHeartRateRing(
-                                  heartRate: heartRate,
-                                  riskLevel: edgeRiskLevel,
-                                  maxSafeHR: 150,
-                                ),
+                              // Dual-ring row: HR ring + Recovery Score ring
+                              FutureBuilder<Map<String, dynamic>>(
+                                future: _dailyScoreFuture,
+                                builder: (context, scoreSnap) {
+                                  final recoveryScore = scoreSnap.data?['score'] as int? ?? 0;
+                                  final recoveryRiskLevel = scoreSnap.data?['risk_level']?.toString() ?? 'low';
+                                  return LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final ringGap = constraints.maxWidth < 350 ? 8.0 : 12.0;
+                                      final available = constraints.maxWidth - (ringGap * 2) - 1;
+                                      final ringSlot = (available / 2).clamp(120.0, 220.0);
+                                      final dividerHeight = (ringSlot * 0.72).clamp(92.0, 160.0);
+
+                                      return Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: ringSlot,
+                                            child: FittedBox(
+                                              fit: BoxFit.contain,
+                                              child: SizedBox(
+                                                width: 220,
+                                                child: HomeHeartRateRing(
+                                                  heartRate: heartRate,
+                                                  riskLevel: edgeRiskLevel,
+                                                  maxSafeHR: 150,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          SizedBox(width: ringGap),
+                                          Container(
+                                            width: 1,
+                                            height: dividerHeight,
+                                            color: Colors.black.withOpacity(0.08),
+                                          ),
+                                          SizedBox(width: ringGap),
+                                          SizedBox(
+                                            width: ringSlot,
+                                            child: FittedBox(
+                                              fit: BoxFit.contain,
+                                              child: SizedBox(
+                                                width: 220,
+                                                child: HomeRecoveryScoreRing(
+                                                  score: recoveryScore,
+                                                  riskLevel: recoveryRiskLevel,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                },
                               ),
                               const SizedBox(height: 16),
                               // Edge AI risk badges (replaces old zone/status badges)
@@ -1134,7 +1209,9 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
     // Left-pad with the oldest available value (or current) to fill blanks.
     final pad = taken.isNotEmpty ? taken.first : current;
-    while (taken.length < points - 1) taken.insert(0, pad);
+    while (taken.length < points - 1) {
+      taken.insert(0, pad);
+    }
     return [...taken, current];
   }
 

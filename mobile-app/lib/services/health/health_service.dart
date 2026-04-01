@@ -14,6 +14,7 @@ Only one copy of this service exists in the whole app.
 
 // The library that talks to Apple HealthKit and Google Health Connect
 import 'package:health/health.dart';
+import 'package:flutter/foundation.dart';
 // Checks which platform we're running on (phone vs desktop)
 import '../../config/platform_guard.dart';
 
@@ -34,6 +35,10 @@ class HealthService {
   final Health _health = Health();
   // Whether we've already set up the health plugin
   bool _configured = false;
+  // Last authorization/read error for diagnostics shown in pairing UI.
+  String? _lastAuthError;
+
+  String? get lastAuthError => _lastAuthError;
 
   // Make sure the health plugin is configured before using it
   Future<void> _ensureConfigured() async {
@@ -46,22 +51,23 @@ class HealthService {
   // How far back to look for health data (default: last 1 hour)
   static const Duration _defaultLookback = Duration(hours: 1);
 
-  // The types of health data we want to read from the phone
-  static const List<HealthDataType> _allReadTypes = [
+  // Start with the smallest reliable set so first-time authorization works
+  // across more devices/vendors. Extra types are requested on demand.
+  static const List<HealthDataType> _startupReadTypes = [
     HealthDataType.HEART_RATE,
-    HealthDataType.STEPS,
-    HealthDataType.BLOOD_OXYGEN,
-    HealthDataType.BLOOD_PRESSURE_SYSTOLIC,
-    HealthDataType.BLOOD_PRESSURE_DIASTOLIC,
-    HealthDataType.HEART_RATE_VARIABILITY_SDNN,
   ];
 
   // Ask the user for permission to read their health data
-  Future<bool> requestAuthorization() async {
+  Future<bool> requestAuthorization({List<HealthDataType>? types}) async {
+    _lastAuthError = null;
+
     // Health data is only available on phones, not desktop or web
     if (!isMobile) {
+      _lastAuthError = 'Health data is only available on mobile devices.';
       return false;
     }
+
+    final requestedTypes = types ?? _startupReadTypes;
 
     try {
       // Make sure the health plugin is ready
@@ -69,18 +75,32 @@ class HealthService {
 
       // We only need READ permission (not write) for each data type
       final permissions = List<HealthDataAccess>.filled(
-        _allReadTypes.length,
+        requestedTypes.length,
         HealthDataAccess.READ,
       );
 
       // Show the system permission dialog to the user
       final isAuthorized = await _health.requestAuthorization(
-        _allReadTypes,
+        requestedTypes,
         permissions: permissions,
       );
 
+      if (!isAuthorized) {
+        _lastAuthError =
+            'Permission denied or not granted in Health Connect.';
+        if (kDebugMode) {
+          debugPrint(
+              '[HealthService] Authorization denied for types: $requestedTypes');
+        }
+      }
+
       return isAuthorized;
-    } catch (_) {
+    } catch (e) {
+      _lastAuthError =
+          'Authorization failed: ${e.toString().split('\n').first}';
+      if (kDebugMode) {
+        debugPrint('[HealthService] Authorization request failed: $e');
+      }
       // If something goes wrong, report that we don't have permission
       return false;
     }
@@ -137,6 +157,16 @@ class HealthService {
     );
   }
 
+  // Get active calories burned (from workouts) from the phone's health store
+  Future<List<HealthDataPoint>> getActiveEnergyBurned({
+    Duration lookback = _defaultLookback,
+  }) async {
+    return _getDataForType(
+      HealthDataType.ACTIVE_ENERGY_BURNED,
+      lookback: lookback,
+    );
+  }
+
   // Get both top and bottom blood pressure numbers in one call
   Future<List<HealthDataPoint>> getBloodPressure({
     Duration lookback = _defaultLookback,
@@ -188,7 +218,7 @@ class HealthService {
 
       // If we don't have permission, ask the user for it
       if (!hasPermission) {
-        final granted = await requestAuthorization();
+        final granted = await requestAuthorization(types: types);
         // If the user denied permission, return empty results
         if (!granted) {
           return <HealthDataPoint>[];
@@ -205,7 +235,9 @@ class HealthService {
 
       // Remove duplicate readings (e.g., from multiple sources) and return
       return _health.removeDuplicates(points);
-    } catch (_) {
+    } catch (e) {
+      _lastAuthError =
+          'Failed to read health data: ${e.toString().split('\n').first}';
       // If anything goes wrong, return empty results instead of crashing
       return <HealthDataPoint>[];
     }

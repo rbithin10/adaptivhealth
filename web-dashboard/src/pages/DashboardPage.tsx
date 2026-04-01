@@ -263,9 +263,23 @@ const DashboardPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.user_id]);
 
-  // Main data loader: fetches the user, patient list, alert stats, charts
-  const loadDashboardData = async () => {
-    setLoading(true);
+  // Refresh dashboard data every 60s (batch-sync arrives every 5 min, so 60s is plenty).
+  // SSE alert stream already handles instant critical notifications on this page.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const intervalId = setInterval(() => {
+      loadDashboardData(true);
+    }, 60_000);
+
+    return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.user_id]);
+
+  // Main data loader: fetches the user, patient list, alert stats, charts.
+  // silent=true skips the loading spinner (used by periodic refresh so the UI doesn't flash).
+  const loadDashboardData = async (silent = false) => {
+    if (!silent) setLoading(true);
     setLoadError(null);
     setDataWarning(null);
     try {
@@ -529,7 +543,7 @@ const DashboardPage: React.FC = () => {
       <div style={{ padding: '32px', textAlign: 'center' }}>
         <p>{loadError}</p>
         <button
-          onClick={loadDashboardData}
+          onClick={() => loadDashboardData()}
           style={{
             marginTop: '12px',
             padding: '8px 16px',
@@ -904,14 +918,14 @@ const DashboardPage: React.FC = () => {
           <div
             style={{
               backgroundColor: colors.neutral.white,
-              border: `1px solid #FF9800`,
+              border: `1px solid ${colors.warning.border}`,
               borderRadius: '12px',
               padding: '24px',
               boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
               marginBottom: '32px',
             }}
           >
-            <h3 style={{ ...typography.sectionTitle, color: '#E65100' }}>
+            <h3 style={{ ...typography.sectionTitle, color: colors.warning.text }}>
               Pending Consent Requests ({pendingConsent.length})
             </h3>
             <p style={{ ...typography.caption, marginBottom: '16px' }}>
@@ -921,7 +935,7 @@ const DashboardPage: React.FC = () => {
               <div
                 key={req.user_id}
                 style={{
-                  padding: '12px 16px', borderRadius: '8px', backgroundColor: '#FFF3E0',
+                  padding: '12px 16px', borderRadius: '8px', backgroundColor: colors.warning.background,
                   marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}
               >
@@ -940,7 +954,7 @@ const DashboardPage: React.FC = () => {
                     }}
                     style={{
                       padding: '6px 14px', borderRadius: '6px', border: 'none',
-                      backgroundColor: '#4CAF50', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
+                      backgroundColor: colors.stable.badge, color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
                     }}
                   >
                     Approve
@@ -952,7 +966,7 @@ const DashboardPage: React.FC = () => {
                     }}
                     style={{
                       padding: '6px 14px', borderRadius: '6px', border: 'none',
-                      backgroundColor: '#f44336', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
+                      backgroundColor: colors.critical.badge, color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
                     }}
                   >
                     Reject

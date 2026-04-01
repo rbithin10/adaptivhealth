@@ -84,43 +84,57 @@ class TestPasswordResetConfirmValidatePassword:
     def test_password_too_short_raises_error(self):
         """Test password < 8 characters raises ValidationError."""
         from app.schemas.user import PasswordResetConfirm
-        
+
         with pytest.raises(ValidationError) as exc_info:
-            PasswordResetConfirm(token="test123", new_password="Pass1")
-        
+            PasswordResetConfirm(token="test123", new_password="Short1")
+
         assert "at least 8 characters" in str(exc_info.value)
 
-    def test_password_no_digits_raises_error(self):
-        """Test password without digits raises ValidationError."""
+    def test_password_too_long_raises_error(self):
+        """Test password > 64 characters raises ValidationError (NIST max)."""
         from app.schemas.user import PasswordResetConfirm
-        
-        with pytest.raises(ValidationError) as exc_info:
-            PasswordResetConfirm(token="test123", new_password="Password")
-        
-        assert "at least one digit" in str(exc_info.value)
 
-    def test_password_no_letters_raises_error(self):
-        """Test password without letters raises ValidationError."""
-        from app.schemas.user import PasswordResetConfirm
-        
         with pytest.raises(ValidationError) as exc_info:
-            PasswordResetConfirm(token="test123", new_password="12345678")
-        
-        assert "at least one letter" in str(exc_info.value)
+            PasswordResetConfirm(token="test123", new_password="A" * 65)
+
+        assert "64 characters" in str(exc_info.value)
+
+    def test_common_password_rejected(self):
+        """Test common/breached passwords are blocked (NIST requirement)."""
+        from app.schemas.user import PasswordResetConfirm
+
+        with pytest.raises(ValidationError) as exc_info:
+            PasswordResetConfirm(token="test123", new_password="password")
+
+        assert "too common" in str(exc_info.value)
+
+    def test_letters_only_password_passes(self):
+        """Test password with only letters passes (NIST: no composition rules)."""
+        from app.schemas.user import PasswordResetConfirm
+
+        reset = PasswordResetConfirm(token="test123", new_password="MySecurePassword")
+        assert reset.new_password == "MySecurePassword"
+
+    def test_digits_only_password_passes(self):
+        """Test non-common digits-only password passes (NIST: no composition rules)."""
+        from app.schemas.user import PasswordResetConfirm
+
+        reset = PasswordResetConfirm(token="test123", new_password="98237461")
+        assert reset.new_password == "98237461"
 
     def test_strong_password_passes(self):
         """Test strong password with letters and digits passes."""
         from app.schemas.user import PasswordResetConfirm
-        
-        reset = PasswordResetConfirm(token="test123", new_password="Password123")
-        assert reset.new_password == "Password123"
+
+        reset = PasswordResetConfirm(token="test123", new_password="CardiacRehab99")
+        assert reset.new_password == "CardiacRehab99"
 
     def test_minimum_valid_password(self):
-        """Test minimum valid password (8 chars, 1 letter, 1 digit)."""
+        """Test minimum valid password (8 chars)."""
         from app.schemas.user import PasswordResetConfirm
-        
-        reset = PasswordResetConfirm(token="test123", new_password="pass1234")
-        assert reset.new_password == "pass1234"
+
+        reset = PasswordResetConfirm(token="test123", new_password="eightchr")
+        assert reset.new_password == "eightchr"
 
 
 # =============================================================================
@@ -452,21 +466,19 @@ class TestSchemaBranchCoverage:
         
         reset = PasswordResetConfirm(
             token="valid_token_123",
-            new_password="Pass1234"
+            new_password="Rehab8ok"
         )
-        assert reset.new_password == "Pass1234"
+        assert reset.new_password == "Rehab8ok"
 
-    def test_password_reset_confirm_special_chars_only_fails(self):
-        """Test password with only special characters fails validation."""
+    def test_password_reset_confirm_special_chars_only_passes(self):
+        """Test password with only special characters passes (NIST: no composition rules)."""
         from app.schemas.user import PasswordResetConfirm
-        
-        with pytest.raises(ValidationError) as exc_info:
-            PasswordResetConfirm(
-                token="valid_token_123",
-                new_password="!@#$%^&*()"
-            )
-        
-        assert "letter" in str(exc_info.value).lower() or "digit" in str(exc_info.value).lower()
+
+        reset = PasswordResetConfirm(
+            token="valid_token_123",
+            new_password="!@#$%^&*()"
+        )
+        assert reset.new_password == "!@#$%^&*()"
 
     def test_vital_sign_blood_pressure_both_none_passes(self):
         """Test blood pressure validation when both are None."""

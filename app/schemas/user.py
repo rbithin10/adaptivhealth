@@ -37,6 +37,20 @@ from datetime import datetime
 from app.models.user import UserRole
 from app.schemas.medical_history import MedicalProfileSummary
 
+# NIST SP 800-63B: block common/breached passwords instead of composition rules
+COMMON_PASSWORDS = {
+    "password", "12345678", "123456789", "1234567890", "qwerty12",
+    "abc12345", "password1", "iloveyou", "sunshine", "princess",
+    "football", "charlie", "access14", "trustno1", "baseball",
+    "letmein1", "master12", "dragon12", "monkey12", "shadow12",
+    "michael1", "mustang1", "jennifer", "11111111", "00000000",
+    "jordan23", "whatever", "passw0rd", "qwerty123", "welcome1",
+    "starwars", "admin123", "login123", "test1234", "pass1234",
+    "password123", "changeme", "abcdefgh", "abcd1234", "qwertyui",
+    "p@ssw0rd", "p@ssword", "superman", "asdfghjk", "zxcvbnm1",
+    "computer", "corvette", "12341234", "88888888", "87654321",
+}
+
 
 # =============================================================================
 # Base User Schema
@@ -72,22 +86,18 @@ class UserCreate(UserBase):
     Schema for creating new users.
     Includes password and role assignment.
     """
-    password: str = Field(..., min_length=8, description="Password (minimum 8 characters)")  # Account password (at least 8 chars with letters and numbers)
-    role: UserRole = Field(default=UserRole.PATIENT, description="User role")  # What type of user: patient, clinician, or admin
-    
+    password: str = Field(..., min_length=8, max_length=64, description="Password (8-64 characters)")
+    role: UserRole = Field(default=UserRole.PATIENT, description="User role")
+
     @field_validator('password')
     def validate_password_strength(cls, v):
-        """
-        Basic password strength validation.
-        In production, consider more sophisticated checks.
-        """
-        # Simple rules so passwords are not too weak.
+        """NIST SP 800-63B compliant: min 8, max 64, block common passwords, no composition rules."""
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')  # pragma: no cover
-        if not any(char.isdigit() for char in v):
-            raise ValueError('Password must contain at least one digit')  # pragma: no cover
-        if not any(char.isalpha() for char in v):
-            raise ValueError('Password must contain at least one letter')  # pragma: no cover
+        if len(v) > 64:
+            raise ValueError('Password must not exceed 64 characters')  # pragma: no cover
+        if v.lower() in COMMON_PASSWORDS:
+            raise ValueError('This password is too common and easily guessed')
         return v
 
 
@@ -287,16 +297,17 @@ class PasswordResetConfirm(BaseModel):
     Schema for password reset confirmation.
     """
     token: str = Field(..., description="Reset token")
-    new_password: str = Field(..., min_length=8, description="New password")
-    
+    new_password: str = Field(..., min_length=8, max_length=64, description="New password (8-64 characters)")
+
     @field_validator('new_password')
     def validate_password_strength(cls, v):
+        """NIST SP 800-63B compliant: min 8, max 64, block common passwords, no composition rules."""
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')  # pragma: no cover
-        if not any(char.isdigit() for char in v):
-            raise ValueError('Password must contain at least one digit')  # pragma: no cover
-        if not any(char.isalpha() for char in v):
-            raise ValueError('Password must contain at least one letter')  # pragma: no cover
+        if len(v) > 64:
+            raise ValueError('Password must not exceed 64 characters')  # pragma: no cover
+        if v.lower() in COMMON_PASSWORDS:
+            raise ValueError('This password is too common and easily guessed')
         return v
 
 

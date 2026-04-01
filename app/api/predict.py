@@ -34,14 +34,14 @@ These endpoints use the AI model to estimate heart risk.
 # =============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func, or_
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 import json
 
 from app.database import get_db
@@ -50,8 +50,12 @@ from app.models.activity import ActivitySession
 from app.models.risk_assessment import RiskAssessment
 from app.models.vital_signs import VitalSignRecord
 from app.models.recommendation import ExerciseRecommendation
+from app.models.nutrition import NutritionEntry
+from app.models.sleep import SleepEntry
 from app.services.ml_prediction import get_ml_service, MLPredictionService, apply_medical_adjustments, get_adjusted_max_hr
 from app.services.recommendation_ranking import select_exercise
+from app.services.risk_drivers import build_drivers_from_features
+from app.services.confidence_scorer import compute_confidence_score
 from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
 
 # Logger
@@ -116,6 +120,17 @@ class RecommendationResponse(BaseModel):
     created_at: str | None = None
 
 
+class RecommendationCompleteRequest(BaseModel):
+    actual_minutes: Optional[int] = Field(None, ge=1)
+
+
+class SleepLogRequest(BaseModel):
+    bedtime: datetime
+    wake_time: datetime
+    quality_rating: int = Field(..., ge=1, le=5)
+    notes: Optional[str] = None
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -178,34 +193,6 @@ def _aggregate_session_features_from_vitals(vitals: list[VitalSignRecord]) -> di
     }
 
 
-def _build_drivers(user: User, features: dict[str, Any]) -> list[str]:
-    """
-    Human-readable explanations so the AI feels real in UI.
-    Keep it short and decisive.
-    """
-    drivers = []  # Human-readable reasons explaining why the risk is what it is
-
-    baseline = user.baseline_hr or 72  # Resting heart rate (default 72 if unknown)
-    max_safe = user.max_safe_hr or (220 - (user.age or 55))  # Maximum safe HR based on age
-
-    peak = features["peak_heart_rate"]
-    avg = features["avg_heart_rate"]
-    spo2 = features["avg_spo2"]
-
-    if peak > max_safe:  # Heart rate went above what's considered safe
-        drivers.append(f"Peak heart rate exceeded safe limit ({peak} > {max_safe}).")
-    if avg - baseline >= 25:  # Heart rate is much higher than resting
-        drivers.append(f"Average heart rate elevated vs baseline ({avg} vs {baseline}).")
-    if spo2 <= 92:  # Blood oxygen is dangerously low
-        drivers.append(f"Average SpO\u2082 is low ({spo2}%).")
-    if features["duration_minutes"] >= 45 and peak > int(0.8 * max_safe):  # Long workout at high intensity
-        drivers.append("Sustained high intensity for long duration.")
-
-    if not drivers:  # No concerns found — everything looks normal
-        drivers.append("Vitals are within expected safe limits.")
-
-    return drivers
-
 
 def _generate_recommendation_payload(
     user: User,
@@ -239,9 +226,9 @@ def _generate_recommendation_payload(
 
     # Use adjusted max HR if patient is on beta-blocker
     if med.get("is_on_beta_blocker"):
-        max_safe = get_adjusted_max_hr(user.age or 55, True)
+        max_safe = get_adjusted_max_hr(user.age or 45, True)
     else:
-        max_safe = user.max_safe_hr or (220 - (user.age or 55))
+        max_safe = user.max_safe_hr or (220 - (user.age or 45))
 
     # Select exercise template from the library (avoids last_activity repeat)
     exercise = select_exercise(risk_level, last_activity=last_activity)
@@ -278,6 +265,126 @@ def _generate_recommendation_payload(
     }
 
 
+def _resolve_date(date_str: Optional[str]) -> date:
+    if not date_str:
+        return datetime.now(timezone.utc).date()
+    return date.fromisoformat(date_str)
+
+
+# Risk-adjusted daily calorie burn targets (kcal) — lower targets for higher-risk patients
+_CALORIE_BURN_TARGET: dict[str, int] = {'low': 300, 'moderate': 200, 'high': 150, 'critical': 75}
+# Risk-adjusted daily calorie intake goals (kcal)
+_CALORIE_INTAKE_GOAL: dict[str, int] = {'low': 2200, 'moderate': 2000, 'high': 1800, 'critical': 1600}
+
+
+def _get_risk_multiplier(risk_score: float) -> float:
+    if risk_score >= 0.8:
+        return 0.25
+    if risk_score >= 0.6:
+        return 0.5
+    if risk_score >= 0.3:
+        return 0.75
+    return 1.0
+
+
+def _calculate_daily_recovery_score(
+    db: Session,
+    user: User,
+    target_date: date,
+) -> dict[str, Any]:
+    activities = (
+        db.query(ActivitySession)
+        .filter(
+            ActivitySession.user_id == user.user_id,
+            func.date(ActivitySession.start_time) == target_date,
+            or_(ActivitySession.status == "completed", ActivitySession.status.is_(None))
+        )
+        .all()
+    )
+
+    total_actual_mins = sum((a.duration_minutes or 0) for a in activities)
+    workouts_completed = len(activities)
+    total_calories_burned = sum((a.calories_burned or 0) for a in activities)
+
+    # Fetch risk level first so targets can be adjusted for this patient's risk
+    latest_risk = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.user_id == user.user_id)
+        .order_by(desc(RiskAssessment.assessment_date))
+        .first()
+    )
+    risk_score = latest_risk.risk_score if latest_risk else 0.0
+    risk_level = latest_risk.risk_level if latest_risk else "low"
+    multiplier = _get_risk_multiplier(risk_score)
+
+    completed_recs = (
+        db.query(ExerciseRecommendation)
+        .filter(
+            ExerciseRecommendation.user_id == user.user_id,
+            ExerciseRecommendation.is_completed == True,
+            func.date(ExerciseRecommendation.updated_at) == target_date,
+        )
+        .all()
+    )
+
+    if completed_recs:
+        total_target_mins = sum((r.duration_minutes or 0) for r in completed_recs)
+    else:
+        total_target_mins = workouts_completed * 30
+
+    # Workout component: 60% from time, 40% from calories burned vs risk-adjusted target
+    calorie_burn_target = _CALORIE_BURN_TARGET.get(risk_level, 300)
+    time_ratio = min(total_actual_mins / max(total_target_mins, 1), 1.0) if total_actual_mins > 0 else 0.0
+    calorie_burn_ratio = min(total_calories_burned / calorie_burn_target, 1.0) if calorie_burn_target > 0 else 0.0
+    workout_ratio = (time_ratio * 0.60) + (calorie_burn_ratio * 0.40)
+
+    nutrition_entries = (
+        db.query(NutritionEntry)
+        .filter(
+            NutritionEntry.user_id == user.user_id,
+            func.date(NutritionEntry.timestamp) == target_date,
+        )
+        .all()
+    )
+    total_calories = sum((n.calories or 0) for n in nutrition_entries)
+    calorie_goal = _CALORIE_INTAKE_GOAL.get(risk_level, 2000)
+    calorie_ratio = min(total_calories / max(calorie_goal, 1), 1.0)
+
+    sleep_entry = (
+        db.query(SleepEntry)
+        .filter(
+            SleepEntry.user_id == user.user_id,
+            SleepEntry.date == target_date,
+        )
+        .order_by(desc(SleepEntry.created_at))
+        .first()
+    )
+    sleep_hours = sleep_entry.duration_hours if sleep_entry and sleep_entry.duration_hours else 0.0
+    sleep_ratio = min(sleep_hours / 8.0, 1.0) if sleep_hours > 0 else 0.0
+
+    base = (workout_ratio * 35) + (calorie_ratio * 35) + (sleep_ratio * 30)
+    score = int(base * multiplier)
+
+    return {
+        "date": target_date.isoformat(),
+        "score": score,
+        "workout_score": int(workout_ratio * 100),
+        "nutrition_score": int(calorie_ratio * 100),
+        "sleep_score": int(sleep_ratio * 100),
+        "risk_level": risk_level,
+        "risk_multiplier": multiplier,
+        "workouts_completed": workouts_completed,
+        "actual_minutes": total_actual_mins,
+        "target_minutes": total_target_mins,
+        "total_minutes": total_actual_mins,
+        "calories_burned": total_calories_burned,
+        "calorie_burn_target": calorie_burn_target,
+        "calories_consumed": total_calories,
+        "calorie_goal": calorie_goal,
+        "sleep_hours": round(sleep_hours, 2),
+    }
+
+
 def _compute_risk_assessment(
     user_id: int,
     vitals: list[VitalSignRecord],
@@ -295,7 +402,7 @@ def _compute_risk_assessment(
         raise HTTPException(status_code=503, detail="ML model not loaded")
 
     features = _aggregate_session_features_from_vitals(vitals)
-    drivers = _build_drivers(user, features)
+    drivers = build_drivers_from_features(user, features)
 
     active_conditions = [
         condition for condition in medical_conditions
@@ -338,11 +445,11 @@ def _compute_risk_assessment(
         ),
     }
 
-    adjusted_max_hr = get_adjusted_max_hr(user.age or 55, med_flags["is_on_beta_blocker"])  # Lower max HR if on beta blockers
+    adjusted_max_hr = get_adjusted_max_hr(user.age or 45, med_flags["is_on_beta_blocker"])  # Lower max HR if on beta blockers
 
     start_time = time.time()  # Start timing the AI prediction
     result = service.predict_risk(
-        age=user.age or 55,
+        age=user.age or 45,
         baseline_hr=user.baseline_hr or 72,
         max_safe_hr=adjusted_max_hr,
         avg_heart_rate=features["avg_heart_rate"],
@@ -365,11 +472,16 @@ def _compute_risk_assessment(
         result["risk_level"] = "low"
     drivers.extend(med_adjustments)  # Add any medication-related risk factors
 
+    adjusted_confidence = compute_confidence_score(
+        ml_confidence=result.get("confidence") or 0.5,
+        user=user,
+        db=db,
+    )
     ra = RiskAssessment(  # Save the risk assessment to the database
         user_id=user_id,
         risk_level=result["risk_level"],
         risk_score=result["risk_score"],
-        confidence=result.get("confidence"),
+        confidence=adjusted_confidence,
         inference_time_ms=round(inference_ms, 2),
         model_name=result.get("model_info", {}).get("name"),
         model_version=result.get("model_info", {}).get("version"),
@@ -609,9 +721,9 @@ async def predict_user_risk_from_latest_session(
     # Run prediction using user profile + session data
     start_time = time.time()
     result = service.predict_risk(
-        age=user.age or 55,
+        age=user.age or 45,
         baseline_hr=user.baseline_hr or 72,
-        max_safe_hr=user.max_safe_hr or (220 - (user.age or 55)),
+        max_safe_hr=user.max_safe_hr or (220 - (user.age or 45)),
         avg_heart_rate=session.avg_heart_rate or 90,
         peak_heart_rate=session.peak_heart_rate or 120,
         min_heart_rate=session.min_heart_rate or 65,
@@ -900,7 +1012,10 @@ async def get_my_latest_recommendation(
 ):
     rec = (
         db.query(ExerciseRecommendation)
-        .filter(ExerciseRecommendation.user_id == current_user.user_id)
+        .filter(
+            ExerciseRecommendation.user_id == current_user.user_id,
+            ExerciseRecommendation.is_completed == False,
+        )
         .order_by(desc(ExerciseRecommendation.created_at))
         .first()
     )
@@ -941,7 +1056,10 @@ async def get_patient_latest_recommendation(
 
     rec = (
         db.query(ExerciseRecommendation)
-        .filter(ExerciseRecommendation.user_id == user_id)
+        .filter(
+            ExerciseRecommendation.user_id == user_id,
+            ExerciseRecommendation.is_completed == False,
+        )
         .order_by(desc(ExerciseRecommendation.created_at))
         .first()
     )
@@ -961,3 +1079,211 @@ async def get_patient_latest_recommendation(
         warnings=rec.warnings,
         created_at=rec.created_at.isoformat() if rec.created_at else None
     )
+
+
+# =============================================
+# COMPLETE_RECOMMENDATION - Mark exercise as done
+# Used by: Mobile app workout completion
+# =============================================
+@router.post("/recommendations/{recommendation_id}/complete")
+async def complete_recommendation(
+    recommendation_id: int,
+    body: RecommendationCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    rec = (
+        db.query(ExerciseRecommendation)
+        .filter(
+            ExerciseRecommendation.recommendation_id == recommendation_id,
+            ExerciseRecommendation.user_id == current_user.user_id,
+        )
+        .first()
+    )
+    if not rec:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+
+    target = rec.duration_minutes or 0
+    actual = body.actual_minutes
+
+    if actual is not None and target > 0 and actual < target:
+        remaining = max(target - actual, 1)
+        rec.duration_minutes = remaining
+        rec.description = f"Remaining: {remaining} min of original {target} min"
+        rec.is_completed = False
+        rec.status = "pending"
+    else:
+        rec.is_completed = True
+        rec.status = "completed"
+
+    db.commit()
+    db.refresh(rec)
+
+    return {
+        "recommendation_id": rec.recommendation_id,
+        "user_id": rec.user_id,
+        "title": rec.title,
+        "suggested_activity": rec.suggested_activity,
+        "intensity_level": rec.intensity_level,
+        "duration_minutes": rec.duration_minutes,
+        "target_heart_rate_min": rec.target_heart_rate_min,
+        "target_heart_rate_max": rec.target_heart_rate_max,
+        "description": rec.description,
+        "warnings": rec.warnings,
+        "status": rec.status,
+        "is_completed": rec.is_completed,
+        "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
+    }
+
+
+# =============================================
+# DAILY RECOVERY SCORE - Composite score endpoint
+# Used by: Mobile app recovery screen
+# =============================================
+@router.get("/recovery/daily-score")
+async def get_daily_recovery_score(
+    date_str: Optional[str] = Query(default=None, alias="date"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    target_date = _resolve_date(date_str)
+    return _calculate_daily_recovery_score(db, current_user, target_date)
+
+
+# =============================================
+# WEEKLY RECOVERY SCORES - 7 day trend
+# Used by: Mobile app history chart
+# =============================================
+@router.get("/recovery/weekly-scores")
+async def get_weekly_recovery_scores(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    today = datetime.now(timezone.utc).date()
+    scores: list[dict[str, Any]] = []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        daily = _calculate_daily_recovery_score(db, current_user, day)
+        scores.append({
+            "date": daily["date"],
+            "score": daily["score"],
+            "workout_score": daily["workout_score"],
+            "nutrition_score": daily["nutrition_score"],
+            "sleep_score": daily["sleep_score"],
+        })
+    return {"scores": scores}
+
+
+# =============================================
+# SLEEP LOGGING ENDPOINTS
+# =============================================
+@router.post("/sleep")
+async def log_sleep(
+    request: SleepLogRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    bedtime = request.bedtime
+    wake_time = request.wake_time
+    if wake_time < bedtime:
+        wake_time = wake_time + timedelta(days=1)
+
+    duration_hours = round((wake_time - bedtime).total_seconds() / 3600, 2)
+    duration_ratio = min(duration_hours / 8.0, 1.0) if duration_hours > 0 else 0.0
+    quality_ratio = request.quality_rating / 5.0
+    sleep_score = int(round((duration_ratio * 60) + (quality_ratio * 40)))
+
+    sleep_date = wake_time.date()
+
+    entry = SleepEntry(
+        user_id=current_user.user_id,
+        date=sleep_date,
+        bedtime=bedtime,
+        wake_time=wake_time,
+        duration_hours=duration_hours,
+        quality_rating=request.quality_rating,
+        sleep_score=sleep_score,
+        notes=request.notes,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    return {
+        "sleep_id": entry.sleep_id,
+        "user_id": entry.user_id,
+        "date": entry.date.isoformat(),
+        "bedtime": entry.bedtime.isoformat() if entry.bedtime else None,
+        "wake_time": entry.wake_time.isoformat() if entry.wake_time else None,
+        "duration_hours": entry.duration_hours,
+        "quality_rating": entry.quality_rating,
+        "sleep_score": entry.sleep_score,
+        "notes": entry.notes,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+@router.get("/sleep/latest")
+async def get_latest_sleep(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    entry = (
+        db.query(SleepEntry)
+        .filter(SleepEntry.user_id == current_user.user_id)
+        .order_by(desc(SleepEntry.date), desc(SleepEntry.created_at))
+        .first()
+    )
+    if not entry:
+        raise HTTPException(status_code=404, detail="No sleep entries found")
+
+    return {
+        "sleep_id": entry.sleep_id,
+        "user_id": entry.user_id,
+        "date": entry.date.isoformat(),
+        "bedtime": entry.bedtime.isoformat() if entry.bedtime else None,
+        "wake_time": entry.wake_time.isoformat() if entry.wake_time else None,
+        "duration_hours": entry.duration_hours,
+        "quality_rating": entry.quality_rating,
+        "sleep_score": entry.sleep_score,
+        "notes": entry.notes,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+@router.get("/sleep")
+async def get_sleep_history(
+    days: int = 7,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    days = max(1, min(days, 30))
+    today = datetime.now(timezone.utc).date()
+    start_date = today - timedelta(days=days - 1)
+
+    entries = (
+        db.query(SleepEntry)
+        .filter(
+            SleepEntry.user_id == current_user.user_id,
+            SleepEntry.date >= start_date,
+        )
+        .order_by(desc(SleepEntry.date), desc(SleepEntry.created_at))
+        .all()
+    )
+
+    return {
+        "entries": [
+            {
+                "sleep_id": entry.sleep_id,
+                "date": entry.date.isoformat(),
+                "bedtime": entry.bedtime.isoformat() if entry.bedtime else None,
+                "wake_time": entry.wake_time.isoformat() if entry.wake_time else None,
+                "duration_hours": entry.duration_hours,
+                "quality_rating": entry.quality_rating,
+                "sleep_score": entry.sleep_score,
+                "notes": entry.notes,
+            }
+            for entry in entries
+        ],
+        "days": days,
+    }

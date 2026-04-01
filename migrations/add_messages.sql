@@ -2,17 +2,15 @@
 -- Messages Table Migration
 -- =============================================================================
 -- Creates table for patient-clinician messaging with REST polling support
---
--- Run with: sqlite3 adaptiv_health.db < migrations/add_messages.sql
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS messages (
-    message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id SERIAL PRIMARY KEY,
     sender_id INTEGER NOT NULL,
     receiver_id INTEGER NOT NULL,
     content TEXT NOT NULL,
-    sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_read BOOLEAN NOT NULL DEFAULT 0,
+    sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
 
     FOREIGN KEY (sender_id) REFERENCES users (user_id) ON DELETE CASCADE,
     FOREIGN KEY (receiver_id) REFERENCES users (user_id) ON DELETE CASCADE

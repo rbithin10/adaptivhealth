@@ -61,8 +61,8 @@ from app.services.recommendation_ranking import (
 )
 from app.services.natural_language_alerts import (
     generate_natural_language_alert,
-    generate_ai_risk_summary,
     format_risk_summary,
+    format_patient_risk_summary,
 )
 from app.services.retraining_pipeline import (
     evaluate_retraining_readiness,
@@ -502,16 +502,23 @@ async def get_natural_language_alert(
 @router.get("/risk-summary/natural-language")
 async def get_natural_language_risk_summary(
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    use_cloud_ai: bool = Query(False, description="When true, optionally enhance summary with Gemini"),
+    audience: str = Query("clinician", description="Summary audience: 'clinician' or 'patient'"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Get a plain-language summary of the user's latest risk assessment.
 
+    - audience=clinician (default): detailed clinical narrative with drivers,
+      vitals snapshot, monitoring focus, and any clinician notes.
+    - audience=patient: plain, reassuring language suitable for the patient's
+      own mobile or web screen.
+
     Doctors/admins can pass user_id to view a patient's risk summary.
     """
-    # Determine target user: doctor/admin can query any patient
+    import json as _json
+
+    # Determine target user
     target_user = current_user
     if user_id is not None and user_id != current_user.user_id:
         if current_user.role not in ("clinician", "admin"):
@@ -529,32 +536,51 @@ async def get_natural_language_risk_summary(
         .order_by(desc(RiskAssessment.assessment_date))
         .first()
     )
-    if not ra:  # Can't generate a summary without a risk assessment on file
+    if not ra:
         raise HTTPException(status_code=404, detail="No risk assessments found")
 
-    import json as _json
-    drivers = _json.loads(ra.risk_factors_json) if ra.risk_factors_json else []  # Parse the stored risk factors
+    drivers = _json.loads(ra.risk_factors_json) if ra.risk_factors_json else []
+    if not isinstance(drivers, list):
+        drivers = [str(drivers)]
 
-    summary = format_risk_summary(  # Build a plain-English risk summary from templates
-        risk_score=ra.risk_score,
-        risk_level=ra.risk_level,
-        drivers=drivers if isinstance(drivers, list) else [str(drivers)],
-        patient_name=target_user.full_name,
-    )
-
-    if use_cloud_ai:  # Optionally enhance the summary using Google Gemini AI
+    if audience == "patient":
+        summary = format_patient_risk_summary(
+            risk_score=ra.risk_score,
+            risk_level=ra.risk_level,
+            drivers=drivers,
+            patient_name=target_user.full_name,
+            heart_rate=ra.input_heart_rate,
+            spo2=ra.input_spo2,
+        )
+    else:
+        # Fetch clinical notes for clinician summary context
         try:
-            summary = generate_ai_risk_summary(
-                risk_score=ra.risk_score,
-                risk_level=ra.risk_level,
-                drivers=drivers if isinstance(drivers, list) else [str(drivers)],
+            from app.models.clinical_note import ClinicalNote
+            notes_rows = (
+                db.query(ClinicalNote)
+                .filter(ClinicalNote.user_id == target_user.user_id)
+                .order_by(desc(ClinicalNote.created_at))
+                .limit(3)
+                .all()
             )
-        except RuntimeError as exc:
-            logger.warning(
-                "Cloud AI risk summary unavailable; using NL template summary. user_id=%s reason=%s",
-                target_user.user_id,
-                exc,
-            )
+            clinical_notes = [n.content for n in notes_rows] if notes_rows else []
+        except Exception:
+            clinical_notes = []
+
+        summary = format_risk_summary(
+            risk_score=ra.risk_score,
+            risk_level=ra.risk_level,
+            drivers=drivers,
+            patient_name=target_user.full_name,
+            heart_rate=ra.input_heart_rate,
+            spo2=ra.input_spo2,
+            systolic_bp=ra.input_blood_pressure_sys,
+            diastolic_bp=ra.input_blood_pressure_dia,
+            hrv=ra.input_hrv,
+            assessment_date=ra.assessment_date.isoformat() if ra.assessment_date else None,
+            clinical_notes=clinical_notes,
+            patient_age=target_user.age,
+        )
 
     return {
         "user_id": target_user.user_id,

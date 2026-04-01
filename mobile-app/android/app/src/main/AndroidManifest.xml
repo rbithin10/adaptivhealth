@@ -31,6 +31,14 @@
     <uses-permission android:name="android.permission.health.READ_STEPS"/>
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION"/>
     <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE"/>
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY"/>
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED"/>
+    <!-- Health Connect permissions for Android 12/13 (legacy namespace) -->
+    <uses-permission android:name="com.google.android.apps.healthdata.permission.READ_HEART_RATE"/>
+    <uses-permission android:name="com.google.android.apps.healthdata.permission.READ_STEPS"/>
+    <uses-permission android:name="com.google.android.apps.healthdata.permission.READ_OXYGEN_SATURATION"/>
+    <uses-permission android:name="com.google.android.apps.healthdata.permission.READ_BLOOD_PRESSURE"/>
+    <uses-permission android:name="android.permission.START_VIEW_PERMISSION_USAGE"/>
 
     <!-- Declare that app uses BLE (not required but good practice) -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
@@ -61,13 +69,20 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-
-            <!-- Health permissions rationale entry point for supported Android versions -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
-                <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
-            </intent-filter>
         </activity>
+
+        <!-- Required by Health Connect to open this app from App permissions -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:targetActivity=".MainActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- flutter_web_auth_2: catches the Fitbit OAuth2 redirect URI
              (adaptivhealth://fitbit/callback) after the system browser
              completes the authorization flow. -->

@@ -152,7 +152,7 @@ async def end_activity_session(
     if activity.start_time and activity.end_time and activity.duration_minutes is None:
         delta = activity.end_time - activity.start_time  # type: ignore
         activity.duration_minutes = int(delta.total_seconds() / 60)  # type: ignore
-    
+
     # Save the updated session to the database
     db.commit()
     db.refresh(activity)

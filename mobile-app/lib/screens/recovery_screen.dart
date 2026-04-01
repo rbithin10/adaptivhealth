@@ -1,5 +1,5 @@
 /*
-Recovery Screen Ã¢â‚¬â€ post-workout debrief for cardiovascular patients.
+Recovery Screen — post-workout debrief for cardiovascular patients.
 
 Shows live vitals, a scored recovery ring, session metrics sourced from the
 activity API, a functional breathing exercise widget with all four techniques,
@@ -127,11 +127,13 @@ class _RecoveryData {
   final Map<String, dynamic> session;
   final Map<String, dynamic>? vitals;
   final Map<String, dynamic>? recommendation;
+  final Map<String, dynamic>? dailyScore;
 
   const _RecoveryData({
     required this.session,
     this.vitals,
     this.recommendation,
+    this.dailyScore,
   });
 }
 
@@ -143,6 +145,10 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     with SingleTickerProviderStateMixin {
   // The data we're loading from the server (session + vitals + recommendation)
   late Future<_RecoveryData> _dataFuture;
+
+  // Date navigation for the daily progress / score section
+  DateTime _selectedDate = DateTime.now();
+  late Future<Map<String, dynamic>> _dailyScoreFuture;
 
   // Controls the breathing exercise animation
   late AnimationController _breathingController;
@@ -165,6 +171,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   void initState() {
     super.initState();
     _dataFuture = _loadData();
+    _dailyScoreFuture = _fetchDailyScore(_selectedDate);
     // Subscribe to live vitals for real-time recovery monitoring
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -183,7 +190,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // ITEM 1 Ã¢â‚¬â€ Data loading
+  // ITEM 1 — Data loading
   // ---------------------------------------------------------------------------
 
   // Fetch the workout session, latest vitals, and AI recommendation all at once
@@ -196,17 +203,49 @@ class _RecoveryScreenState extends State<RecoveryScreen>
       widget.apiClient
           .getLatestRecommendation()
           .catchError((_) => <String, dynamic>{}),
+      widget.apiClient
+          .getDailyRecoveryScore()
+          .catchError((_) => <String, dynamic>{}),
     ]);
 
     final session = results[0];
     final vitals = results[1];
     final recommendation = results[2];
+    final dailyScore = results[3];
 
     return _RecoveryData(
       session: session,
       vitals: vitals.isEmpty ? null : vitals,
       recommendation: recommendation.isEmpty ? null : recommendation,
+      dailyScore: dailyScore.isEmpty ? null : dailyScore,
     );
+  }
+
+  Future<Map<String, dynamic>> _fetchDailyScore(DateTime date) {
+    final dateStr =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    return widget.apiClient
+        .getDailyRecoveryScore(date: dateStr)
+        .catchError((_) => <String, dynamic>{});
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  String _dateLabel(DateTime date) {
+    if (_isToday(date)) return 'Today';
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    if (date.year == yesterday.year &&
+        date.month == yesterday.month &&
+        date.day == yesterday.day) {
+      return 'Yesterday';
+    }
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${days[date.weekday - 1]} ${months[date.month - 1]} ${date.day}';
   }
 
   /// Return the specific session when a sessionId is provided, otherwise
@@ -225,7 +264,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // ITEM 5 Ã¢â‚¬â€ Breathing logic
+  // ITEM 5 — Breathing logic
   // ---------------------------------------------------------------------------
 
   // Runs every animation frame to check if it's time to switch between inhale, hold, and exhale
@@ -278,7 +317,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
       case 'Inhale':
         return 'Breathe in slowly through your nose';
       case 'Hold':
-        return 'Hold gently Ã¢â‚¬â€ do not strain';
+        return 'Hold gently — do not strain';
       case 'Exhale':
         return 'Exhale fully through your mouth';
       default:
@@ -311,6 +350,11 @@ class _RecoveryScreenState extends State<RecoveryScreen>
         appBar: AppBar(
           elevation: 0,
           backgroundColor: AdaptivColors.getSurfaceColor(brightness),
+          iconTheme: IconThemeData(
+            color: brightness == Brightness.dark
+                ? AdaptivColors.textDark50
+                : AdaptivColors.primaryDark,
+          ),
           title: Text(
             'Recovery',
             style: GoogleFonts.dmSans(
@@ -361,7 +405,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   // CONTENT
   // ===========================================================================
 
-  // Assembles all recovery sections: vitals banner, score ring, session stats, breathing, tips, and actions
+  // Assembles all recovery sections: date progress, vitals banner, score ring, session stats, breathing, tips, actions
   Widget _buildContent(_RecoveryData data, Brightness brightness) {
     final session = data.session;
 
@@ -372,52 +416,33 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     final int recoveryTime = _int(session['recovery_time_minutes']) ?? 0;
 
     final vitals = data.vitals;
+    const int restingHR = 65;
     final int? currentHR = _liveReading?.heartRate.round()
         ?? (vitals != null ? _int(vitals['heart_rate']) : null);
     final int? currentSpO2 = _liveReading?.spo2?.round()
         ?? (vitals != null ? _int(vitals['spo2']) : null);
-    final int? hrv =
-        vitals != null ? _int(vitals['hrv']) : null;
-
-    // Derive recovery score Ã¢â‚¬â€ ITEM 3
-    const int restingHR = 65;
-    final double hrRecoveryPct = currentHR != null && avgHR > 0
-        ? ((1 - ((currentHR - restingHR).clamp(0, 60) / 60)) * 100)
-            .clamp(0.0, 100.0)
-        : 70.0;
-    final double hrvScore =
-        hrv != null ? (hrv / 60.0 * 100).clamp(0.0, 100.0) : 60.0;
-    final double intensityScore = peakHR > 0
-        ? ((1 - ((peakHR - 120) / 80).clamp(0.0, 1.0)) * 100)
-        : 70.0;
-    final int recoveryScore =
-        ((hrRecoveryPct * 0.4) + (hrvScore * 0.3) + (intensityScore * 0.3))
-            .round()
-            .clamp(0, 100);
+    final int? hrv = vitals != null ? _int(vitals['hrv']) : null;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ITEM 2 Ã¢â‚¬â€ Post-workout vitals banner
+          // Daily goal progress with date navigation
+          _buildDailyProgressSection(brightness),
+          const SizedBox(height: 24),
+
+          // Post-workout vitals banner
           if (vitals != null) ...[
-            _buildVitalsBanner(
-                currentHR, currentSpO2, restingHR, brightness),
+            _buildVitalsBanner(currentHR, currentSpO2, restingHR, brightness),
             const SizedBox(height: 24),
           ],
 
-          // ITEM 3 Ã¢â‚¬â€ Recovery score ring
-          _buildScoreSection(
-            recoveryScore,
-            hrRecoveryPct.round(),
-            hrvScore.round(),
-            intensityScore.round(),
-            brightness,
-          ),
+          // Recovery score ring (uses backend daily score)
+          _buildScoreSection(brightness),
           const SizedBox(height: 28),
 
-          // ITEM 4 Ã¢â‚¬â€ Session summary grid
+          // Session summary grid
           Text('Session Summary', style: AdaptivTypography.sectionTitle),
           const SizedBox(height: 12),
           _buildSummaryGrid(
@@ -431,22 +456,21 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           ),
           const SizedBox(height: 28),
 
-          // ITEM 5 Ã¢â‚¬â€ Breathing exercise
+          // Breathing exercise
           Text('Breathing Exercise', style: AdaptivTypography.sectionTitle),
           const SizedBox(height: 12),
           _buildBreathingSection(brightness),
           const SizedBox(height: 28),
 
-          // ITEM 6 Ã¢â‚¬â€ Personalised recommendation
+          // Personalised recommendation
           if (data.recommendation != null) ...[
-            Text('Your Recommendation',
-                style: AdaptivTypography.sectionTitle),
+            Text('Your Recommendation', style: AdaptivTypography.sectionTitle),
             const SizedBox(height: 12),
             _buildRecommendationCard(data.recommendation!, brightness),
             const SizedBox(height: 28),
           ],
 
-          // ITEM 7 Ã¢â‚¬â€ Contextual tips
+          // Contextual tips
           Text('Recovery Tips', style: AdaptivTypography.sectionTitle),
           const SizedBox(height: 12),
           ..._buildContextualTips(
@@ -457,7 +481,6 @@ class _RecoveryScreenState extends State<RecoveryScreen>
           ),
           const SizedBox(height: 28),
 
-          // ITEM 8 Ã¢â‚¬â€ Bottom action bar
           _buildActionBar(brightness),
         ],
       ),
@@ -465,7 +488,200 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 2 Ã¢â‚¬â€ Post-workout vitals banner
+  // Daily recovery progress (workout + nutrition + sleep)
+  // ===========================================================================
+
+  Widget _buildDailyProgressSection(Brightness brightness) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _dailyScoreFuture,
+      builder: (context, snapshot) {
+        final score = snapshot.data ?? {};
+        final scoreValue = _int(score['score']) ?? 0;
+        final actualMins = _int(score['actual_minutes']) ?? 0;
+        final targetMins = _int(score['target_minutes']) ?? 0;
+        final caloriesBurned = _int(score['calories_burned']) ?? 0;
+        final calorieBurnTarget = _int(score['calorie_burn_target']) ?? 300;
+        final caloriesConsumed = _int(score['calories_consumed']) ?? 0;
+        final calorieGoal = _int(score['calorie_goal']) ?? 2000;
+        final sleepHours = score['sleep_hours'] is num
+            ? (score['sleep_hours'] as num).toDouble()
+            : 0.0;
+        final riskLevel =
+            score['risk_level']?.toString().toUpperCase() ?? 'LOW';
+        final multiplier = score['risk_multiplier'] is num
+            ? (score['risk_multiplier'] as num).toDouble()
+            : 1.0;
+
+        final Color scoreColor = scoreValue >= 75
+            ? AdaptivColors.stable
+            : scoreValue >= 50
+                ? AdaptivColors.warning
+                : AdaptivColors.critical;
+
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: AdaptivColors.getBorderColor(brightness),
+              width: 1,
+            ),
+          ),
+          color: AdaptivColors.getSurfaceColor(brightness),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.chevron_left,
+                          color: AdaptivColors.getTextColor(brightness)),
+                      onPressed: () => setState(() {
+                        _selectedDate =
+                            _selectedDate.subtract(const Duration(days: 1));
+                        _dailyScoreFuture = _fetchDailyScore(_selectedDate);
+                      }),
+                    ),
+                    Text(_dateLabel(_selectedDate),
+                        style: AdaptivTypography.cardTitle),
+                    IconButton(
+                      icon: Icon(Icons.chevron_right,
+                          color: _isToday(_selectedDate)
+                              ? AdaptivColors.getBorderColor(brightness)
+                              : AdaptivColors.getTextColor(brightness)),
+                      onPressed: _isToday(_selectedDate)
+                          ? null
+                          : () => setState(() {
+                                _selectedDate = _selectedDate
+                                    .add(const Duration(days: 1));
+                                _dailyScoreFuture =
+                                    _fetchDailyScore(_selectedDate);
+                              }),
+                    ),
+                  ],
+                ),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                else ...[
+                  _buildGoalRow(
+                    label: 'Workout',
+                    value: '$actualMins min',
+                    target: targetMins > 0 ? '$targetMins min goal' : null,
+                    progress: targetMins > 0
+                        ? (actualMins / targetMins).clamp(0.0, 1.0)
+                        : 0.0,
+                    color: AdaptivColors.chartBlue,
+                    brightness: brightness,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildGoalRow(
+                    label: 'Calories Burned',
+                    value: '$caloriesBurned kcal',
+                    target: '$calorieBurnTarget kcal goal',
+                    progress: calorieBurnTarget > 0
+                        ? (caloriesBurned / calorieBurnTarget).clamp(0.0, 1.0)
+                        : 0.0,
+                    color: AdaptivColors.chartTeal,
+                    brightness: brightness,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildGoalRow(
+                    label: 'Nutrition',
+                    value: '$caloriesConsumed kcal',
+                    target: '$calorieGoal kcal goal',
+                    progress: calorieGoal > 0
+                        ? (caloriesConsumed / calorieGoal).clamp(0.0, 1.0)
+                        : 0.0,
+                    color: AdaptivColors.warning,
+                    brightness: brightness,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildGoalRow(
+                    label: 'Sleep',
+                    value: sleepHours > 0
+                        ? '${sleepHours.toStringAsFixed(1)} h'
+                        : 'No data',
+                    target: '8 h goal',
+                    progress: (sleepHours / 8.0).clamp(0.0, 1.0),
+                    color: AdaptivColors.primary,
+                    brightness: brightness,
+                  ),
+                  if (multiplier != 1.0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: scoreColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Risk: $riskLevel  |  Score: $scoreValue/100',
+                        style: AdaptivTypography.caption.copyWith(
+                          color: scoreColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGoalRow({
+    required String label,
+    required String value,
+    String? target,
+    required double progress,
+    required Color color,
+    required Brightness brightness,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: AdaptivTypography.caption),
+            Text(
+              target != null ? '$value / $target' : value,
+              style: AdaptivTypography.caption.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 7,
+            backgroundColor: AdaptivColors.getBorderColor(brightness),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
+    );
+  }
+
+
+  // ===========================================================================
+  // ITEM 2 — Post-workout vitals banner
   // ===========================================================================
 
   // Shows the user's current heart rate and SpO2 with a coloured status message
@@ -484,7 +700,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
         allOk ? AdaptivColors.stable : AdaptivColors.warning;
     final String statusLabel = allOk
         ? 'Heart is recovering well'
-        : 'Still recovering Ã¢â‚¬â€ rest a bit more';
+        : 'Still recovering — rest a bit more';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -543,7 +759,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
                     AdaptivColors.getHRZoneColor(currentHR)),
               if (currentSpO2 != null) ...[
                 const SizedBox(height: 4),
-                _vitalChip('$currentSpO2% SpOÃ¢â€šâ€š', Icons.air,
+                _vitalChip('$currentSpO2% SpO₂', Icons.air,
                     spo2Ok ? AdaptivColors.stable : AdaptivColors.critical),
               ],
             ],
@@ -577,114 +793,131 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 3 Ã¢â‚¬â€ Recovery score ring (CustomPainter)
+  // ITEM 3 — Recovery score ring (CustomPainter)
   // ===========================================================================
 
-  // Draws the big score ring and three component bars (HR recovery, HRV, intensity)
-  Widget _buildScoreSection(
-    int score,
-    int hrComponent,
-    int hrvComponent,
-    int intensityComponent,
-    Brightness brightness,
-  ) {
-    final Color ringColor = score >= 75
-        ? AdaptivColors.stable
-        : score >= 50
-            ? AdaptivColors.warning
-            : AdaptivColors.critical;
-    final String label = score >= 75
-        ? 'Excellent recovery'
-        : score >= 50
-            ? 'Good Ã¢â‚¬â€ keep resting'
-            : 'Needs more recovery time';
+  Widget _buildScoreSection(Brightness brightness) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _dailyScoreFuture,
+      builder: (context, snapshot) {
+        final scoreData = snapshot.data ?? {};
+        final score = _int(scoreData['score']) ?? 0;
+        final workoutPct = _int(scoreData['workout_score']) ?? 0;
+        final nutritionPct = _int(scoreData['nutrition_score']) ?? 0;
+        final sleepPct = _int(scoreData['sleep_score']) ?? 0;
+        final riskLevel =
+            scoreData['risk_level']?.toString().toUpperCase() ?? 'LOW';
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-            color: AdaptivColors.getBorderColor(brightness), width: 1),
-      ),
-      color: AdaptivColors.getSurfaceColor(brightness),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+        final Color ringColor = score >= 75
+            ? AdaptivColors.stable
+            : score >= 50
+                ? AdaptivColors.warning
+                : AdaptivColors.critical;
+        final String label = score >= 75
+            ? 'Excellent recovery'
+            : score >= 50
+                ? 'Good - keep resting'
+                : 'Needs more recovery time';
+
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+                color: AdaptivColors.getBorderColor(brightness), width: 1),
+          ),
+          color: AdaptivColors.getSurfaceColor(brightness),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
               children: [
-                SizedBox(
-                  width: 140,
-                  height: 140,
-                  child: CustomPaint(
-                    painter: _ArcRingPainter(
-                      progress: score / 100.0,
-                      ringColor: ringColor,
-                      trackColor:
-                          AdaptivColors.getBorderColor(brightness),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            '$score',
-                            style: AdaptivTypography.heroNumber.copyWith(
-                              fontSize: 36,
-                              color:
-                                  AdaptivColors.getTextColor(brightness),
-                            ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 140,
+                      height: 140,
+                      child: CustomPaint(
+                        painter: _ArcRingPainter(
+                          progress: score / 100.0,
+                          ringColor: ringColor,
+                          trackColor:
+                              AdaptivColors.getBorderColor(brightness),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                '$score',
+                                style:
+                                    AdaptivTypography.heroNumber.copyWith(
+                                  fontSize: 36,
+                                  color:
+                                      AdaptivColors.getTextColor(brightness),
+                                ),
+                              ),
+                              Text(
+                                '/ 100',
+                                style: AdaptivTypography.caption.copyWith(
+                                  color:
+                                      AdaptivColors.getSecondaryTextColor(
+                                          brightness),
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '/ 100',
-                            style: AdaptivTypography.caption.copyWith(
-                              color: AdaptivColors.getSecondaryTextColor(
-                                  brightness),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
+                    ),
+                    const SizedBox(width: 28),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _subScore('Workout', workoutPct,
+                            AdaptivColors.chartBlue),
+                        const SizedBox(height: 10),
+                        _subScore('Nutrition', nutritionPct,
+                            AdaptivColors.warning),
+                        const SizedBox(height: 10),
+                        _subScore('Sleep', sleepPct, AdaptivColors.primary),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Risk: $riskLevel',
+                          style: AdaptivTypography.caption.copyWith(
+                            fontSize: 10,
+                            color: AdaptivColors.getSecondaryTextColor(
+                                brightness),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: ringColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    label,
+                    style: AdaptivTypography.bodySmall.copyWith(
+                      color: ringColor,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-                const SizedBox(width: 28),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _subScore('HR Recovery', hrComponent,
-                        AdaptivColors.chartBlue),
-                    const SizedBox(height: 10),
-                    _subScore('HRV Quality', hrvComponent,
-                        AdaptivColors.chartTeal),
-                    const SizedBox(height: 10),
-                    _subScore('Intensity Load', intensityComponent,
-                        AdaptivColors.warning),
-                  ],
-                ),
               ],
             ),
-            const SizedBox(height: 16),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: ringColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                label,
-                style: AdaptivTypography.bodySmall.copyWith(
-                  color: ringColor,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
+
 
   // One row inside the score section showing a coloured dot, label, and percentage
   Widget _subScore(String label, int value, Color color) {
@@ -711,7 +944,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 4 Ã¢â‚¬â€ Session summary grid
+  // ITEM 4 — Session summary grid
   // ===========================================================================
 
   // 2×3 grid of workout stats: duration, avg HR, peak HR, calories, recovery time, HRV
@@ -726,17 +959,17 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }) {
     final items = [
       _GridItem(
-          Icons.timer_outlined, 'Duration', duration > 0 ? '$duration min' : 'Ã¢â‚¬â€'),
+          Icons.timer_outlined, 'Duration', duration > 0 ? '$duration min' : '—'),
       _GridItem(
-          Icons.favorite_border, 'Avg HR', avgHR > 0 ? '$avgHR BPM' : 'Ã¢â‚¬â€'),
+          Icons.favorite_border, 'Avg HR', avgHR > 0 ? '$avgHR BPM' : '—'),
       _GridItem(
-          Icons.trending_up, 'Peak HR', peakHR > 0 ? '$peakHR BPM' : 'Ã¢â‚¬â€'),
+          Icons.trending_up, 'Peak HR', peakHR > 0 ? '$peakHR BPM' : '—'),
       _GridItem(Icons.local_fire_department_outlined, 'Calories',
-          calories > 0 ? '$calories kcal' : 'Ã¢â‚¬â€'),
+          calories > 0 ? '$calories kcal' : '—'),
       _GridItem(Icons.trending_down, 'Recovery',
-          recoveryTime > 0 ? '$recoveryTime min' : 'Ã¢â‚¬â€'),
+          recoveryTime > 0 ? '$recoveryTime min' : '—'),
       _GridItem(Icons.monitor_heart_outlined, 'HRV',
-          hrv != null && hrv > 0 ? '$hrv ms' : 'Ã¢â‚¬â€'),
+          hrv != null && hrv > 0 ? '$hrv ms' : '—'),
     ];
 
     return GridView.count(
@@ -786,7 +1019,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 5 Ã¢â‚¬â€ Breathing exercise with technique selector
+  // ITEM 5 — Breathing exercise with technique selector
   // ===========================================================================
 
   // The full breathing exercise section: technique selector, timing labels, animated circle, and start button
@@ -981,7 +1214,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 6 Ã¢â‚¬â€ Personalised recommendation card
+  // ITEM 6 — Personalised recommendation card
   // ===========================================================================
 
   // Card showing the AI's personalised recovery advice and suggested next activity
@@ -1057,7 +1290,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 7 Ã¢â‚¬â€ Contextual recovery tips
+  // ITEM 7 — Contextual recovery tips
   // ===========================================================================
 
   // Generates a list of recovery tip cards tailored to the workout's intensity and duration
@@ -1069,7 +1302,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }) {
     final tips = <_TipData>[];
 
-    // Cardiac-specific tip Ã¢â‚¬â€ always shown first
+    // Cardiac-specific tip — always shown first
     tips.add(const _TipData(
       Icons.favorite,
       'Cardiac Note',
@@ -1105,14 +1338,14 @@ class _RecoveryScreenState extends State<RecoveryScreen>
     if (hrv != null && hrv < 35) {
       tips.add(const _TipData(
         Icons.nights_stay,
-        'Sleep Ã¢â‚¬â€ High Priority',
-        'Your HRV is low, indicating your nervous system needs rest. Aim for 8Ã¢â‚¬â€œ9 hours tonight and avoid screens 1 hour before bed.',
+        'Sleep — High Priority',
+        'Your HRV is low, indicating your nervous system needs rest. Aim for 8—œ9 hours tonight and avoid screens 1 hour before bed.',
       ));
     } else {
       tips.add(const _TipData(
         Icons.nights_stay,
         'Sleep',
-        'Quality sleep is when cardiovascular adaptation occurs. Target 7Ã¢â‚¬â€œ9 hours for optimal recovery.',
+        'Quality sleep is when cardiovascular adaptation occurs. Target 7—œ9 hours for optimal recovery.',
       ));
     }
 
@@ -1168,7 +1401,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
   }
 
   // ===========================================================================
-  // ITEM 8 Ã¢â‚¬â€ Bottom action bar
+  // ITEM 8 — Bottom action bar
   // ===========================================================================
 
   // Bottom buttons: "Log Recovery Meal" and "Message Care Team"
@@ -1324,7 +1557,7 @@ class _RecoveryScreenState extends State<RecoveryScreen>
 }
 
 // =============================================================================
-// CUSTOM PAINTER Ã¢â‚¬â€ arc progress ring  (ITEM 3)
+// CUSTOM PAINTER — arc progress ring  (ITEM 3)
 // =============================================================================
 
 // Draws a circular progress arc used for the recovery score ring

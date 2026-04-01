@@ -120,6 +120,14 @@ class HomeHeartRateRing extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        Text(
+          'Heart Rate',
+          style: AdaptivTypography.caption.copyWith(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
       ],
     );
   }

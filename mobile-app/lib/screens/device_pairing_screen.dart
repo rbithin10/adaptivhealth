@@ -573,7 +573,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
     try {
       await context.read<VitalsProvider>().enableHealthKit();
       if (!mounted) return;
-      final source = context.read<VitalsProvider>().activeSource;
+      final provider = context.read<VitalsProvider>();
+      final source = provider.activeSource;
       if (source == VitalsSource.health) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -582,12 +583,16 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
           ),
         );
       } else {
+        final healthError = provider.lastHealthError;
+        final details = healthError != null ? '\nDetails: $healthError' : '';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Could not read from $platformName. '
               'Make sure $platformName has synced recently and '
-              'Health Connect write-permission is enabled in that app.',
+              'Health Connect write-permission is enabled in that app. '
+              'You can still use BLE pairing or Fitbit direct sync on this phone.'
+              '$details',
             ),
           ),
         );
@@ -965,11 +970,12 @@ class _DevicePairingScreenState extends State<DevicePairingScreen> {
             child: Row(
               children: [
                 const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Flexible(
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
                       'Or connect a BLE device directly',
+                      textAlign: TextAlign.center,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,

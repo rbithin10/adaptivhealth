@@ -10,6 +10,7 @@ within the same app session.
 
 // Flutter's UI toolkit
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 // Text-to-speech — reads AI responses aloud
 import 'package:flutter_tts/flutter_tts.dart';
 // Opens the phone camera to take pictures
@@ -131,6 +132,8 @@ class _FloatingChatbotState extends State<FloatingChatbot>
   Widget build(BuildContext context) {
     // The draggable + tappable floating button
     return GestureDetector(
+      // Start tracking drag position from touch-down, not after slop distance
+      dragStartBehavior: DragStartBehavior.down,
       // User is dragging the button — move it with their finger
       onPanUpdate: (details) {
         final size = MediaQuery.of(context).size;
@@ -577,10 +580,11 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
           targetHeight = 0;
         }
 
+        final colorScheme = Theme.of(context).colorScheme;
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: AnimatedPadding(
             duration: const Duration(milliseconds: 180),
@@ -656,7 +660,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close),
+                      icon: Icon(Icons.close, color: colorScheme.onSurface),
                       onPressed: () => Navigator.pop(context),
                     ),
                     if (_isSpeaking)
@@ -720,13 +724,15 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                               decoration: BoxDecoration(
                                 color: message.isUser
                                     ? AdaptivColors.primary
-                                    : Colors.grey[100],
+                                    : colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: Text(
                                 message.text,
                                 style: TextStyle(
-                                  color: message.isUser ? Colors.white : Colors.black87,
+                                  color: message.isUser
+                                      ? Colors.white
+                                      : colorScheme.onSurface,
                                 ),
                               ),
                             ),
@@ -743,7 +749,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: colorScheme.surface,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.05),
@@ -757,7 +763,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                     children: [
                       // Camera button for food/pill scanning
                       IconButton(
-                        icon: const Icon(LucideIcons.camera),
+                        icon: Icon(LucideIcons.camera, color: colorScheme.onSurface),
                         onPressed: isTyping ? null : _showCameraOptions,
                       ),
                       // Microphone button with pulsing ring while recording
@@ -788,7 +794,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                                 _isListening
                                     ? LucideIcons.micOff
                                     : LucideIcons.mic,
-                                color: _isListening ? Colors.red : null,
+                                color: _isListening ? Colors.red : colorScheme.onSurface,
                                 size: 22,
                               ),
                               onPressed: isTyping ? null : _toggleVoiceInput,
@@ -806,7 +812,7 @@ class _ChatBottomSheetState extends State<ChatBottomSheet>
                           decoration: InputDecoration(
                             hintText: 'Ask your health coach...',
                             filled: true,
-                            fillColor: Colors.grey[100],
+                            fillColor: colorScheme.surfaceContainerHighest,
                             counterText: '',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),

@@ -39,6 +39,7 @@ class VitalsReading {
   final double? systolicBp;
   final double? diastolicBp;
   final double? hrv;
+  final double? cumulativeCalories;
   final DateTime timestamp;
   final VitalsSource source;
 
@@ -50,6 +51,7 @@ class VitalsReading {
     this.systolicBp,
     this.diastolicBp,
     this.hrv,
+    this.cumulativeCalories,
   });
 }
 
@@ -119,6 +121,9 @@ class VitalsProvider extends ChangeNotifier {
   /// True when the demo simulator is actively generating readings.
   bool get isMockRunning => _mockVitalsService?.isRunning ?? false;
 
+  /// Detailed error from the most recent Health Connect auth/read attempt.
+  String? get lastHealthError => _healthService.lastAuthError;
+
   // Pair with a Bluetooth heart-rate monitor and start receiving live data
   Future<void> connectBle(BluetoothDevice device) async {
     await _stopMockSource();
@@ -146,6 +151,7 @@ class VitalsProvider extends ChangeNotifier {
         systolicBp: null,
         diastolicBp: null,
         hrv: computedHrv,
+        cumulativeCalories: reading.energyExpended?.toDouble(),
         timestamp: reading.timestamp,
         source: VitalsSource.ble,
       );
@@ -220,6 +226,7 @@ class VitalsProvider extends ChangeNotifier {
         systolicBp: vitals.systolicBp,
         diastolicBp: vitals.diastolicBp,
         hrv: null,
+        cumulativeCalories: vitals.caloriesBurned,
         timestamp: vitals.timestamp,
         source: VitalsSource.fitbit,
       );
@@ -335,6 +342,12 @@ class VitalsProvider extends ChangeNotifier {
     final hrvPoints = await _healthService.getHrv(
       lookback: const Duration(hours: 24),
     );
+    final caloriePoints = await _healthService.getActiveEnergyBurned(
+      lookback: const Duration(hours: 2),
+    );
+    final calories = caloriePoints.fold<double>(
+      0, (sum, p) => sum + (_valueToDouble(p.value) ?? 0),
+    );
 
     final timestamp = latestHeartRatePoint.dateTo;
     // Skip if we already processed this exact timestamp
@@ -357,6 +370,7 @@ class VitalsProvider extends ChangeNotifier {
       systolicBp: _latestValue(systolicPoints),
       diastolicBp: _latestValue(diastolicPoints),
       hrv: _latestValue(hrvPoints),
+      cumulativeCalories: calories > 0 ? calories : null,
       timestamp: timestamp,
       source: VitalsSource.health,
     );

@@ -316,7 +316,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: [
-                Text('Messages', style: AdaptivTypography.screenTitle),
+                Text('Doctor Messages', style: AdaptivTypography.screenTitle),
               ],
             ),
           ),
@@ -413,7 +413,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'No messages yet',
+                'No doctor messages yet',
                 style: AdaptivTypography.sectionTitle,
               ),
               const SizedBox(height: 8),

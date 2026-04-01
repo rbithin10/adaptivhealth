@@ -38,6 +38,6 @@ echo [3/3] Starting server on http://localhost:8080
 echo.
 echo Press Ctrl+C to stop the server
 echo.
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 
 pause

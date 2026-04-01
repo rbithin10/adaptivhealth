@@ -77,6 +77,8 @@ class FitbitVitals {
   final double? systolicBp;
   // Bottom blood pressure number (if available)
   final double? diastolicBp;
+  // Total calories burned today (from Fitbit activity summary)
+  final double? caloriesBurned;
   // When these readings were fetched
   final DateTime timestamp;
 
@@ -85,6 +87,7 @@ class FitbitVitals {
     this.spo2,
     this.systolicBp,
     this.diastolicBp,
+    this.caloriesBurned,
     required this.timestamp,
   });
 }
@@ -316,19 +319,21 @@ class FitbitService {
 
   // ── Vitals Fetching — get the latest health data from Fitbit ────────────────
 
-  // Fetch heart rate, SpO2, and blood pressure from Fitbit all at once
+  // Fetch heart rate, SpO2, blood pressure, and calories from Fitbit all at once
   Future<FitbitVitals> fetchLatestVitals() async {
-    // Request all three types of data in parallel for speed
+    // Request all types of data in parallel for speed
     final results = await Future.wait([
       _fetchHeartRate(),
       _fetchSpo2(),
       _fetchBloodPressure(),
+      _fetchActivityCalories(),
     ]);
 
     // Unpack the results (any could be null if that data isn't available)
     final hr = results[0] as double?;
     final spo2 = results[1] as double?;
     final bp = results[2] as _BpReading?;
+    final calories = results[3] as double?;
 
     // Bundle everything into a single vitals snapshot
     return FitbitVitals(
@@ -336,6 +341,7 @@ class FitbitService {
       spo2: spo2,
       systolicBp: bp?.systolic,
       diastolicBp: bp?.diastolic,
+      caloriesBurned: calories,
       timestamp: DateTime.now(),
     );
   }
@@ -400,6 +406,20 @@ class FitbitService {
         systolic: (sys as num).toDouble(),
         diastolic: (dia as num).toDouble(),
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Fetch total calories burned today from Fitbit activity summary
+  Future<double?> _fetchActivityCalories() async {
+    try {
+      final today = DateTime.now();
+      final dateStr =
+          '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final resp = await _get('/1/user/-/activities/date/$dateStr.json');
+      final burned = resp.data['summary']?['caloriesOut'];
+      return burned != null ? (burned as num).toDouble() : null;
     } catch (_) {
       return null;
     }

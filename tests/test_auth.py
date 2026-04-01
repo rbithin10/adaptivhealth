@@ -447,7 +447,7 @@ class TestRegistration:
         response = register_user(
             {
                 "email": "weak@example.com",
-                "password": "NoDigitsHere",
+                "password": "password",
                 "name": "Weak Pass User",
             },
             admin_token,

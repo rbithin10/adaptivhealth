@@ -312,19 +312,9 @@ class MockVitalsService {
       activityType: _activityType(v.phase),
     );
 
-    try {
-      // Also submit to the server for the doctor's dashboard
-      await _apiClient.submitVitalSigns(
-        heartRate: reading.heartRate,
-        spo2: reading.spo2,
-        systolicBp: reading.bloodPressureSystolic,
-        diastolicBp: reading.bloodPressureDiastolic,
-        hrv: reading.hrv,
-        timestamp: reading.timestamp,
-      );
-    } catch (_) {
-      // Server submit failed — that's OK, keep generating readings
-    }
+    // Data reaches the backend via edge AI → cloud sync (batch every 5 min)
+    // or via critical-alert (instant) — same path as real BLE/HealthKit devices.
+    // No direct submitVitalSigns() call here to avoid duplicate DB rows.
   }
 
   // Route to the right scenario generator based on current scenario

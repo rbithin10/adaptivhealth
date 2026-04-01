@@ -345,7 +345,7 @@ const MessagingPage: React.FC = () => {
                 <p
                   style={{
                     ...typography.caption,
-                    color: colors.neutral['400'],
+                    color: colors.neutral['500'],
                     margin: '4px 0 0 0',
                   }}
                 >
@@ -419,7 +419,7 @@ const MessagingPage: React.FC = () => {
             }}
           >
             {messages.length === 0 ? (
-              <div style={{ textAlign: 'center', color: colors.neutral['400'] }}>
+              <div style={{ textAlign: 'center', color: colors.neutral['500'] }}>
                 <p style={typography.caption}>No messages yet. Start the conversation!</p>
               </div>
             ) : (

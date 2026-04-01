@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import init_db, check_db_connection
-from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent, nl_endpoints, nutrition, messages, medical_history, medication_reminder, rehab, food_analysis
+from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent, nl_endpoints, nutrition, messages, medical_history, medication_reminder, rehab, food_analysis, clinical_notes
 from app.rate_limiter import limiter
 from app.services.ml_prediction import load_ml_model
 
@@ -353,6 +353,13 @@ app.include_router(
     tags=["Food Analysis"]
 )
 
+# Clinical Notes routes
+app.include_router(
+    clinical_notes.router,
+    prefix="/api/v1",
+    tags=["Clinical Notes"]
+)
+
 
 # =============================================================================
 # Health Check Endpoints
@@ -417,10 +424,10 @@ async def root():
 if __name__ == "__main__":  # pragma: no cover
     import uvicorn
     
-    logger.info(f"Starting server on 0.0.0.0:8080")
+    logger.info(f"Starting server on 127.0.0.1:8080")
     uvicorn.run(
         "app.main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8080,
         reload=settings.debug,
         log_level="info"

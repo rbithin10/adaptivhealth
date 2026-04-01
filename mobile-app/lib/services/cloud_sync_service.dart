@@ -57,8 +57,8 @@ class CloudSyncService {
   String? _lastSyncErrorType;
   String? _lastSyncErrorMessage;
   DateTime? _lastSyncErrorAt;
-  // Upload data to the server every 15 minutes
-  static const _syncInterval = Duration(minutes: 15);
+  // Upload data to the server every 5 minutes (reduced from 15 for cardiac monitoring timeliness)
+  static const _syncInterval = Duration(minutes: 5);
   // Check if we have internet every 20 seconds
   static const _probeInterval = Duration(seconds: 20);
   // Give up on connectivity check after 4 seconds

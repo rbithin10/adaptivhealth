@@ -10,7 +10,7 @@ Shows detailed information about one patient:
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Send, AlertOctagon, Info, Bell, Cpu, HardDrive, RefreshCw, Eye } from 'lucide-react';
+import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Info, Cpu, HardDrive, RefreshCw, Eye, PenLine, Trash2 } from 'lucide-react';
 import { Snackbar, Alert as MuiAlert } from '@mui/material';
 import { api } from '../services/api';
 import {
@@ -30,12 +30,12 @@ import {
   RetrainingStatusResponse,
   RetrainingReadinessResponse,
   ExplainPredictionResponse,
-  NaturalLanguageAlertResponse,
   MedicalProfile,
   MedicalExtractionStatusResponse,
   MedicalConditionCreate,
   MedicationCreate,
   DocumentUploadResponse,
+  ClinicalNote,
 } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
@@ -76,16 +76,16 @@ const PatientDetailPage: React.FC = () => {
   const [baselineApplying, setBaselineApplying] = useState(false);
   const [recData, setRecData] = useState<RankedRecommendationResponse | null>(null);
   const [recExpanded, setRecExpanded] = useState(true);
-  const [recOutcomeResult, setRecOutcomeResult] = useState<'completed' | 'partial' | 'skipped' | null>(null);
-  const [recOutcomeLoading, setRecOutcomeLoading] = useState(false);
+
   // Natural-language AI summaries and model management
   const [riskSummaryData, setRiskSummaryData] = useState<NaturalLanguageRiskSummaryResponse | null>(null);
   const [nlSummaryLoading, setNlSummaryLoading] = useState(false);
   const [nlExpanded, setNlExpanded] = useState(true);
-  const [nlAlertLoading, setNlAlertLoading] = useState(false);
-  const [nlAlertType, setNlAlertType] = useState('high_heart_rate');
-  const [nlSeverity, setNlSeverity] = useState('warning');
-  const [nlAlertResult, setNlAlertResult] = useState<NaturalLanguageAlertResponse | null>(null);
+  const [clinicalNotes, setClinicalNotes] = useState<ClinicalNote[]>([]);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [noteSubmitting, setNoteSubmitting] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
   const [retrainStatus, setRetrainStatus] = useState<RetrainingStatusResponse | null>(null);
   const [retrainReadiness, setRetrainReadiness] = useState<RetrainingReadinessResponse | null>(null);
   const [modelExpanded, setModelExpanded] = useState(true);
@@ -133,6 +133,59 @@ const PatientDetailPage: React.FC = () => {
   // Reload patient data whenever the patient ID or time range changes
   useEffect(() => {
     loadPatientData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId, timeRange]);
+
+  // Lightweight refresh: fetches only vitals, history, alerts, and risk (4 calls).
+  const refreshVitals = async () => {
+    if (!patientId) return;
+    const userId = Number(patientId);
+    if (Number.isNaN(userId)) return;
+    try {
+      const days = rangeToDays(timeRange);
+      const [latestResult, historyResult, alertsResult, riskResult] = await Promise.allSettled([
+        api.getLatestVitalSignsForUser(userId),
+        api.getVitalSignsHistoryForUser(userId, days, 1, 100),
+        api.getAlertsForUser(userId, 1, 5),
+        api.getLatestRiskAssessmentForUser(userId),
+      ]);
+      if (latestResult.status === 'fulfilled') setLatestVitals(latestResult.value);
+      if (historyResult.status === 'fulfilled') setVitalsHistory(historyResult.value);
+      if (alertsResult.status === 'fulfilled') setAlerts(alertsResult.value.alerts || []);
+      if (riskResult.status === 'fulfilled') setRiskAssessment(riskResult.value);
+    } catch {
+      // Silent — next poll or SSE event retries
+    }
+  };
+
+  // Poll every 60s for routine vitals (batch-sync arrives every 5 min, so 60s is plenty).
+  useEffect(() => {
+    if (!patientId) return;
+    const intervalId = setInterval(() => { void refreshVitals(); }, 60_000);
+    return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId, timeRange]);
+
+  // SSE: listen for critical alerts → instantly re-fetch vitals so the doctor
+  // sees emergency data in ~1-2s instead of waiting for the next 60s poll.
+  useEffect(() => {
+    if (!patientId) return;
+    const token = localStorage.getItem('token');
+    if (!token || typeof EventSource === 'undefined') return;
+
+    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(
+        `${API_BASE_URL}/api/v1/alerts/stream?token=${encodeURIComponent(token)}`
+      );
+      es.onmessage = () => { void refreshVitals(); };
+      es.onerror = () => { if (es) { es.close(); es = null; } };
+    } catch {
+      es = null;
+    }
+
+    return () => { if (es) es.close(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, timeRange]);
 
@@ -199,9 +252,10 @@ const PatientDetailPage: React.FC = () => {
         api.getRetrainingStatus(),
         api.getRetrainingReadiness(),
         api.getPatientMedicalProfile(userId),
+        api.getClinicalNotes(userId),
       ]);
 
-      const [userResult, vitalsResult, riskResult, recResult, alertsResult, activitiesResult, historyResult, anomalyResult, trendResult, baselineResult, recRankResult, riskSummaryResult, retrainStatusResult, retrainReadinessResult, medProfileResult] = results;
+      const [userResult, vitalsResult, riskResult, recResult, alertsResult, activitiesResult, historyResult, anomalyResult, trendResult, baselineResult, recRankResult, riskSummaryResult, retrainStatusResult, retrainReadinessResult, medProfileResult, clinicalNotesResult] = results;
       const errors: string[] = [];
 
       if (userResult.status === 'fulfilled') {
@@ -281,7 +335,6 @@ const PatientDetailPage: React.FC = () => {
       // Advanced ML: Recommendation Ranking (optional - don't count as error)
       if (recRankResult.status === 'fulfilled') {
         setRecData(recRankResult.value);
-        setRecOutcomeResult(null);
       } else {
         setRecData(null);
         // Don't push error - advanced ML features are optional
@@ -314,6 +367,13 @@ const PatientDetailPage: React.FC = () => {
       } else {
         setMedicalProfile(null);
         // Don't push error - medical profile is optional (no data yet)
+      }
+
+      // Clinical Notes
+      if (clinicalNotesResult.status === 'fulfilled') {
+        setClinicalNotes(clinicalNotesResult.value);
+      } else {
+        setClinicalNotes([]);
       }
 
       if (errors.length > 0) {
@@ -398,7 +458,6 @@ const PatientDetailPage: React.FC = () => {
     try {
       const resolved = await api.resolveAlert(alertId, {
         resolution_notes: 'Resolved by clinician from dashboard',
-        acknowledged: true,
       });
       setAlerts((prev) => prev.map((alert) => (
         alert.alert_id === alertId ? { ...alert, ...resolved } : alert
@@ -445,6 +504,45 @@ const PatientDetailPage: React.FC = () => {
       showSnackbar(`Failed to load AI summary: ${error?.response?.data?.detail || error.message || 'Unknown error'}`, 'error');
     } finally {
       setNlSummaryLoading(false);
+    }
+  };
+
+  // Clinical Notes handlers
+  const handleAddNote = async (): Promise<void> => {
+    if (!newNoteText.trim() || !patientId) return;
+    setNoteSubmitting(true);
+    try {
+      await api.createClinicalNote(Number(patientId), newNoteText.trim());
+      setNewNoteText('');
+      const notes = await api.getClinicalNotes(Number(patientId));
+      setClinicalNotes(notes);
+    } catch (error) {
+      showSnackbar('Failed to add note.', 'error');
+    } finally {
+      setNoteSubmitting(false);
+    }
+  };
+
+  const handleUpdateNote = async (noteId: number): Promise<void> => {
+    if (!editingNoteText.trim()) return;
+    try {
+      await api.updateClinicalNote(noteId, editingNoteText.trim());
+      setEditingNoteId(null);
+      setEditingNoteText('');
+      const notes = await api.getClinicalNotes(Number(patientId));
+      setClinicalNotes(notes);
+    } catch (error) {
+      showSnackbar('Failed to update note.', 'error');
+    }
+  };
+
+  const handleDeleteNote = async (noteId: number): Promise<void> => {
+    try {
+      await api.deleteClinicalNote(noteId);
+      const notes = await api.getClinicalNotes(Number(patientId));
+      setClinicalNotes(notes);
+    } catch (error) {
+      showSnackbar('Failed to delete note.', 'error');
     }
   };
 
@@ -605,7 +703,7 @@ const PatientDetailPage: React.FC = () => {
                 <StatusBadge status={riskStatus} />
               </div>
               <p style={{ ...typography.body, margin: '4px 0' }}>
-                {patient.gender?.charAt(0).toUpperCase()}{patient.gender?.slice(1) || 'N/A'}, {patient.age} years old
+                {patient.gender?.charAt(0).toUpperCase()}{patient.gender?.slice(1) || 'N/A'}, {patient.age != null ? `${patient.age} years old` : 'Age not set'}
               </p>
               <p style={{ ...typography.caption, margin: '4px 0' }}>
                 Last reading: {formatTimeAgo(latestVitals?.timestamp)}
@@ -627,6 +725,545 @@ const PatientDetailPage: React.FC = () => {
           onComputeRisk={handleComputeRisk}
           getVitalStatus={getVitalStatus}
         />
+
+
+        {/* ================================================================= */}
+        {/* AI Risk Summary Panel                                             */}
+        {/* ================================================================= */}
+        <div
+          style={{
+            backgroundColor: colors.neutral.white,
+            border: `1px solid ${colors.neutral['300']}`,
+            borderRadius: '12px',
+            marginBottom: '32px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Collapsible header */}
+          <button
+            onClick={() => setNlExpanded(!nlExpanded)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '20px 24px',
+              backgroundColor: colors.neutral.white,
+              border: 'none',
+              cursor: 'pointer',
+              borderBottom: nlExpanded ? `1px solid ${colors.neutral['300']}` : 'none',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <MessageSquare size={22} color={colors.primary.default} />
+              <span style={{ ...typography.sectionTitle, margin: 0 }}>AI Risk Summary</span>
+            </div>
+            {nlExpanded ? <ChevronUp size={20} color={colors.neutral['500']} /> : <ChevronDown size={20} color={colors.neutral['500']} />}
+          </button>
+
+          {nlExpanded && (
+            <div style={{ padding: '24px' }}>
+
+              {/* Patient Risk Summary */}
+              <div style={{ marginBottom: '28px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <FileText size={18} color={colors.neutral['600']} />
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Patient Risk Summary</span>
+                  <button
+                    onClick={handleGenerateAiSummary}
+                    disabled={nlSummaryLoading}
+                    style={{
+                      marginLeft: 'auto',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 12px',
+                      backgroundColor: nlSummaryLoading ? colors.neutral['300'] : colors.primary.default,
+                      color: colors.neutral.white,
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: nlSummaryLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    {nlSummaryLoading ? 'Generating...' : 'Generate AI Summary'}
+                  </button>
+                </div>
+
+                {riskSummaryData ? (
+                  <div
+                    style={{
+                      padding: '20px 24px',
+                      backgroundColor:
+                        riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
+                          ? colors.critical.background
+                          : riskSummaryData.risk_level === 'moderate'
+                          ? colors.warning.background
+                          : colors.stable.background,
+                      border: `1px solid ${
+                        riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
+                          ? colors.critical.border
+                          : riskSummaryData.risk_level === 'moderate'
+                          ? colors.warning.border
+                          : colors.stable.border
+                      }`,
+                      borderRadius: '10px',
+                    }}
+                  >
+                    {/* Row 1: Key metrics */}
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' as const, alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '4px 12px',
+                        borderRadius: '999px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        textTransform: 'uppercase' as const,
+                        letterSpacing: '0.5px',
+                        backgroundColor:
+                          riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
+                            ? colors.critical.badge
+                            : riskSummaryData.risk_level === 'moderate'
+                            ? colors.warning.badge
+                            : colors.stable.badge,
+                        color: colors.neutral.white,
+                      }}>
+                        {riskSummaryData.risk_level}
+                      </span>
+
+                      <div style={{ display: 'flex', flexDirection: 'column' as const }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase' as const, letterSpacing: '0.4px' }}>Risk Score</span>
+                        <span style={{ fontSize: '22px', fontWeight: 700, color: colors.neutral['800'], lineHeight: 1.2 }}>
+                          {(riskSummaryData.risk_score * 100).toFixed(0)}%
+                        </span>
+                      </div>
+
+                      {riskAssessment?.confidence != null && (() => {
+                        const pct = riskAssessment.confidence * 100;
+                        const band = pct >= 85 ? 'High reliability' : pct >= 70 ? 'Moderate reliability' : 'Low reliability';
+                        const bandColor = pct >= 85 ? colors.stable.text : pct >= 70 ? colors.warning.text : colors.critical.text;
+                        const bandBg = pct >= 85 ? colors.stable.background : pct >= 70 ? colors.warning.background : colors.critical.background;
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column' as const }}>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase' as const, letterSpacing: '0.4px' }}>Assessment Reliability</span>
+                            <span style={{
+                              display: 'inline-block',
+                              marginTop: '4px',
+                              padding: '3px 10px',
+                              borderRadius: '999px',
+                              fontSize: '13px',
+                              fontWeight: 700,
+                              color: bandColor,
+                              backgroundColor: bandBg,
+                            }}>
+                              {band}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {riskAssessment != null && (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          borderRadius: '999px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          backgroundColor: riskAssessment.alert_triggered ? colors.critical.background : colors.stable.background,
+                          border: `1px solid ${riskAssessment.alert_triggered ? colors.critical.border : colors.stable.border}`,
+                          color: riskAssessment.alert_triggered ? colors.critical.text : colors.stable.text,
+                        }}>
+                          <AlertTriangle size={12} />
+                          {riskAssessment.alert_triggered ? 'Alert Triggered' : 'No Alert'}
+                        </span>
+                      )}
+
+                      {riskSummaryData.assessment_date && (
+                        <span style={{ marginLeft: 'auto', fontSize: '12px', color: colors.neutral['500'] }}>
+                          Assessed {new Date(riskSummaryData.assessment_date).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Row 2: AI narrative */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: colors.neutral['500'], textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                        AI Summary
+                      </div>
+                      <p style={{
+                        ...typography.body,
+                        lineHeight: '1.75',
+                        color: colors.neutral['800'],
+                        margin: 0,
+                        fontSize: '15px',
+                        padding: '14px 16px',
+                        backgroundColor: 'rgba(255,255,255,0.55)',
+                        borderRadius: '8px',
+                      }}>
+                        {riskSummaryData.plain_summary}
+                      </p>
+                    </div>
+
+                    {/* Row 3: 2-column detail grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+
+                      {/* Left: Primary Concern + Contributing Factors */}
+                      <div style={{
+                        padding: '14px 16px',
+                        backgroundColor: 'rgba(255,255,255,0.55)',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        flexDirection: 'column' as const,
+                        gap: '12px',
+                      }}>
+                        {riskAssessment?.primary_concern && (
+                          <div>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: colors.neutral['500'], textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '6px' }}>
+                              Primary Concern
+                            </div>
+                            <div style={{ fontSize: '14px', fontWeight: 600, color: colors.neutral['800'] }}>
+                              {riskAssessment.primary_concern}
+                            </div>
+                          </div>
+                        )}
+
+                        {riskFactors.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: colors.neutral['500'], textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>
+                              Contributing Factors
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '6px' }}>
+                              {riskFactors.map((factor: string, i: number) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    backgroundColor:
+                                      riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
+                                        ? colors.critical.badge
+                                        : riskSummaryData.risk_level === 'moderate'
+                                        ? colors.warning.badge
+                                        : colors.stable.badge,
+                                    color: colors.neutral.white,
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    flexShrink: 0,
+                                    marginTop: '2px',
+                                  }}>
+                                    {i + 1}
+                                  </span>
+                                  <span style={{ fontSize: '13px', color: colors.neutral['700'], lineHeight: '1.5' }}>
+                                    {factor}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {!riskAssessment?.primary_concern && riskFactors.length === 0 && (
+                          <span style={{ fontSize: '13px', color: colors.neutral['400'], fontStyle: 'italic' }}>
+                            No factors available for this assessment.
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Right: Vitals Used */}
+                      <div style={{
+                        padding: '14px 16px',
+                        backgroundColor: 'rgba(255,255,255,0.55)',
+                        borderRadius: '8px',
+                      }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: colors.neutral['500'], textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '10px' }}>
+                          Vitals Used in Assessment
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+                          {riskAssessment?.input_heart_rate != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '13px', color: colors.neutral['600'] }}>Heart Rate</span>
+                              <span style={{ fontSize: '14px', fontWeight: 700, color: colors.neutral['800'] }}>
+                                {riskAssessment.input_heart_rate} <span style={{ fontSize: '11px', fontWeight: 400, color: colors.neutral['500'] }}>bpm</span>
+                              </span>
+                            </div>
+                          )}
+                          {riskAssessment?.input_spo2 != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '13px', color: colors.neutral['600'] }}>SpO₂</span>
+                              <span style={{ fontSize: '14px', fontWeight: 700, color: colors.neutral['800'] }}>
+                                {riskAssessment.input_spo2}<span style={{ fontSize: '11px', fontWeight: 400, color: colors.neutral['500'] }}>%</span>
+                              </span>
+                            </div>
+                          )}
+                          {riskAssessment?.input_hrv != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '13px', color: colors.neutral['600'] }}>HRV</span>
+                              <span style={{ fontSize: '14px', fontWeight: 700, color: colors.neutral['800'] }}>
+                                {riskAssessment.input_hrv} <span style={{ fontSize: '11px', fontWeight: 400, color: colors.neutral['500'] }}>ms</span>
+                              </span>
+                            </div>
+                          )}
+                          {riskAssessment?.input_blood_pressure_sys != null && riskAssessment?.input_blood_pressure_dia != null && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '13px', color: colors.neutral['600'] }}>Blood Pressure</span>
+                              <span style={{ fontSize: '14px', fontWeight: 700, color: colors.neutral['800'] }}>
+                                {riskAssessment.input_blood_pressure_sys}/{riskAssessment.input_blood_pressure_dia} <span style={{ fontSize: '11px', fontWeight: 400, color: colors.neutral['500'] }}>mmHg</span>
+                              </span>
+                            </div>
+                          )}
+                          {riskAssessment?.input_heart_rate == null &&
+                           riskAssessment?.input_spo2 == null &&
+                           riskAssessment?.input_hrv == null &&
+                           riskAssessment?.input_blood_pressure_sys == null && (
+                            <span style={{ fontSize: '13px', color: colors.neutral['400'], fontStyle: 'italic' }}>
+                              No input vitals recorded for this assessment.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '20px',
+                    textAlign: 'center' as const,
+                    backgroundColor: colors.neutral['50'],
+                    borderRadius: '8px',
+                    color: colors.neutral['500'],
+                  }}>
+                    No summary available yet. Click "Generate AI Summary" to compute and load insights.
+                  </div>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div style={{ height: '1px', backgroundColor: colors.neutral['200'], marginBottom: '28px' }} />
+
+              {/* Clinician Notes */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <PenLine size={18} color={colors.neutral['600']} />
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Clinician Notes</span>
+                </div>
+
+                {clinicalNotes.length > 0 ? (
+                  <div style={{
+                    border: `1px solid ${colors.neutral['200']}`,
+                    borderRadius: '10px',
+                    overflow: 'hidden',
+                    marginBottom: '20px',
+                  }}>
+                    {clinicalNotes.map((note, idx) => (
+                      <div
+                        key={note.note_id}
+                        style={{
+                          padding: '16px 20px',
+                          backgroundColor: idx % 2 === 0 ? colors.neutral.white : colors.neutral['50'],
+                          borderBottom: idx < clinicalNotes.length - 1 ? `1px solid ${colors.neutral['200']}` : 'none',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor: '#EEF2FF',
+                              color: colors.primary.default,
+                              letterSpacing: '0.3px',
+                            }}>
+                              Clinician Note
+                            </span>
+                            <span style={{ fontSize: '13px', color: colors.neutral['500'] }}>
+                              {note.clinician_name || 'Clinician'} · {new Date(note.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                            <button
+                              onClick={() => { setEditingNoteId(note.note_id); setEditingNoteText(note.content); }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                color: colors.neutral['600'],
+                                backgroundColor: 'transparent',
+                                border: `1px solid ${colors.neutral['300']}`,
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <PenLine size={12} /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteNote(note.note_id)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                color: colors.critical.text,
+                                backgroundColor: 'transparent',
+                                border: `1px solid ${colors.critical.border}`,
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          </div>
+                        </div>
+
+                        {editingNoteId === note.note_id ? (
+                          <div>
+                            <textarea
+                              value={editingNoteText}
+                              onChange={(e) => setEditingNoteText(e.target.value)}
+                              style={{
+                                width: '100%',
+                                minHeight: '80px',
+                                padding: '10px 12px',
+                                border: `1px solid ${colors.neutral['300']}`,
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                resize: 'vertical' as const,
+                                fontFamily: 'inherit',
+                                marginBottom: '8px',
+                                boxSizing: 'border-box' as const,
+                              }}
+                            />
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                onClick={() => handleUpdateNote(note.note_id)}
+                                style={{
+                                  padding: '6px 14px',
+                                  backgroundColor: colors.primary.default,
+                                  color: colors.neutral.white,
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  fontSize: '13px',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => { setEditingNoteId(null); setEditingNoteText(''); }}
+                                style={{
+                                  padding: '6px 14px',
+                                  backgroundColor: 'transparent',
+                                  color: colors.neutral['600'],
+                                  border: `1px solid ${colors.neutral['300']}`,
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  fontSize: '13px',
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p style={{
+                            ...typography.body,
+                            margin: 0,
+                            fontSize: '14px',
+                            color: colors.neutral['700'],
+                            lineHeight: '1.65',
+                            whiteSpace: 'pre-wrap' as const,
+                          }}>
+                            {note.content}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '16px 20px',
+                    textAlign: 'center' as const,
+                    color: colors.neutral['400'],
+                    fontSize: '14px',
+                    fontStyle: 'italic',
+                    backgroundColor: colors.neutral['50'],
+                    borderRadius: '8px',
+                    marginBottom: '20px',
+                    border: `1px dashed ${colors.neutral['300']}`,
+                  }}>
+                    No notes yet. Add the first clinical observation below.
+                  </div>
+                )}
+
+                <div style={{
+                  border: `1px solid ${colors.neutral['200']}`,
+                  borderRadius: '10px',
+                  padding: '16px',
+                  backgroundColor: colors.neutral['50'],
+                }}>
+                  <textarea
+                    id="clinician-note-textarea"
+                    value={newNoteText}
+                    onChange={(e) => setNewNoteText(e.target.value)}
+                    placeholder="Add clinical observation..."
+                    style={{
+                      width: '100%',
+                      minHeight: '90px',
+                      padding: '10px 12px',
+                      border: `1px solid ${colors.neutral['300']}`,
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      resize: 'vertical' as const,
+                      fontFamily: 'inherit',
+                      backgroundColor: colors.neutral.white,
+                      boxSizing: 'border-box' as const,
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: colors.neutral['400'] }}>
+                      <Info size={12} /> Included in future AI summaries
+                    </span>
+                    <button
+                      onClick={handleAddNote}
+                      disabled={noteSubmitting || !newNoteText.trim()}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '8px 16px',
+                        backgroundColor: noteSubmitting || !newNoteText.trim() ? colors.neutral['300'] : colors.primary.default,
+                        color: colors.neutral.white,
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: noteSubmitting || !newNoteText.trim() ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {noteSubmitting ? 'Adding...' : 'Add Note'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+        </div>
 
         {/* ================================================================= */}
         {/* Medical Profile Panel                                           */}
@@ -2482,7 +3119,7 @@ const PatientDetailPage: React.FC = () => {
         </div>
 
         {/* ================================================================= */}
-        {/* Advanced ML: Recommendation Ranking Panel (A/B Testing)         */}
+        {/* Current Activity Plan — Clinician Oversight Card                 */}
         {/* ================================================================= */}
         <div
           style={{
@@ -2511,827 +3148,258 @@ const PatientDetailPage: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Shuffle size={22} color={colors.primary.default} />
-              <span style={{ ...typography.sectionTitle, margin: 0 }}>Activity Recommendation</span>
-              {recData && (
-                <span
-                  style={{
-                    backgroundColor: colors.neutral['100'],
-                    color: colors.neutral['600'],
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  A/B Variant {recData.variant}
-                </span>
-              )}
-              {recData && (
-                <span
-                  style={{
-                    backgroundColor:
-                      recData.risk_level === 'high' ? colors.critical.background
-                      : recData.risk_level === 'moderate' ? colors.warning.background
-                      : colors.stable.background,
-                    color:
-                      recData.risk_level === 'high' ? colors.critical.text
-                      : recData.risk_level === 'moderate' ? colors.warning.text
-                      : colors.stable.text,
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                    textTransform: 'capitalize' as const,
-                  }}
-                >
-                  {recData.risk_level} risk
-                </span>
-              )}
+              <span style={{ ...typography.sectionTitle, margin: 0 }}>Current Activity Plan</span>
             </div>
             {recExpanded ? <ChevronUp size={20} color={colors.neutral['500']} /> : <ChevronDown size={20} color={colors.neutral['500']} />}
           </button>
 
-          {/* Expanded content */}
           {recExpanded && (
             <div style={{ padding: '24px' }}>
               {!recData ? (
-                <div
-                  style={{
-                    padding: '24px',
-                    textAlign: 'center',
-                    backgroundColor: colors.neutral['50'],
-                    borderRadius: '8px',
-                    color: colors.neutral['500'],
-                  }}
-                >
-                  No recommendation data available for this patient.
+                <div style={{ padding: '16px', textAlign: 'center', backgroundColor: colors.neutral['50'], borderRadius: '8px', color: colors.neutral['500'] }}>
+                  No activity plan available for this patient.
                 </div>
-              ) : (
-                <>
-                  {/* Recommendation card */}
-                  <div
-                    style={{
-                      padding: '24px',
-                      backgroundColor:
-                        recData.risk_level === 'high' ? colors.critical.background
-                        : recData.risk_level === 'moderate' ? colors.warning.background
+              ) : (() => {
+                // ── Computed adherence + tolerance from existing state ──────────
+                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                const weekSessions = activities.filter(a => a.start_time && new Date(a.start_time) >= sevenDaysAgo);
+                const lastSession = activities[0] ?? null;
+
+                // Tolerance
+                const hasCautionEvent = weekSessions.some(a => (a.alerts_triggered ?? 0) > 0);
+                const hasStoppedEarly = weekSessions.some(a => a.status === 'cancelled' || a.status === 'paused');
+                const badFeelings = ['bad', 'very_bad', 'poor'];
+                const tolerance: string = hasCautionEvent
+                  ? 'Caution event noted'
+                  : hasStoppedEarly
+                  ? 'Session stopped early'
+                  : weekSessions.length === 0
+                  ? 'No session data available'
+                  : weekSessions.every(a => !badFeelings.includes(a.feeling_after ?? ''))
+                  ? 'Well tolerated'
+                  : 'Caution event noted';
+
+                const toleranceColor = tolerance === 'Well tolerated'
+                  ? colors.stable.text
+                  : tolerance === 'No session data available'
+                  ? colors.neutral['500']
+                  : colors.warning.text;
+
+                // Recovery trend
+                const scoredSessions = activities.filter(a => a.recovery_score != null).slice(0, 3);
+                let recoveryTrend = 'Insufficient data';
+                if (scoredSessions.length >= 2) {
+                  const diff = (scoredSessions[0].recovery_score ?? 0) - (scoredSessions[scoredSessions.length - 1].recovery_score ?? 0);
+                  recoveryTrend = diff > 5 ? 'Improving ↑' : diff < -5 ? 'Worsening ↓' : 'Stable →';
+                }
+                const trendColor = recoveryTrend.includes('Improving') ? colors.stable.text
+                  : recoveryTrend.includes('Worsening') ? colors.critical.text
+                  : colors.neutral['600'];
+
+                // Why this plan reasons
+                const alertsThisWeek = alerts.filter(a => a.created_at && new Date(a.created_at) >= sevenDaysAgo);
+                const planReasons: string[] = [];
+                if (riskAssessment?.risk_level && ['moderate','high','critical'].includes(riskAssessment.risk_level)) {
+                  planReasons.push(`Elevated recent risk score (${riskAssessment.risk_level})`);
+                }
+                const riskDrivers: string[] = (() => {
+                  try { return JSON.parse(riskAssessment?.risk_factors_json ?? '[]'); } catch { return []; }
+                })();
+                riskDrivers.slice(0, 2).forEach(d => {
+                  if (d && !d.includes('within expected')) planReasons.push(d);
+                });
+                if (alertsThisWeek.length > 0) {
+                  planReasons.push(`${alertsThisWeek.length} caution alert${alertsThisWeek.length > 1 ? 's' : ''} this week`);
+                }
+                if ((lastSession?.recovery_score ?? 100) < 60) {
+                  planReasons.push('Recovery score below baseline');
+                }
+                if (planReasons.length === 0) {
+                  planReasons.push('Routine plan based on current health status');
+                }
+
+                return (
+                  <>
+                    {/* ── Section 1: Plan Summary ── */}
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: recData.risk_level === 'high' || recData.risk_level === 'critical'
+                        ? colors.critical.background
+                        : recData.risk_level === 'moderate'
+                        ? colors.warning.background
                         : colors.stable.background,
                       border: `1px solid ${
-                        recData.risk_level === 'high' ? colors.critical.border
-                        : recData.risk_level === 'moderate' ? colors.warning.border
-                        : colors.stable.border
-                      }`,
-                      borderRadius: '12px',
-                      marginBottom: '20px',
-                    }}
-                  >
-                    {/* Title row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                      <div
-                        style={{
-                          width: '44px',
-                          height: '44px',
-                          borderRadius: '50%',
-                          backgroundColor:
-                            recData.risk_level === 'high' ? colors.critical.badge
-                            : recData.risk_level === 'moderate' ? colors.warning.badge
-                            : colors.stable.badge,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Activity size={22} color={colors.neutral.white} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '18px', fontWeight: 700, color: colors.neutral['900'] }}>
-                          {recData.recommendation.title}
-                        </div>
-                        <div style={{ ...typography.caption, color: colors.neutral['500'] }}>
-                          Experiment: {recData.experiment_id}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <p style={{ ...typography.body, color: colors.neutral['700'], marginBottom: '20px', lineHeight: '1.6' }}>
-                      {recData.recommendation.description}
-                    </p>
-
-                    {/* Details grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                      <div
-                        style={{
-                          padding: '12px',
-                          backgroundColor: 'rgba(255,255,255,0.7)',
-                          borderRadius: '8px',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <Flame size={18} color={colors.neutral['500']} style={{ marginBottom: '4px' }} />
-                        <div style={{ ...typography.caption, color: colors.neutral['500'], marginBottom: '2px' }}>Activity</div>
-                        <div style={{ ...typography.body, fontWeight: 700, fontSize: '13px' }}>
-                          {recData.recommendation.suggested_activity}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          padding: '12px',
-                          backgroundColor: 'rgba(255,255,255,0.7)',
-                          borderRadius: '8px',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <BarChart2 size={18} color={colors.neutral['500']} style={{ marginBottom: '4px' }} />
-                        <div style={{ ...typography.caption, color: colors.neutral['500'], marginBottom: '2px' }}>Intensity</div>
-                        <div style={{
-                          ...typography.body,
-                          fontWeight: 700,
-                          fontSize: '13px',
-                          textTransform: 'capitalize' as const,
-                        }}>
-                          {recData.recommendation.intensity_level}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          padding: '12px',
-                          backgroundColor: 'rgba(255,255,255,0.7)',
-                          borderRadius: '8px',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <Clock size={18} color={colors.neutral['500']} style={{ marginBottom: '4px' }} />
-                        <div style={{ ...typography.caption, color: colors.neutral['500'], marginBottom: '2px' }}>Duration</div>
-                        <div style={{ ...typography.body, fontWeight: 700, fontSize: '13px' }}>
-                          {recData.recommendation.duration_minutes} min
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Outcome recording section - doctor records whether patient followed through */}
-                  <div
-                    style={{
-                      padding: '20px',
-                      backgroundColor: colors.neutral['50'],
-                      borderRadius: '10px',
-                      border: `1px solid ${colors.neutral['200']}`,
-                    }}
-                  >
-                    <div style={{ ...typography.caption, color: colors.neutral['500'], marginBottom: '12px', fontWeight: 600 }}>
-                      Record Patient Outcome (A/B Tracking)
-                    </div>
-
-                    {recOutcomeResult ? (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          padding: '12px 16px',
-                          backgroundColor:
-                            recOutcomeResult === 'completed' ? colors.stable.background
-                            : recOutcomeResult === 'skipped' ? colors.critical.background
-                            : colors.warning.background,
-                          border: `1px solid ${
-                            recOutcomeResult === 'completed' ? colors.stable.border
-                            : recOutcomeResult === 'skipped' ? colors.critical.border
-                            : colors.warning.border
-                          }`,
-                          borderRadius: '8px',
-                        }}
-                      >
-                        {recOutcomeResult === 'completed' && <CheckCircle size={18} color={colors.stable.text} />}
-                        {recOutcomeResult === 'skipped' && <XCircle size={18} color={colors.critical.text} />}
-                        {recOutcomeResult === 'partial' && <Clock size={18} color={colors.warning.text} />}
-                        <span style={{
-                          fontWeight: 600,
-                          fontSize: '14px',
-                          color:
-                            recOutcomeResult === 'completed' ? colors.stable.text
-                            : recOutcomeResult === 'skipped' ? colors.critical.text
-                            : colors.warning.text,
-                          textTransform: 'capitalize' as const,
-                        }}>
-                          Outcome recorded: {recOutcomeResult}
-                        </span>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' as const }}>
-                        {(['completed', 'partial', 'skipped'] as const).map((outcome) => (
-                          <button
-                            key={outcome}
-                            disabled={recOutcomeLoading}
-                            onClick={async () => {
-                              if (!recData || !patientId) return;
-                              setRecOutcomeLoading(true);
-                              try {
-                                await api.recordRecommendationOutcome(
-                                  Number(patientId),
-                                  recData.experiment_id,
-                                  recData.variant,
-                                  outcome
-                                );
-                                setRecOutcomeResult(outcome);
-                              } catch (e) {
-                                console.error('Failed to record outcome:', e);
-                              } finally {
-                                setRecOutcomeLoading(false);
-                              }
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '8px 18px',
-                              backgroundColor:
-                                outcome === 'completed' ? colors.stable.badge
-                                : outcome === 'skipped' ? colors.critical.badge
-                                : colors.warning.badge,
-                              color: colors.neutral.white,
-                              border: 'none',
-                              borderRadius: '8px',
-                              cursor: recOutcomeLoading ? 'not-allowed' : 'pointer',
-                              fontWeight: 600,
-                              fontSize: '13px',
-                              opacity: recOutcomeLoading ? 0.6 : 1,
-                              transition: 'opacity 0.15s',
-                              textTransform: 'capitalize' as const,
-                            }}
-                          >
-                            {outcome === 'completed' && <CheckCircle size={15} />}
-                            {outcome === 'skipped' && <XCircle size={15} />}
-                            {outcome === 'partial' && <Clock size={15} />}
-                            {recOutcomeLoading ? 'Recording...' : outcome}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ================================================================= */}
-        {/* Advanced ML: Natural Language Insights Panel                     */}
-        {/* ================================================================= */}
-        <div
-          style={{
-            backgroundColor: colors.neutral.white,
-            border: `1px solid ${colors.neutral['300']}`,
-            borderRadius: '12px',
-            marginBottom: '32px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Collapsible header */}
-          <button
-            onClick={() => setNlExpanded(!nlExpanded)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '20px 24px',
-              backgroundColor: colors.neutral.white,
-              border: 'none',
-              cursor: 'pointer',
-              borderBottom: nlExpanded ? `1px solid ${colors.neutral['300']}` : 'none',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <MessageSquare size={22} color={colors.primary.default} />
-              <span style={{ ...typography.sectionTitle, margin: 0 }}>Natural Language Insights</span>
-            </div>
-            {nlExpanded ? <ChevronUp size={20} color={colors.neutral['500']} /> : <ChevronDown size={20} color={colors.neutral['500']} />}
-          </button>
-
-          {/* Expanded content */}
-          {nlExpanded && (
-            <div style={{ padding: '24px' }}>
-
-              {/* ---- Section 1: Plain-Language Risk Summary (auto-loaded) ---- */}
-              <div style={{ marginBottom: '28px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                  <FileText size={18} color={colors.neutral['600']} />
-                  <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Patient Risk Summary</span>
-                  <button
-                    onClick={handleGenerateAiSummary}
-                    disabled={nlSummaryLoading}
-                    style={{
-                      marginLeft: 'auto',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 12px',
-                      backgroundColor: nlSummaryLoading ? colors.neutral['300'] : colors.primary.default,
-                      color: colors.neutral.white,
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: nlSummaryLoading ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                    }}
-                  >
-                    <RefreshCw size={14} />
-                    {nlSummaryLoading ? 'Generating...' : 'Generate AI Summary'}
-                  </button>
-                </div>
-
-                {riskSummaryData ? (
-                  <div
-                    style={{
-                      padding: '20px 24px',
-                      backgroundColor:
-                        riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
-                          ? colors.critical.background
-                          : riskSummaryData.risk_level === 'moderate'
-                          ? colors.warning.background
-                          : colors.stable.background,
-                      border: `1px solid ${
-                        riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
+                        recData.risk_level === 'high' || recData.risk_level === 'critical'
                           ? colors.critical.border
-                          : riskSummaryData.risk_level === 'moderate'
+                          : recData.risk_level === 'moderate'
                           ? colors.warning.border
                           : colors.stable.border
                       }`,
                       borderRadius: '10px',
-                    }}
-                  >
-                    {/* Summary text */}
-                    <p style={{ ...typography.body, lineHeight: '1.7', color: colors.neutral['800'], margin: '0 0 16px 0', fontSize: '15px' }}>
-                      {riskSummaryData.plain_summary}
-                    </p>
-
-                    {/* Metadata row */}
-                    <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' as const }}>
-                      <div>
-                        <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Risk Score: </span>
-                        <span style={{ fontWeight: 700, color: colors.neutral['700'] }}>
-                          {(riskSummaryData.risk_score * 100).toFixed(0)}%
+                      marginBottom: '20px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                        <Activity size={20} color={colors.neutral['600']} />
+                        <span style={{ fontSize: '16px', fontWeight: 700, color: colors.neutral['900'] }}>
+                          {recData.recommendation.title}
                         </span>
                       </div>
-                      <div>
-                        <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Level: </span>
-                        <span style={{
-                          fontWeight: 700,
-                          textTransform: 'capitalize' as const,
-                          color:
-                            riskSummaryData.risk_level === 'critical' || riskSummaryData.risk_level === 'high'
-                              ? colors.critical.text
-                              : riskSummaryData.risk_level === 'moderate'
-                              ? colors.warning.text
-                              : colors.stable.text,
-                        }}>
-                          {riskSummaryData.risk_level}
-                        </span>
-                      </div>
-                      {riskSummaryData.assessment_date && (
-                        <div>
-                          <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Assessed: </span>
-                          <span style={{ fontWeight: 600, color: colors.neutral['600'] }}>
-                            {new Date(riskSummaryData.assessment_date).toLocaleDateString()}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      padding: '20px',
-                      textAlign: 'center',
-                      backgroundColor: colors.neutral['50'],
-                      borderRadius: '8px',
-                      color: colors.neutral['500'],
-                    }}
-                  >
-                    No summary available yet. Click "Generate AI Summary" to compute and load insights.
-                  </div>
-                )}
-              </div>
-
-              {/* Divider */}
-              <div style={{ height: '1px', backgroundColor: colors.neutral['200'], marginBottom: '28px' }} />
-
-              {/* ---- Section 2: Alert Preview Generator (interactive) ---- */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                  <Bell size={18} color={colors.neutral['600']} />
-                  <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Alert Preview Generator</span>
-                  <span style={{ ...typography.caption, color: colors.neutral['400'] }}>— Preview what this patient would see</span>
-                </div>
-
-                {/* Controls row */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' as const }}>
-                  {/* Alert type select */}
-                  <div style={{ flex: '1 1 200px' }}>
-                    <label style={{ ...typography.caption, color: colors.neutral['500'], display: 'block', marginBottom: '4px' }}>Alert Type</label>
-                    <select
-                      value={nlAlertType}
-                      onChange={(e) => { setNlAlertType(e.target.value); setNlAlertResult(null); }}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        border: `1px solid ${colors.neutral['300']}`,
-                        fontSize: '14px',
-                        backgroundColor: colors.neutral.white,
-                        color: colors.neutral['700'],
-                      }}
-                    >
-                      <option value="high_heart_rate">High Heart Rate</option>
-                      <option value="low_heart_rate">Low Heart Rate</option>
-                      <option value="low_spo2">Low SpO₂</option>
-                      <option value="high_blood_pressure">High Blood Pressure</option>
-                      <option value="irregular_rhythm">Irregular Rhythm</option>
-                      <option value="abnormal_activity">Abnormal Activity</option>
-                    </select>
-                  </div>
-
-                  {/* Severity select */}
-                  <div style={{ flex: '1 1 160px' }}>
-                    <label style={{ ...typography.caption, color: colors.neutral['500'], display: 'block', marginBottom: '4px' }}>Severity</label>
-                    <select
-                      value={nlSeverity}
-                      onChange={(e) => { setNlSeverity(e.target.value); setNlAlertResult(null); }}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        border: `1px solid ${colors.neutral['300']}`,
-                        fontSize: '14px',
-                        backgroundColor: colors.neutral.white,
-                        color: colors.neutral['700'],
-                      }}
-                    >
-                      <option value="info">Info</option>
-                      <option value="warning">Warning</option>
-                      <option value="critical">Critical</option>
-                      <option value="emergency">Emergency</option>
-                    </select>
-                  </div>
-
-                  {/* Generate button */}
-                  <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'flex-end' }}>
-                    <button
-                      onClick={async () => {
-                        if (!patientId) return;
-                        setNlAlertLoading(true);
-                        setNlAlertResult(null);
-                        try {
-                          const res = await api.generateNaturalLanguageAlert(
-                            Number(patientId),
-                            nlAlertType,
-                            nlSeverity,
-                            undefined,
-                            undefined,
-                            riskAssessment?.risk_score,
-                            riskAssessment?.risk_level
-                          );
-                          setNlAlertResult(res);
-                        } catch (e) {
-                          console.error('NL alert generation failed:', e);
-                        } finally {
-                          setNlAlertLoading(false);
-                        }
-                      }}
-                      disabled={nlAlertLoading}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '8px 20px',
-                        backgroundColor: nlAlertLoading ? colors.neutral['300'] : colors.primary.default,
-                        color: colors.neutral.white,
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: nlAlertLoading ? 'not-allowed' : 'pointer',
-                        fontWeight: 600,
-                        fontSize: '14px',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {nlAlertLoading ? (
-                        <><Loader size={15} /> Generating...</>
-                      ) : (
-                        <><Send size={15} /> Generate Preview</>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Generated alert preview */}
-                {nlAlertResult && (
-                  <div
-                    style={{
-                      padding: '20px',
-                      backgroundColor:
-                        nlAlertResult.urgency_level === 'act_now' ? colors.critical.background
-                        : nlAlertResult.urgency_level === 'urgent' ? colors.critical.background
-                        : nlAlertResult.urgency_level === 'attention_needed' ? colors.warning.background
-                        : colors.neutral['50'],
-                      border: `1px solid ${
-                        nlAlertResult.urgency_level === 'act_now' ? colors.critical.border
-                        : nlAlertResult.urgency_level === 'urgent' ? colors.critical.border
-                        : nlAlertResult.urgency_level === 'attention_needed' ? colors.warning.border
-                        : colors.neutral['200']
-                      }`,
-                      borderRadius: '10px',
-                    }}
-                  >
-                    {/* Urgency badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                      {nlAlertResult.urgency_level === 'act_now' && <AlertOctagon size={20} color={colors.critical.badge} />}
-                      {nlAlertResult.urgency_level === 'urgent' && <AlertTriangle size={20} color={colors.critical.badge} />}
-                      {nlAlertResult.urgency_level === 'attention_needed' && <AlertTriangle size={20} color={colors.warning.badge} />}
-                      {nlAlertResult.urgency_level === 'for_your_info' && <Info size={20} color={colors.neutral['500']} />}
-                      <span style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        textTransform: 'uppercase' as const,
-                        letterSpacing: '0.5px',
-                        color:
-                          nlAlertResult.urgency_level === 'act_now' || nlAlertResult.urgency_level === 'urgent'
-                            ? colors.critical.text
-                            : nlAlertResult.urgency_level === 'attention_needed'
-                            ? colors.warning.text
-                            : colors.neutral['500'],
-                      }}>
-                        {nlAlertResult.urgency_level.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-
-                    {/* Friendly message */}
-                    <p style={{ ...typography.body, lineHeight: '1.7', color: colors.neutral['800'], margin: '0 0 16px 0', fontSize: '15px' }}>
-                      {nlAlertResult.friendly_message}
-                    </p>
-
-                    {/* Action steps */}
-                    {nlAlertResult.action_steps.length > 0 && (
-                      <div style={{ marginBottom: '14px' }}>
-                        <div style={{ ...typography.caption, fontWeight: 600, color: colors.neutral['500'], marginBottom: '8px' }}>
-                          Recommended Actions:
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {nlAlertResult.action_steps.map((step: string, i: number) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '50%',
-                                backgroundColor: colors.primary.default,
-                                color: colors.neutral.white,
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                flexShrink: 0,
-                                marginTop: '2px',
-                              }}>
-                                {i + 1}
-                              </span>
-                              <span style={{ ...typography.body, color: colors.neutral['700'] }}>{step}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Risk context */}
-                    {nlAlertResult.risk_context && (
-                      <div style={{
-                        padding: '10px 14px',
-                        backgroundColor: 'rgba(255,255,255,0.5)',
-                        borderRadius: '6px',
-                        ...typography.caption,
-                        color: colors.neutral['600'],
-                        fontStyle: 'italic',
-                      }}>
-                        {nlAlertResult.risk_context}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ================================================================= */}
-        {/* Advanced ML: Model Management Panel (Endpoints 9 & 10)          */}
-        {/* ================================================================= */}
-        <div
-          style={{
-            backgroundColor: colors.neutral.white,
-            border: `1px solid ${colors.neutral['300']}`,
-            borderRadius: '12px',
-            marginBottom: '32px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Collapsible header */}
-          <button
-            onClick={() => setModelExpanded(!modelExpanded)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '20px 24px',
-              backgroundColor: colors.neutral.white,
-              border: 'none',
-              cursor: 'pointer',
-              borderBottom: modelExpanded ? `1px solid ${colors.neutral['300']}` : 'none',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Cpu size={22} color={colors.primary.default} />
-              <span style={{ ...typography.sectionTitle, margin: 0 }}>ML Model Management</span>
-              {retrainReadiness && (
-                <span
-                  style={{
-                    backgroundColor: retrainReadiness.ready ? colors.stable.badge : colors.neutral['200'],
-                    color: retrainReadiness.ready ? colors.neutral.white : colors.neutral['600'],
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '2px 10px',
-                    borderRadius: '12px',
-                  }}
-                >
-                  {retrainReadiness.ready ? 'Ready to retrain' : 'Not ready'}
-                </span>
-              )}
-            </div>
-            {modelExpanded ? <ChevronUp size={20} color={colors.neutral['500']} /> : <ChevronDown size={20} color={colors.neutral['500']} />}
-          </button>
-
-          {/* Expanded content */}
-          {modelExpanded && (
-            <div style={{ padding: '24px' }}>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap: '20px',
-                }}
-              >
-                {/* Model Status Card */}
-                <div
-                  style={{
-                    padding: '20px',
-                    backgroundColor: colors.neutral['50'],
-                    borderRadius: '10px',
-                    border: `1px solid ${colors.neutral['200']}`,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                    <HardDrive size={18} color={colors.neutral['600']} />
-                    <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Model Status</span>
-                  </div>
-
-                  {retrainStatus ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {/* Artifact indicators */}
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' as const }}>
-                        {[{ label: 'Model', ok: retrainStatus.model_exists }, { label: 'Scaler', ok: retrainStatus.scaler_exists }, { label: 'Features', ok: retrainStatus.features_exists }].map((item) => (
-                          <span
-                            key={item.label}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '3px 10px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              backgroundColor: item.ok ? colors.stable.background : colors.critical.background,
-                              color: item.ok ? colors.stable.text : colors.critical.text,
-                              border: `1px solid ${item.ok ? colors.stable.border : colors.critical.border}`,
-                            }}
-                          >
-                            {item.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                            {item.label}
-                          </span>
+                      <p style={{ ...typography.body, color: colors.neutral['700'], marginBottom: '16px', lineHeight: '1.6' }}>
+                        {recData.recommendation.description}
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
+                        {[
+                          { label: 'Activity', value: recData.recommendation.suggested_activity },
+                          { label: 'Intensity', value: recData.recommendation.intensity_level },
+                          { label: 'Duration', value: `${recData.recommendation.duration_minutes} min` },
+                          { label: 'Target HR', value: recData.recommendation.target_heart_rate_min && recData.recommendation.target_heart_rate_max
+                              ? `${recData.recommendation.target_heart_rate_min}–${recData.recommendation.target_heart_rate_max} BPM`
+                              : '—' },
+                        ].map(({ label, value }) => (
+                          <div key={label} style={{ padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: '8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '10px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '4px' }}>{label}</div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: colors.neutral['800'] }}>{value}</div>
+                          </div>
                         ))}
                       </div>
+                      <div style={{ marginTop: '12px', fontSize: '11px', color: colors.neutral['500'] }}>
+                        AI-generated · {recData.recommendation.created_at ? new Date(recData.recommendation.created_at).toLocaleDateString() : '—'}
+                      </div>
+                    </div>
 
-                      {/* Metadata */}
-                      {retrainStatus.metadata && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
-                          <div>
-                            <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Algorithm: </span>
-                            <span style={{ ...typography.body, fontWeight: 600 }}>{retrainStatus.metadata.model_name}</span>
-                          </div>
-                          <div>
-                            <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Version: </span>
-                            <span style={{ ...typography.body, fontWeight: 600 }}>{retrainStatus.metadata.version}</span>
-                          </div>
-                          <div>
-                            <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Accuracy: </span>
-                            <span style={{ ...typography.body, fontWeight: 700, color: colors.stable.text }}>{retrainStatus.metadata.accuracy}</span>
-                          </div>
-                          {retrainStatus.model_size_bytes && (
-                            <div>
-                              <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Size: </span>
-                              <span style={{ ...typography.body, fontWeight: 600 }}>{(retrainStatus.model_size_bytes / 1024).toFixed(0)} KB</span>
+                    {/* ── Section 2: Why This Plan ── */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: colors.neutral['700'], marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Why This Plan</div>
+                      <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {planReasons.map((reason, i) => (
+                          <li key={i} style={{ fontSize: '13px', color: colors.neutral['700'], lineHeight: '1.5' }}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* ── Section 3: Adherence & Tolerance ── */}
+                    <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: colors.neutral['50'], borderRadius: '10px', border: `1px solid ${colors.neutral['200']}` }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: colors.neutral['700'], marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Adherence & Tolerance</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                        {/* Last session */}
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px' }}>Last Session</div>
+                          {lastSession ? (
+                            <div style={{ fontSize: '13px', color: colors.neutral['800'] }}>
+                              {new Date(lastSession.start_time!).toLocaleDateString()} —{' '}
+                              <span style={{ fontWeight: 600, color: lastSession.status === 'completed' ? colors.stable.text : colors.warning.text }}>
+                                {lastSession.status === 'completed' ? 'Completed ✓' : 'Not completed'}
+                              </span>
                             </div>
+                          ) : (
+                            <div style={{ fontSize: '13px', color: colors.neutral['500'] }}>No sessions recorded yet</div>
                           )}
                         </div>
-                      )}
 
-                      {/* Last modified */}
-                      {retrainStatus.model_modified && (
-                        <div style={{ ...typography.caption, color: colors.neutral['400'], marginTop: '4px' }}>
-                          Last modified: {new Date(retrainStatus.model_modified).toLocaleString()}
+                        {/* Sessions this week */}
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px' }}>Sessions This Week</div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: colors.neutral['800'] }}>{weekSessions.length} session{weekSessions.length !== 1 ? 's' : ''}</div>
                         </div>
-                      )}
-                      {retrainStatus.metadata?.note && (
-                        <div style={{ ...typography.caption, color: colors.neutral['400'], fontStyle: 'italic' }}>
-                          {retrainStatus.metadata.note}
+
+                        {/* Tolerance */}
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px' }}>Tolerance</div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: toleranceColor }}>{tolerance}</div>
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ ...typography.body, color: colors.neutral['400'] }}>Unable to load model status.</div>
-                  )}
-                </div>
 
-                {/* Retraining Readiness Card */}
-                <div
-                  style={{
-                    padding: '20px',
-                    backgroundColor: retrainReadiness?.ready ? colors.stable.background : colors.neutral['50'],
-                    borderRadius: '10px',
-                    border: `1px solid ${retrainReadiness?.ready ? colors.stable.border : colors.neutral['200']}`,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                    <RefreshCw size={18} color={retrainReadiness?.ready ? colors.stable.text : colors.neutral['600']} />
-                    <span style={{ fontSize: '15px', fontWeight: 700, color: colors.neutral['700'] }}>Retraining Readiness</span>
-                  </div>
-
-                  {retrainReadiness ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {/* Records progress */}
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Records</span>
-                          <span style={{ ...typography.body, fontWeight: 700, fontSize: '13px' }}>
-                            {retrainReadiness.new_records} / {retrainReadiness.min_records_required}
-                          </span>
+                        {/* Recovery trend */}
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: colors.neutral['500'], textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px' }}>Recovery Trend</div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: trendColor }}>{recoveryTrend}</div>
                         </div>
-                        <div style={{ height: '8px', backgroundColor: colors.neutral['100'], borderRadius: '4px', overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              height: '100%',
-                              width: `${Math.min(100, (retrainReadiness.new_records / retrainReadiness.min_records_required) * 100)}%`,
-                              backgroundColor: retrainReadiness.new_records >= retrainReadiness.min_records_required ? colors.stable.badge : colors.warning.badge,
-                              borderRadius: '4px',
-                              transition: 'width 0.5s ease',
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Last retrain */}
-                      <div>
-                        <span style={{ ...typography.caption, color: colors.neutral['500'] }}>Last retrain: </span>
-                        <span style={{ ...typography.body, fontWeight: 600 }}>
-                          {retrainReadiness.last_retrain_date
-                            ? new Date(retrainReadiness.last_retrain_date).toLocaleDateString()
-                            : 'Never'}
-                        </span>
-                        <span style={{ ...typography.caption, color: colors.neutral['400'] }}>
-                          {' '}(min {retrainReadiness.min_days_between_retrains} days between)
-                        </span>
-                      </div>
-
-                      {/* Reasons */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {retrainReadiness.reasons.map((reason, i) => (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {retrainReadiness.ready
-                              ? <CheckCircle size={14} color={colors.stable.text} />
-                              : <Info size={14} color={colors.neutral['400']} />
-                            }
-                            <span style={{ ...typography.caption, color: colors.neutral['600'] }}>{reason}</span>
-                          </div>
-                        ))}
                       </div>
                     </div>
-                  ) : (
-                    <div style={{ ...typography.body, color: colors.neutral['400'] }}>Unable to load readiness check.</div>
-                  )}
-                </div>
-              </div>
+
+                    {/* ── Section 4: Clinician Review ── */}
+                    <div style={{ padding: '16px', backgroundColor: colors.neutral['50'], borderRadius: '10px', border: `1px solid ${colors.neutral['200']}` }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: colors.neutral['700'], marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Clinician Review</div>
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' as const }}>
+                        {/* Keep Plan */}
+                        <button
+                          onClick={() => showSnackbar('Plan noted. No changes made.', 'success')}
+                          style={{
+                            padding: '8px 18px',
+                            backgroundColor: colors.stable.badge,
+                            color: colors.neutral.white,
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <CheckCircle size={15} />
+                          Keep Plan
+                        </button>
+
+                        {/* Monitor Before Next Session */}
+                        <button
+                          onClick={async () => {
+                            if (!patientId) return;
+                            const dateStr = new Date().toLocaleDateString();
+                            setNewNoteText(`Clinical review: monitor before next session — ${dateStr}`);
+                            // Small delay so state settles, then scroll to notes
+                            setTimeout(() => {
+                              const el = document.getElementById('clinician-note-textarea');
+                              if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+                            }, 100);
+                            showSnackbar('Monitoring note prefilled — add details and save.', 'success');
+                          }}
+                          style={{
+                            padding: '8px 18px',
+                            backgroundColor: colors.warning.badge,
+                            color: colors.neutral.white,
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <Clock size={15} />
+                          Monitor Before Next Session
+                        </button>
+
+                        {/* Add Clinician Note */}
+                        <button
+                          onClick={() => {
+                            const el = document.getElementById('clinician-note-textarea');
+                            if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+                          }}
+                          style={{
+                            padding: '8px 18px',
+                            backgroundColor: colors.neutral.white,
+                            color: colors.neutral['700'],
+                            border: `1px solid ${colors.neutral['300']}`,
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <PenLine size={15} />
+                          Add Clinician Note
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -3364,15 +3432,6 @@ const PatientDetailPage: React.FC = () => {
 
           <SessionHistoryPanel activities={activities} />
         </div>
-
-        <RiskAssessmentPanel
-          riskAssessment={riskAssessment}
-          recommendation={recommendation}
-          riskFactors={riskFactors}
-          computingRisk={computingRisk}
-          computeRiskMessage={computeRiskMessage}
-          onComputeRisk={handleComputeRisk}
-        />
       </main>
 
       <Snackbar

@@ -55,7 +55,6 @@ export default function StatCard({
   const config = colorConfig[color];
 
   return (
-    {/* The card container — white box with a subtle shadow */}
     <div
       onClick={onClick}
       style={{

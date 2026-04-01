@@ -200,13 +200,14 @@ class _ActivityItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AdaptivColors.border300),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
@@ -236,16 +237,22 @@ class _ActivityItem extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: AdaptivTypography.body
-                        .copyWith(fontWeight: FontWeight.w600)),
+                    style: AdaptivTypography.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    )),
                 const SizedBox(height: 2),
                 Text(subtitle,
-                    style: AdaptivTypography.caption
-                        .copyWith(color: AdaptivColors.text600)),
+                    style: AdaptivTypography.caption.copyWith(
+                      color: colorScheme.onSurface.withValues(alpha: 0.6),
+                    )),
               ],
             ),
           ),
-          Text(time, style: AdaptivTypography.caption),
+          Text(time,
+              style: AdaptivTypography.caption.copyWith(
+                color: colorScheme.onSurface.withValues(alpha: 0.5),
+              )),
         ],
       ),
     );

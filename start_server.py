@@ -27,8 +27,8 @@ try:
     print("App imported OK. Starting uvicorn...", flush=True)
     # Uvicorn is the web server that actually listens for HTTP requests
     import uvicorn
-    # Start the server on all network interfaces (0.0.0.0) at port 8080
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
+    # Start the server on localhost (127.0.0.1) at port 8080
+    uvicorn.run(app, host="127.0.0.1", port=8080, log_level="info")
 except Exception as e:
     # If anything goes wrong during startup, print the error clearly
     print(f"STARTUP ERROR: {e}", flush=True)

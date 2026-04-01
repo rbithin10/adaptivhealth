@@ -166,6 +166,11 @@ class User(Base):
         "NutritionEntry", back_populates="user",
         cascade="all, delete-orphan", lazy="dynamic"
     )
+    # Sleep entries logged by this patient
+    sleep_entries = relationship(
+        "SleepEntry", back_populates="user",
+        cascade="all, delete-orphan", lazy="dynamic"
+    )
     # Medical conditions (diabetes, hypertension, etc.) on file for this patient
     medical_conditions = relationship(
         "PatientMedicalHistory", back_populates="user",

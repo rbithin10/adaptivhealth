@@ -61,6 +61,8 @@ from app.services.encryption import encryption_service
 from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
 from app.rate_limiter import limiter
 from app.services.ml_prediction import predict_risk, is_model_loaded
+from app.services.risk_drivers import build_drivers_from_vitals
+from app.services.confidence_scorer import compute_confidence_score
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -283,7 +285,7 @@ def _run_cloud_ml_on_batch(user_id: int, batch_items: list) -> None:
             return
 
         # Use patient profile for context; fall back to population averages if not set
-        age = user.age or 40
+        age = user.age or 45
         baseline_hr = user.baseline_hr or 70
         max_safe_hr = user.max_safe_hr or max(160, 220 - age)
 
@@ -338,6 +340,13 @@ def _run_cloud_ml_on_batch(user_id: int, batch_items: list) -> None:
                     f"edge={edge_level}, cloud={cloud_level}, HR={hr}"
                 )
 
+            import json as _json
+            _drivers = build_drivers_from_vitals(user, hr, float(spo2_int))
+            _conf = compute_confidence_score(
+                ml_confidence=ml_result.get("confidence") or 0.5,
+                user=user,
+                db=db,
+            )
             new_assessments.append(
                 RiskAssessment(
                     user_id=user_id,
@@ -349,8 +358,9 @@ def _run_cloud_ml_on_batch(user_id: int, batch_items: list) -> None:
                     input_spo2=float(spo2_int),
                     model_name="RandomForest (cloud)",
                     model_version="1.0",
-                    confidence=ml_result.get("confidence"),
+                    confidence=_conf,
                     alert_triggered=(cloud_level in {"high", "critical"}),
+                    risk_factors_json=_json.dumps(_drivers),
                 )
             )
 
@@ -849,6 +859,22 @@ async def submit_vitals_batch_sync(
                 risk_score = None
 
             if risk_score is not None:
+                import json as _json
+                _hrv_val = vitals.get("hrv")
+                try:
+                    _hrv = float(_hrv_val) if _hrv_val is not None else None
+                except (TypeError, ValueError):
+                    _hrv = None
+                _spo2_val = spo2 if spo2 is not None else 98.0
+                _drivers = build_drivers_from_vitals(
+                    current_user, heart_rate, _spo2_val,
+                    systolic_bp=systolic_bp, diastolic_bp=diastolic_bp, hrv=_hrv,
+                )
+                _conf_es = compute_confidence_score(
+                    ml_confidence=prediction.get("confidence") or 0.5,
+                    user=current_user,
+                    db=db,
+                )
                 new_assessment = RiskAssessment(
                     user_id=current_user.user_id,
                     risk_level=str(risk_level_raw),
@@ -859,11 +885,12 @@ async def submit_vitals_batch_sync(
                     input_spo2=spo2,
                     input_blood_pressure_sys=systolic_bp,
                     input_blood_pressure_dia=diastolic_bp,
+                    input_hrv=_hrv,
                     model_name="Edge RandomForest",
                     model_version=str(prediction.get("model_version", "unknown")),
-                    confidence=prediction.get("confidence"),
+                    confidence=_conf_es,
                     inference_time_ms=prediction.get("inference_time_ms"),
-                    risk_factors_json=str(item.alerts) if item.alerts else None,
+                    risk_factors_json=_json.dumps(_drivers),
                     alert_triggered=bool(item.alerts),
                 )
                 db.add(new_assessment)
@@ -985,7 +1012,7 @@ async def push_critical_alert(
 
     if is_model_loaded():
         try:
-            age = current_user.age or 40
+            age = current_user.age or 45
             baseline_hr_val = current_user.baseline_hr or 70
             max_safe_hr_val = current_user.max_safe_hr or max(160, 220 - age)
             spo2_int = int(spo2) if spo2 is not None else 98
@@ -1005,6 +1032,22 @@ async def push_critical_alert(
             cloud_level = ml_result.get("risk_level", "unknown")
             cloud_score = float(ml_result.get("risk_score", 0.0))
 
+            import json as _json
+            _hrv_raw = vitals.get("hrv")
+            try:
+                _hrv_cp = float(_hrv_raw) if _hrv_raw is not None else None
+            except (TypeError, ValueError):
+                _hrv_cp = None
+            _spo2_cp = float(spo2) if spo2 is not None else 98.0
+            _drivers_cp = build_drivers_from_vitals(
+                current_user, hr, _spo2_cp,
+                systolic_bp=systolic_bp, diastolic_bp=diastolic_bp, hrv=_hrv_cp,
+            )
+            _conf_cp = compute_confidence_score(
+                ml_confidence=ml_result.get("confidence") or 0.5,
+                user=current_user,
+                db=db,
+            )
             db.add(
                 RiskAssessment(
                     user_id=current_user.user_id,
@@ -1016,10 +1059,12 @@ async def push_critical_alert(
                     input_spo2=spo2,
                     input_blood_pressure_sys=systolic_bp,
                     input_blood_pressure_dia=diastolic_bp,
+                    input_hrv=_hrv_cp,
                     model_name="RandomForest (cloud)",
                     model_version="1.0",
-                    confidence=ml_result.get("confidence"),
+                    confidence=_conf_cp,
                     alert_triggered=True,
+                    risk_factors_json=_json.dumps(_drivers_cp),
                 )
             )
         except Exception as exc:

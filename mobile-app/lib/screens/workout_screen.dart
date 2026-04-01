@@ -118,7 +118,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     try {
       // Call API to start session
       final response = await widget.apiClient.startSession(
-        sessionType: 'workout',
+        sessionType: _currentExercise,
         targetDuration: 30, // Default 30 minute workout
       );
 
@@ -546,6 +546,8 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
   bool _isEndingWorkout = false;
   int _elapsedSeconds = 0;
   Timer? _timer;
+  int? _recommendationId;
+  double _cumulativeCalories = 0;
 
   // True once the first real reading arrives from any source.
   bool _hasReceivedReading = false;
@@ -566,8 +568,22 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
   void initState() {
     super.initState();
     _loadUserProfile();
+    _loadCurrentRecommendation();
     _startWorkoutTimer();
     _startHeartRateSource();
+  }
+
+  Future<void> _loadCurrentRecommendation() async {
+    try {
+      final rec = await widget.apiClient.getLatestRecommendation();
+      final recId = rec['recommendation_id'] ?? rec['id'];
+      if (recId != null) {
+        if (!mounted) return;
+        setState(() => _recommendationId = int.tryParse('$recId'));
+      }
+    } catch (_) {
+      // Recommendation may not be available yet.
+    }
   }
 
   @override
@@ -625,6 +641,11 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
       _activeSource = reading.source;
       if (newHR > _peakHR) _peakHR = newHR;
       if (newHR < _minHR) _minHR = newHR;
+      // Only update if the device reports a higher value (running total)
+      if (reading.cumulativeCalories != null &&
+          reading.cumulativeCalories! > _cumulativeCalories) {
+        _cumulativeCalories = reading.cumulativeCalories!;
+      }
     });
 
     _processWithEdgeAi(newHR);
@@ -689,7 +710,19 @@ class _ActiveWorkoutScreenState extends State<ActiveWorkoutScreen> {
         sessionId: widget.sessionId,
         avgHeartRate: _currentHR ?? 0,   // 0 if workout ended before any reading
         maxHeartRate: _peakHR,
+        activityType: widget.activityType,
+        caloriesBurned: _cumulativeCalories > 0 ? _cumulativeCalories.round() : null,
       );
+
+      final actualMinutes = (_elapsedSeconds / 60).ceil();
+      if (_recommendationId != null) {
+        try {
+          await widget.apiClient.completeRecommendation(
+            _recommendationId!,
+            actualMinutes: actualMinutes,
+          );
+        } catch (_) {}
+      }
 
       // Trigger a cloud sync after workout ends
       try {

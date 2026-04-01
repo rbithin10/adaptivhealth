@@ -604,7 +604,7 @@ const AdminPage: React.FC = () => {
                       </div>
                     )
                   ) : (
-                    <span style={{ ...typography.caption, color: colors.neutral['400'] }}>—</span>
+                    <span style={{ ...typography.caption, color: colors.neutral['500'] }}>—</span>
                   )}
                 </div>
 

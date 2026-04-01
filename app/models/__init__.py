@@ -13,6 +13,7 @@ from app.models.risk_assessment import RiskAssessment, RiskLevel
 from app.models.alert import Alert, AlertType, SeverityLevel
 from app.models.recommendation import ExerciseRecommendation, IntensityLevel, RecommendationType
 from app.models.nutrition import NutritionEntry, MealType
+from app.models.sleep import SleepEntry
 from app.models.message import Message
 from app.models.rehab import RehabProgram, RehabSessionLog
 from app.models.medical_history import (
@@ -21,6 +22,7 @@ from app.models.medical_history import (
 )
 from app.models.medication_adherence import MedicationAdherence
 from app.models.token_blocklist import TokenBlocklist
+from app.models.clinical_note import ClinicalNote
 
 # Export all models for easy importing
 __all__ = [
@@ -56,6 +58,9 @@ __all__ = [
     "NutritionEntry",
     "MealType",
 
+    # Sleep
+    "SleepEntry",
+
     # Messages
     "Message",
 
@@ -75,4 +80,7 @@ __all__ = [
 
     # Medication Adherence
     "MedicationAdherence",
+
+    # Clinical Notes
+    "ClinicalNote",
 ]

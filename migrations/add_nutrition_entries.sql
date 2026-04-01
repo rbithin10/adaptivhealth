@@ -3,14 +3,11 @@
 -- =============================================================================
 -- Creates table for nutrition logging (meals, calories, macros)
 -- Production feature for patient health tracking
---
--- Run with: psql -U postgres -d adaptiv_health -f migrations/add_nutrition_entries.sql
--- Or for SQLite: sqlite3 adaptiv_health.db < migrations/add_nutrition_entries.sql
 -- =============================================================================
 
 -- Create nutrition_entries table
 CREATE TABLE IF NOT EXISTS nutrition_entries (
-    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
     meal_type VARCHAR(50) NOT NULL DEFAULT 'other',
     description TEXT,
@@ -18,7 +15,7 @@ CREATE TABLE IF NOT EXISTS nutrition_entries (
     protein_grams INTEGER,
     carbs_grams INTEGER,
     fat_grams INTEGER,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
 );

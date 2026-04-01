@@ -430,6 +430,20 @@ export interface NaturalLanguageRiskSummaryResponse {
 }
 
 // ============================================================================
+// Clinical Notes — Clinician-authored notes per patient
+// ============================================================================
+
+export interface ClinicalNote {
+  note_id: number;
+  user_id: number;
+  clinician_id: number;
+  clinician_name?: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
 // Advanced ML — Recommendation Ranking (A/B Testing different exercise plans)
 // ============================================================================
 
@@ -440,12 +454,15 @@ export interface RankedRecommendationVariant {
   intensity_level: 'low' | 'moderate' | 'high';
   duration_minutes: number;    // How long the session should be
   description: string;         // Detailed instructions
+  target_heart_rate_min?: number;  // Safe minimum HR during exercise
+  target_heart_rate_max?: number;  // Safe maximum HR during exercise
+  created_at?: string;         // When recommendation was generated
 }
 
 // The A/B test result — which variant was shown to this patient
 export interface RankedRecommendationResponse {
   variant: 'A' | 'B';         // Which version was selected (A or B)
-  risk_level: 'low' | 'moderate' | 'high';
+  risk_level: 'low' | 'moderate' | 'high' | 'critical';
   recommendation: RankedRecommendationVariant;  // The actual recommendation details
   experiment_id: string;       // ID to track this experiment for outcome analysis
   user_id: number;

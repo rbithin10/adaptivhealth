@@ -6,15 +6,6 @@ Uses AES-256-GCM encryption with PHI_ENCRYPTION_KEY from environment.
 
 Messages can be stored in encrypted form for security at rest.
 Backend decrypts before sending to UI (HTTPS provides transit encryption).
-
-BEFORE running this migration:
-  1. Backup your database: cp adaptiv_health.db adaptiv_health.db.backup
-  2. Ensure the backend is not running
-
-TO APPLY THIS MIGRATION:
-  1. Run from project root: python apply_migrations.py
-  OR
-  2. Manual SQLite: sqlite3 adaptiv_health.db < migrations/add_message_encryption.sql
 */
 
 -- Add encrypted_content column (nullable for backward compatibility)

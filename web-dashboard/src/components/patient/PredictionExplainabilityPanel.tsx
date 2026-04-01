@@ -112,7 +112,7 @@ const PredictionExplainabilityPanel: React.FC<PredictionExplainabilityPanelProps
                 <><Search size={16} /> Explain Risk Using Latest Vitals</>
               )}
             </button>
-            <div style={{ ...typography.caption, color: colors.neutral['400'], marginTop: '6px' }}>
+            <div style={{ ...typography.caption, color: colors.neutral['500'], marginTop: '6px' }}>
               Uses patient’s current vitals and profile to run a prediction with feature importance analysis.
             </div>
           </div>
@@ -229,7 +229,7 @@ const PredictionExplainabilityPanel: React.FC<PredictionExplainabilityPanelProps
                 </div>
               </div>
 
-              <div style={{ ...typography.caption, color: colors.neutral['400'], marginTop: '12px' }}>
+              <div style={{ ...typography.caption, color: colors.neutral['500'], marginTop: '12px' }}>
                 Method: {explainData.feature_importance.method.replace(/_/g, ' ')} • {explainData.feature_importance.feature_count} features analyzed
               </div>
             </>

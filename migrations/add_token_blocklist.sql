@@ -7,7 +7,7 @@
 --   3. Adds a server-level DEFAULT of 'patient' to the role column so new rows
 --      can never be inserted with a null role via raw SQL.
 --
--- SAFE TO RE-RUN: CREATE TABLE IF NOT EXISTS is idempotent; the UPDATE
+-- SAFE TO RE-RUN: CREATE TABLE IF NOT EXISTS is idempotent and the UPDATE
 --   only touches rows where role IS NULL.
 -- ============================================================================
 
@@ -27,9 +27,9 @@ CREATE INDEX IF NOT EXISTS idx_token_blocklist_expires
 
 -- 2. Fix any existing users with no role assigned
 UPDATE users
-SET    role = 'patient'
+SET    role = 'PATIENT'
 WHERE  role IS NULL;
 
 -- 3. Add a server-side DEFAULT so future INSERTs never produce a null role
 ALTER TABLE users
-    ALTER COLUMN role SET DEFAULT 'patient';
+    ALTER COLUMN role SET DEFAULT 'PATIENT';
