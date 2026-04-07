@@ -78,9 +78,17 @@ class ApiService {
   private client: AxiosInstance; // The HTTP client that actually sends/receives data
 
   constructor() {
+    const axiosBase = `${API_BASE_URL}/api/v1`;
+    console.info('[DIAG][REACT_API_TARGET]', {
+      envApiUrl: process.env.REACT_APP_API_URL ?? null,
+      apiBaseUrlResolved: API_BASE_URL,
+      axiosBaseUrl: axiosBase,
+      refreshUrl: `${API_BASE_URL}/api/v1/session/extend`,
+    });
+
     // Set up the HTTP client with the server address and default settings
     this.client = axios.create({
-      baseURL: `${API_BASE_URL}/api/v1`,  // All requests go to /api/v1 on the server
+      baseURL: axiosBase,  // All requests go to /api/v1 on the server
       headers: {
         'Content-Type': 'application/json', // Tell the server we're sending JSON data
       },
@@ -106,25 +114,18 @@ class ApiService {
       async (error: AxiosError) => {
         const originalRequest = (error.config ?? {}) as AxiosError['config'] & { _retry?: boolean };
         if (error.response?.status === 401 && !originalRequest._retry) {
+          console.log('[DEBUG] 401 detected, attempting refresh');
           originalRequest._retry = true; // Mark this request so we don't retry forever
-          const refreshToken = localStorage.getItem('refresh_token');
-          if (refreshToken) {
-            try {
-              // Ask the server for a new token using our refresh token
-              const resp = await axios.post(`${API_BASE_URL}/api/v1/session/extend`, { refresh_token: refreshToken });
-              const newToken = resp.data.access_token;
-              localStorage.setItem('token', newToken); // Save the new token
-              if (resp.data.refresh_token) {
-                localStorage.setItem('refresh_token', resp.data.refresh_token); // Save the new refresh token too
-              }
-              // Retry the original request with the new token
+          const refreshResult = await this.refreshSession();
+          if (refreshResult) {
+            const newToken = localStorage.getItem('token');
+            if (newToken) {
+              originalRequest.headers = originalRequest.headers ?? {};
               originalRequest.headers.Authorization = `Bearer ${newToken}`;
-              return this.client(originalRequest);
-            } catch {
-              // Refresh failed — the user will need to log in again
             }
+            return this.client(originalRequest);
           }
-          // Clear all saved login data and send the user to the login page
+          // Refresh failed — clear login data and send the user to login
           localStorage.removeItem('token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
@@ -133,6 +134,27 @@ class ApiService {
         return Promise.reject(error);
       }
     );
+  }
+
+  // Refresh the current session using the saved refresh token.
+  // Returns true if a new access token was stored.
+  private async refreshSession(): Promise<boolean> {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const resp = await axios.post(`${API_BASE_URL}/api/v1/session/extend`, { refresh_token: refreshToken });
+      const newToken = resp.data.access_token;
+      localStorage.setItem('token', newToken);
+      if (resp.data.refresh_token) {
+        localStorage.setItem('refresh_token', resp.data.refresh_token);
+      }
+      return Boolean(newToken);
+    } catch {
+      return false;
+    }
   }
 
   // =========================================================================

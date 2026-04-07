@@ -69,18 +69,20 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     try {
       // Fetch assigned clinician from backend
       final clinicianData = await widget.apiClient.getAssignedClinician();
-      
+
       if (clinicianData == null) {
         if (!mounted) return;
         setState(() {
-          _errorMessage = 'No clinician assigned. Please contact your healthcare provider or administrator.';
+          _errorMessage =
+              'No clinician assigned. Please contact your healthcare provider or administrator.';
           _isLoadingClinician = false;
         });
         return;
       }
 
       final clinicianId = clinicianData['user_id'] as int?;
-      final clinicianName = clinicianData['full_name'] as String? ?? 'Your Clinician';
+      final clinicianName =
+          clinicianData['full_name'] as String? ?? 'Your Clinician';
 
       if (clinicianId == null) {
         if (!mounted) return;
@@ -107,7 +109,8 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
       if (e.toString().contains('403')) {
         errorMsg = 'Unable to load clinician. Your access may have changed.';
       } else if (e.toString().contains('404')) {
-        errorMsg = 'No clinician assigned. Please contact your healthcare provider or administrator.';
+        errorMsg =
+            'No clinician assigned. Please contact your healthcare provider or administrator.';
       } else if (e.toString().contains('Connection')) {
         errorMsg = 'Connection error. Please check your internet.';
       }
@@ -195,7 +198,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
           .toList();
 
       if (!mounted) return;
-      
+
       // Only update if we have new messages
       if (messages.length != _messages.length) {
         setState(() {
@@ -291,49 +294,99 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     return _currentUserId != null && senderId == _currentUserId;
   }
 
+  bool _isCompactWidth(double width) => width <= 360;
+
+  double _screenHorizontalPadding(double width) {
+    return _isCompactWidth(width) ? 12 : 16;
+  }
+
+  double _threadHorizontalPadding(double width) {
+    return _isCompactWidth(width) ? 8 : 16;
+  }
+
+  double _bubbleMaxWidth(double availableWidth) {
+    if (availableWidth < 600) {
+      return (availableWidth * 0.88).clamp(160, 320).toDouble();
+    }
+    return (availableWidth * 0.72).clamp(240, 520).toDouble();
+  }
+
   // Main screen layout
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    return Container(
-      decoration: BoxDecoration(
-        image: DecorationImage(
-          image: const AssetImage('assets/images/health_bg3.png'),
-          fit: BoxFit.cover,
-          colorFilter: ColorFilter.mode(
-            brightness == Brightness.dark
-                ? Colors.black.withOpacity(0.6)
-                : Colors.white.withOpacity(0.85),
-            brightness == Brightness.dark ? BlendMode.darken : BlendMode.lighten,
-          ),
-        ),
-      ),
-      child: Column(
-        children: [
-          // Inline header (replaces AppBar for tab embedding)
-          Container(
-            color: AdaptivColors.getSurfaceColor(brightness),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Text('Doctor Messages', style: AdaptivTypography.screenTitle),
-              ],
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = _screenHorizontalPadding(screenWidth);
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: true,
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: const AssetImage('assets/images/health_bg3.png'),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(
+              brightness == Brightness.dark
+                  ? Colors.black.withOpacity(0.6)
+                  : Colors.white.withOpacity(0.85),
+              brightness == Brightness.dark
+                  ? BlendMode.darken
+                  : BlendMode.lighten,
             ),
           ),
-          _buildCareTeamHeader(),
-          Expanded(child: _buildThreadBody()),
-          _buildMessageComposer(),
-        ],
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              // Inline header (replaces AppBar for tab embedding)
+              Container(
+                color: AdaptivColors.getSurfaceColor(brightness),
+                padding: EdgeInsets.fromLTRB(
+                    horizontalPadding, 12, horizontalPadding, 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      icon: const Icon(Icons.arrow_back),
+                      tooltip: 'Back',
+                      color: AdaptivColors.text900,
+                    ),
+                    const SizedBox(width: 6),
+                    Text('Doctor Messages',
+                        style: AdaptivTypography.screenTitle),
+                  ],
+                ),
+              ),
+              _buildCareTeamHeader(),
+              Expanded(child: _buildThreadBody()),
+              AnimatedPadding(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(context).bottom),
+                child: _buildMessageComposer(),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   // Card showing the clinician's name at the top of the screen
   Widget _buildCareTeamHeader() {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = _screenHorizontalPadding(screenWidth);
     return Card(
-      margin: const EdgeInsets.all(16),
+      margin: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 12),
       child: ListTile(
-        leading: const Icon(Icons.medical_services, color: AdaptivColors.primary),
+        leading:
+            const Icon(Icons.medical_services, color: AdaptivColors.primary),
         title: const Text('Care Team'),
         subtitle: _isLoadingClinician
             ? const Text('Loading clinician...')
@@ -382,14 +435,19 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                _clinicianId == null ? 'No Clinician Assigned' : 'Failed to load messages',
+                _clinicianId == null
+                    ? 'No Clinician Assigned'
+                    : 'Failed to load messages',
                 style: AdaptivTypography.sectionTitle,
               ),
               const SizedBox(height: 8),
-              Text(_errorMessage!, style: AdaptivTypography.body, textAlign: TextAlign.center),
+              Text(_errorMessage!,
+                  style: AdaptivTypography.body, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: _clinicianId == null ? _loadClinicianAndThread : _loadThread,
+                onPressed: _clinicianId == null
+                    ? _loadClinicianAndThread
+                    : _loadThread,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Retry'),
               ),
@@ -432,13 +490,20 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
 
     return RefreshIndicator(
       onRefresh: _loadThread,
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: _messages.length,
-        itemBuilder: (context, index) {
-          final message = _messages[index];
-          return _buildMessageBubble(message);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final horizontalPadding =
+              _threadHorizontalPadding(constraints.maxWidth);
+          return ListView.builder(
+            controller: _scrollController,
+            padding: EdgeInsets.symmetric(
+                horizontal: horizontalPadding, vertical: 8),
+            itemCount: _messages.length,
+            itemBuilder: (context, index) {
+              final message = _messages[index];
+              return _buildMessageBubble(message);
+            },
+          );
         },
       ),
     );
@@ -450,65 +515,76 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
     final content = message['content'] as String? ?? '';
     final sentAt = message['sent_at'] as String?;
     final isRead = message['is_read'] as bool? ?? false;
-    final readAt = message['read_at'] as String?;
-    
+
     final timestamp = sentAt != null ? DateTime.tryParse(sentAt) : null;
     final timeLabel = _formatTimestamp(timestamp);
 
-    return Align(
-      alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 280),
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isSent ? AdaptivColors.primary : AdaptivColors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: isSent ? null : Border.all(color: AdaptivColors.border300),
-        ),
-        child: Column(
-          crossAxisAlignment: isSent ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            Text(
-              content,
-              style: AdaptivTypography.body.copyWith(
-                color: isSent ? AdaptivColors.white : AdaptivColors.text900,
-              ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxBubbleWidth = _bubbleMaxWidth(constraints.maxWidth);
+        return Align(
+          alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isSent ? AdaptivColors.primary : AdaptivColors.white,
+              borderRadius: BorderRadius.circular(12),
+              border:
+                  isSent ? null : Border.all(color: AdaptivColors.border300),
             ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Column(
+              crossAxisAlignment:
+                  isSent ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
                 Text(
-                  timeLabel,
-                  style: AdaptivTypography.caption.copyWith(
-                    color: isSent ? AdaptivColors.primaryLight : AdaptivColors.text500,
+                  content,
+                  style: AdaptivTypography.body.copyWith(
+                    color: isSent ? AdaptivColors.white : AdaptivColors.text900,
                   ),
                 ),
-                if (isSent) ...[
-                  const SizedBox(width: 4),
-                  Icon(
-                    isRead ? Icons.done_all : Icons.done,
-                    size: 14,
-                    color: isRead ? AdaptivColors.stable : AdaptivColors.primaryLight,
-                  ),
-                ],
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timeLabel,
+                      style: AdaptivTypography.caption.copyWith(
+                        color: isSent
+                            ? AdaptivColors.primaryLight
+                            : AdaptivColors.text500,
+                      ),
+                    ),
+                    if (isSent) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        isRead ? Icons.done_all : Icons.done,
+                        size: 14,
+                        color: isRead
+                            ? AdaptivColors.stable
+                            : AdaptivColors.primaryLight,
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   // Format a timestamp into a short label ("14:30", "Yesterday 14:30", etc.)
   String _formatTimestamp(DateTime? timestamp) {
     if (timestamp == null) return '';
-    
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(timestamp.year, timestamp.month, timestamp.day);
-    
+    final messageDate =
+        DateTime(timestamp.year, timestamp.month, timestamp.day);
+
     if (messageDate == today) {
       // Today: show time only
       return DateFormat('HH:mm').format(timestamp);
@@ -527,36 +603,23 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
   // Text field and send button at the bottom of the screen
   Widget _buildMessageComposer() {
     final canSend = _clinicianId != null && !_isSending;
-    final placeholder = _clinicianId == null
-        ? 'No clinician assigned'
-        : 'Type your message...';
+    final placeholder =
+        _clinicianId == null ? 'No clinician assigned' : 'Type your message...';
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = _screenHorizontalPadding(screenWidth);
 
     return SafeArea(
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding:
+            EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 12),
         decoration: BoxDecoration(
           color: AdaptivColors.white,
           border: Border(top: BorderSide(color: AdaptivColors.border300)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                enabled: _clinicianId != null,
-                decoration: InputDecoration(
-                  hintText: placeholder,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-                minLines: 1,
-                maxLines: 3,
-                textInputAction: TextInputAction.send,
-                onSubmitted: canSend ? (_) => _sendMessage() : null,
-              ),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isTightComposer = constraints.maxWidth < 380;
+            final sendButton = ElevatedButton(
               onPressed: canSend ? _sendMessage : null,
               child: _isSending
                   ? const SizedBox(
@@ -565,8 +628,54 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Text('Send'),
-            ),
-          ],
+            );
+
+            if (isTightComposer) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: _messageController,
+                    enabled: _clinicianId != null,
+                    decoration: InputDecoration(
+                      hintText: placeholder,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: canSend ? (_) => _sendMessage() : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Align(alignment: Alignment.centerRight, child: sendButton),
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    enabled: _clinicianId != null,
+                    decoration: InputDecoration(
+                      hintText: placeholder,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: canSend ? (_) => _sendMessage() : null,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                sendButton,
+              ],
+            );
+          },
         ),
       ),
     );

@@ -11,6 +11,7 @@ import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../services/api_client.dart';
 import '../widgets/ai_coach_overlay.dart';
+import '../widgets/week_view.dart';
 
 class SleepScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -27,6 +28,7 @@ class SleepScreen extends StatefulWidget {
 class _SleepScreenState extends State<SleepScreen> {
   late DateTime _bedtime;
   late DateTime _wakeTime;
+  DateTime _selectedDate = DateTime.now();
   int _qualityRating = 3;
   bool _isSaving = false;
 
@@ -43,7 +45,9 @@ class _SleepScreenState extends State<SleepScreen> {
     final now = DateTime.now();
     final bedtimeBase = DateTime(now.year, now.month, now.day, 22, 0);
     final wakeBase = DateTime(now.year, now.month, now.day, 6, 30);
-    _bedtime = now.hour < 12 ? bedtimeBase.subtract(const Duration(days: 1)) : bedtimeBase;
+    _bedtime = now.hour < 12
+        ? bedtimeBase.subtract(const Duration(days: 1))
+        : bedtimeBase;
     _wakeTime = wakeBase;
     _loadSleepData();
   }
@@ -62,8 +66,12 @@ class _SleepScreenState extends State<SleepScreen> {
 
     try {
       final results = await Future.wait([
-        widget.apiClient.getLatestSleep().catchError((_) => <String, dynamic>{}),
-        widget.apiClient.getSleepHistory(days: 7).catchError((_) => <String, dynamic>{}),
+        widget.apiClient
+            .getLatestSleep()
+            .catchError((_) => <String, dynamic>{}),
+        widget.apiClient
+            .getSleepHistory(days: 7)
+            .catchError((_) => <String, dynamic>{}),
       ]);
 
       final latest = results[0];
@@ -95,6 +103,10 @@ class _SleepScreenState extends State<SleepScreen> {
       resolvedWake = resolvedWake.add(const Duration(days: 1));
     }
     return resolvedWake.difference(bedtime).inMinutes / 60.0;
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   Future<void> _pickBedtime() async {
@@ -164,10 +176,27 @@ class _SleepScreenState extends State<SleepScreen> {
     final brightness = Theme.of(context).brightness;
     final durationHours = _calculateDurationHours(_bedtime, _wakeTime);
     final computedScore = _calculateSleepScore(durationHours, _qualityRating);
+    final selectedEntry =
+        _sleepHistory.cast<Map<String, dynamic>?>().firstWhere(
+      (entry) {
+        final dateStr = entry?['date']?.toString();
+        final parsed = dateStr != null ? DateTime.tryParse(dateStr) : null;
+        return parsed != null && _isSameDay(parsed, _selectedDate);
+      },
+      orElse: () => null,
+    );
 
-    final latestScore = _latestSleep != null
-        ? (_latestSleep!['sleep_score'] as int? ?? computedScore)
-        : computedScore;
+    final latestScore = selectedEntry != null
+        ? (selectedEntry['sleep_score'] as int? ?? 0)
+        : (_isSameDay(_selectedDate, DateTime.now())
+            ? (_latestSleep?['sleep_score'] as int? ?? computedScore)
+            : 0);
+
+    final selectedHistory = _sleepHistory.where((entry) {
+      final dateStr = entry['date']?.toString();
+      final parsed = dateStr != null ? DateTime.tryParse(dateStr) : null;
+      return parsed != null && _isSameDay(parsed, _selectedDate);
+    }).toList();
 
     final ringColor = latestScore >= 70
         ? AdaptivColors.stable
@@ -194,13 +223,19 @@ class _SleepScreenState extends State<SleepScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 56, color: Colors.red),
+                          const Icon(Icons.error_outline,
+                              size: 56, color: Colors.red),
                           const SizedBox(height: 12),
-                          Text('Failed to load sleep data', style: AdaptivTypography.body),
+                          Text('Failed to load sleep data',
+                              style: AdaptivTypography.body),
                           const SizedBox(height: 8),
-                          Text(_error!, style: AdaptivTypography.caption, textAlign: TextAlign.center),
+                          Text(_error!,
+                              style: AdaptivTypography.caption,
+                              textAlign: TextAlign.center),
                           const SizedBox(height: 16),
-                          ElevatedButton(onPressed: _loadSleepData, child: const Text('Retry')),
+                          ElevatedButton(
+                              onPressed: _loadSleepData,
+                              child: const Text('Retry')),
                         ],
                       ),
                     ),
@@ -210,13 +245,25 @@ class _SleepScreenState extends State<SleepScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        WeekView(
+                          selectedDate: _selectedDate,
+                          onDateSelected: (date) {
+                            setState(() {
+                              _selectedDate = date;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
                         _buildScoreCard(latestScore, ringColor, brightness),
                         const SizedBox(height: 20),
                         _buildLogCard(durationHours, computedScore, brightness),
                         const SizedBox(height: 20),
-                        Text('Sleep History', style: AdaptivTypography.sectionTitle),
+                        Text(
+                          'Sleep History (${DateFormat('MMM dd').format(_selectedDate)})',
+                          style: AdaptivTypography.sectionTitle,
+                        ),
                         const SizedBox(height: 12),
-                        _buildHistoryList(brightness),
+                        _buildHistoryList(brightness, selectedHistory),
                       ],
                     ),
                   ),
@@ -237,23 +284,28 @@ class _SleepScreenState extends State<SleepScreen> {
         child: Row(
           children: [
             SizedBox(
-              width: 100,
-              height: 100,
+              width: 116,
+              height: 116,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   CircularProgressIndicator(
                     value: (score / 100).clamp(0.0, 1.0),
-                    strokeWidth: 8,
+                    strokeWidth: 6,
                     color: ringColor,
                     backgroundColor: AdaptivColors.getBorderColor(brightness),
                   ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('$score', style: AdaptivTypography.heroNumber.copyWith(fontSize: 28)),
-                      Text('/100', style: AdaptivTypography.caption),
-                    ],
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('$score',
+                            style: AdaptivTypography.heroNumber
+                                .copyWith(fontSize: 30)),
+                        Text('/100', style: AdaptivTypography.caption),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -263,7 +315,8 @@ class _SleepScreenState extends State<SleepScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Today\'s Sleep Score', style: AdaptivTypography.cardTitle),
+                  Text('Today\'s Sleep Score',
+                      style: AdaptivTypography.cardTitle),
                   const SizedBox(height: 6),
                   Text(
                     score >= 70
@@ -305,6 +358,7 @@ class _SleepScreenState extends State<SleepScreen> {
                   child: _buildTimeButton(
                     label: 'Bedtime',
                     value: DateFormat('h:mm a').format(_bedtime),
+                    brightness: brightness,
                     onTap: _pickBedtime,
                   ),
                 ),
@@ -313,6 +367,7 @@ class _SleepScreenState extends State<SleepScreen> {
                   child: _buildTimeButton(
                     label: 'Wake time',
                     value: DateFormat('h:mm a').format(_wakeTime),
+                    brightness: brightness,
                     onTap: _pickWakeTime,
                   ),
                 ),
@@ -334,7 +389,8 @@ class _SleepScreenState extends State<SleepScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Text('Estimated score: $score/100', style: AdaptivTypography.caption),
+            Text('Estimated score: $score/100',
+                style: AdaptivTypography.caption),
             const SizedBox(height: 12),
             TextField(
               controller: _notesController,
@@ -351,15 +407,24 @@ class _SleepScreenState extends State<SleepScreen> {
                 onPressed: _isSaving ? null : _logSleep,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AdaptivColors.primary,
+                  foregroundColor: Colors.white,
+                  disabledForegroundColor: Colors.white.withOpacity(0.7),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 child: _isSaving
                     ? const SizedBox(
                         height: 18,
                         width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
-                    : const Text('Log Sleep'),
+                    : const Text(
+                        'Log Sleep',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
               ),
             ),
           ],
@@ -371,23 +436,38 @@ class _SleepScreenState extends State<SleepScreen> {
   Widget _buildTimeButton({
     required String label,
     required String value,
+    required Brightness brightness,
     required VoidCallback onTap,
   }) {
+    final textColor = AdaptivColors.getTextColor(brightness);
+    final secondaryTextColor = AdaptivColors.getSecondaryTextColor(brightness);
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: AdaptivColors.primaryUltralight,
+          color: AdaptivColors.getSurfaceColor(brightness),
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AdaptivColors.getBorderColor(brightness)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: AdaptivTypography.caption),
+            Text(
+              label,
+              style:
+                  AdaptivTypography.caption.copyWith(color: secondaryTextColor),
+            ),
             const SizedBox(height: 6),
-            Text(value, style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              value,
+              style: AdaptivTypography.body.copyWith(
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
           ],
         ),
       ),
@@ -402,7 +482,9 @@ class _SleepScreenState extends State<SleepScreen> {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: isSelected ? AdaptivColors.primaryLight : AdaptivColors.background50,
+          color: isSelected
+              ? AdaptivColors.primaryLight
+              : AdaptivColors.background50,
           borderRadius: BorderRadius.circular(12),
           border: isSelected
               ? Border.all(color: AdaptivColors.primary, width: 2)
@@ -415,8 +497,9 @@ class _SleepScreenState extends State<SleepScreen> {
     );
   }
 
-  Widget _buildHistoryList(Brightness brightness) {
-    if (_sleepHistory.isEmpty) {
+  Widget _buildHistoryList(
+      Brightness brightness, List<Map<String, dynamic>> history) {
+    if (history.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -424,16 +507,17 @@ class _SleepScreenState extends State<SleepScreen> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AdaptivColors.getBorderColor(brightness)),
         ),
-        child: Text('No sleep entries yet.', style: AdaptivTypography.caption),
+        child: Text('No sleep entries for selected day.',
+            style: AdaptivTypography.caption),
       );
     }
 
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _sleepHistory.length,
+      itemCount: history.length,
       itemBuilder: (context, index) {
-        final entry = _sleepHistory[index];
+        final entry = history[index];
         final dateStr = entry['date']?.toString();
         final date = dateStr != null ? DateTime.tryParse(dateStr) : null;
         final duration = entry['duration_hours'] as num?;
@@ -457,8 +541,11 @@ class _SleepScreenState extends State<SleepScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      date != null ? DateFormat('MMM dd').format(date) : 'Sleep',
-                      style: AdaptivTypography.body.copyWith(fontWeight: FontWeight.w600),
+                      date != null
+                          ? DateFormat('MMM dd').format(date)
+                          : 'Sleep',
+                      style: AdaptivTypography.body
+                          .copyWith(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 4),
                     Text(

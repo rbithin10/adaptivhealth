@@ -723,7 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Text(
                                     riskLevel.toLowerCase() == 'high'
                                         ? 'Stay calm — your heart is working hard'
-                                        : 'Your heart is looking good today',
+                                        : 'How is your heart doing today?',
                                     style: AdaptivTypography.caption.copyWith(
                                       color: AdaptivColors.text600,
                                     ),

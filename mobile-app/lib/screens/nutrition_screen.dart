@@ -18,6 +18,7 @@ import 'recipe_library_screen.dart'; // The recipe browsing screen users can nav
 import '../theme/colors.dart'; // App colour palette
 import '../theme/typography.dart'; // Shared text styles
 import '../utils/validators.dart'; // Shared input validation helpers
+import '../widgets/week_view.dart'; // Weekly date selector
 
 class NutritionScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -33,6 +34,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
   bool _isLoading = false;
   bool _isProcessingScan = false;
   String? _errorMessage;
+  DateTime _selectedDate = DateTime.now();
 
   // Logged food entries and running totals for the day
   List<Map<String, dynamic>> _entries = [];
@@ -135,9 +137,11 @@ class _NutritionScreenState extends State<NutritionScreen> {
     });
 
     try {
-      final data = await widget.apiClient.getRecentNutrition(limit: 20);
+      final selectedDateStr =
+          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      final data = await widget.apiClient.getRecentNutrition(limit: 100, date: selectedDateStr);
       final entries = List<Map<String, dynamic>>.from(data['entries'] ?? []);
-      final totals = _calculateTodayTotals(entries);
+      final totals = _calculateDateTotals(entries, _selectedDate);
       setState(() {
         _entries = entries;
         _totalCount = data['total_count'] ?? 0;
@@ -155,10 +159,9 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
-  // Sum up calories and macros for entries logged today only
-  Map<String, int> _calculateTodayTotals(List<Map<String, dynamic>> entries) {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
+  // Sum up calories and macros for entries logged on the selected date
+  Map<String, int> _calculateDateTotals(List<Map<String, dynamic>> entries, DateTime selectedDate) {
+    final startOfDay = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
     final endOfDay = startOfDay.add(const Duration(days: 1));
 
     int calories = 0;
@@ -187,6 +190,30 @@ class _NutritionScreenState extends State<NutritionScreen> {
       'carbs': carbs,
       'fat': fat,
     };
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  DateTime _selectedDayLogTimestamp() {
+    // Use local midday to avoid date shifting around timezone boundaries.
+    return DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      12,
+    );
+  }
+
+  void _recalculateSelectedDateTotals() {
+    final totals = _calculateDateTotals(_entries, _selectedDate);
+    setState(() {
+      _totalCaloriesToday = totals['calories'] ?? 0;
+      _totalProteinToday = totals['protein'] ?? 0;
+      _totalCarbsToday = totals['carbs'] ?? 0;
+      _totalFatToday = totals['fat'] ?? 0;
+    });
   }
 
   // Read the date/time from an entry, converting it to the user's local timezone
@@ -358,6 +385,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   fatGrams: fatController.text.trim().isEmpty
                       ? null
                       : int.parse(fatController.text.trim()),
+                  loggedAt: _selectedDayLogTimestamp(),
                 );
                 if (context.mounted) {
                   Navigator.pop(context, true);
@@ -716,6 +744,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   fatGrams: fatController.text.trim().isEmpty
                       ? null
                       : int.parse(fatController.text.trim()),
+                  loggedAt: _selectedDayLogTimestamp(),
                 );
 
                 if (dialogContext.mounted) {
@@ -905,11 +934,26 @@ class _NutritionScreenState extends State<NutritionScreen> {
       );
     }
 
+    final selectedDateEntries = _entries.where((entry) {
+      final ts = _parseEntryTimestamp(entry);
+      return ts != null && _isSameDay(ts, _selectedDate);
+    }).toList();
+
     return RefreshIndicator(
       onRefresh: _loadNutritionEntries,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          WeekView(
+            selectedDate: _selectedDate,
+            onDateSelected: (date) {
+              setState(() {
+                _selectedDate = date;
+              });
+              _loadNutritionEntries();
+            },
+          ),
+          const SizedBox(height: 12),
           _buildNutritionActionRow(),
           if (_isProcessingScan) ...[
             const SizedBox(height: 8),
@@ -918,10 +962,10 @@ class _NutritionScreenState extends State<NutritionScreen> {
           const SizedBox(height: 16),
           _buildDailyGoalsCard(),
           const SizedBox(height: 16),
-          if (_entries.isEmpty)
+          if (selectedDateEntries.isEmpty)
             _buildEmptyEntriesState()
           else
-            ..._entries.map(_buildNutritionCard),
+            ...selectedDateEntries.map(_buildNutritionCard),
         ],
       ),
     );
@@ -1017,12 +1061,12 @@ class _NutritionScreenState extends State<NutritionScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'No nutrition entries yet',
+            'No nutrition entries for selected day',
             style: AdaptivTypography.sectionTitle,
           ),
           const SizedBox(height: 8),
           Text(
-            'Tap "Log Meal" below to start tracking your nutrition',
+            'Tap "Log Meal" below to track nutrition for this day',
             style: AdaptivTypography.body,
             textAlign: TextAlign.center,
           ),

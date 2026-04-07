@@ -215,9 +215,15 @@ const DashboardPage: React.FC = () => {
       }
 
       try {
-        eventSource = new EventSource(
-          `${API_BASE_URL}/api/v1/alerts/stream?token=${encodeURIComponent(token)}`
-        );
+        const sseUrl = `${API_BASE_URL}/api/v1/alerts/stream?token=${encodeURIComponent(token)}`;
+        console.info('[DIAG][REACT_SSE_TARGET][DASHBOARD]', {
+          envApiUrl: process.env.REACT_APP_API_URL ?? null,
+          apiBaseUrlResolved: API_BASE_URL,
+          sseUrl,
+          enableAlertPush: ENABLE_ALERT_PUSH,
+          tokenPresent: Boolean(token),
+        });
+        eventSource = new EventSource(sseUrl);
 
         eventSource.onopen = () => {
           void refreshAlertWidgets();

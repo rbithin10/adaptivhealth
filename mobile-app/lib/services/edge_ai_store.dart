@@ -282,16 +282,14 @@ class EdgeAiStore extends ChangeNotifier {
       'timestamp': DateTime.now().toIso8601String(),
     };
 
-    if (latestPrediction != null) {
-      await _syncService.queuePrediction(
-        prediction: latestPrediction!,
-        vitals: vitalsData,
-        alerts: activeAlerts.map((a) => a.toJson()).toList(),
-        gpsData: latestEmergency?.toJson(),
-      );
-      pendingSyncCount = _syncService.pendingCount;
-      notifyListeners(); // update sync count badge only
-    }
+    await _syncService.queuePrediction(
+      prediction: latestPrediction,
+      vitals: vitalsData,
+      alerts: activeAlerts.map((a) => a.toJson()).toList(),
+      gpsData: latestEmergency?.toJson(),
+    );
+    pendingSyncCount = _syncService.pendingCount;
+    notifyListeners(); // update sync count badge only
   }
 
   // ---- Manual Sync ----

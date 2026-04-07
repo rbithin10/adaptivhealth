@@ -10,13 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 import logging
 import re
 import time
 from contextlib import asynccontextmanager
 
 from app.config import settings
-from app.database import init_db, check_db_connection
+from app.database import init_db, check_db_connection, SessionLocal
 from app.api import auth, user, vital_signs, predict, activity, alert, advanced_ml, consent, nl_endpoints, nutrition, messages, medical_history, medication_reminder, rehab, food_analysis, clinical_notes
 from app.rate_limiter import limiter
 from app.services.ml_prediction import load_ml_model
@@ -55,6 +56,25 @@ async def lifespan(app: FastAPI):
     if not check_db_connection():
         logger.error("Database connection check failed")
         raise RuntimeError("Cannot connect to database")
+
+    masked_db_url = settings.database_url
+    if "@" in masked_db_url:
+        left, right = masked_db_url.split("@", 1)
+        masked_user = left.split(":")[0]
+        masked_db_url = f"{masked_user}:***@{right}"
+
+    logger.info(f"[DIAG][BACKEND_STARTUP] environment={settings.environment} db_url={masked_db_url}")
+
+    try:
+        with SessionLocal() as db:
+            row = db.execute(text(
+                "SELECT current_database() AS db, "
+                "COALESCE(inet_server_addr()::text, 'local') AS addr, "
+                "COALESCE(inet_server_port(), 0) AS port"
+            )).mappings().first()
+        logger.info(f"[DIAG][BACKEND_DB_TARGET] db={row['db']} addr={row['addr']} port={row['port']}")
+    except Exception as e:
+        logger.warning(f"[DIAG][BACKEND_DB_TARGET] lookup_failed={e}")
     
     # Load ML model (Massoud's trained Random Forest)
     # Uses absolute paths and joblib for production safety

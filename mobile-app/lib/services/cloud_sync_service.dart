@@ -58,7 +58,7 @@ class CloudSyncService {
   String? _lastSyncErrorMessage;
   DateTime? _lastSyncErrorAt;
   // Upload data to the server every 5 minutes (reduced from 15 for cardiac monitoring timeliness)
-  static const _syncInterval = Duration(minutes: 5);
+  static const _syncInterval = Duration(seconds: 5);
   // Check if we have internet every 20 seconds
   static const _probeInterval = Duration(seconds: 20);
   // Give up on connectivity check after 4 seconds
@@ -144,7 +144,7 @@ class CloudSyncService {
 
   // Save an AI prediction to the local queue (will be uploaded later)
   Future<void> queuePrediction({
-    required EdgeRiskPrediction prediction,
+    EdgeRiskPrediction? prediction,
     required Map<String, dynamic> vitals,
     List<Map<String, dynamic>>? alerts,
     Map<String, dynamic>? gpsData,
@@ -152,8 +152,8 @@ class CloudSyncService {
     // Package the prediction with a timestamp for the sync queue
     final entry = {
       'timestamp': DateTime.now().toIso8601String(),
-      'prediction': prediction.toJson(),
       'vitals': vitals,
+      if (prediction != null) 'prediction': prediction.toJson(),
       if (alerts != null && alerts.isNotEmpty) 'alerts': alerts,
       if (gpsData != null) 'gps': gpsData,
     };
@@ -180,7 +180,8 @@ class CloudSyncService {
 
     // If this is a HIGH or CRITICAL risk, try to send it immediately
     // so the doctor's dashboard updates within seconds (not 15 min)
-    if (prediction.riskLevel == 'high' || prediction.riskLevel == 'critical') {
+    if (prediction != null &&
+        (prediction.riskLevel == 'high' || prediction.riskLevel == 'critical')) {
       unawaited(
         pushCriticalAlertNow(
           prediction: prediction,

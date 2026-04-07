@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from typing import Optional, List, Dict
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 import logging
 
 from app.database import get_db
@@ -213,6 +213,7 @@ async def log_meal_consumption(
 @router.get("/nutrition/recent", response_model=NutritionListResponse)
 async def get_recent_nutrition_entries(
     limit: int = Query(default=5, ge=1, le=100, description="Number of entries to return"),
+    date_str: Optional[str] = Query(default=None, alias="date", description="Filter entries by date (YYYY-MM-DD)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -228,15 +229,40 @@ async def get_recent_nutrition_entries(
         NutritionListResponse: List of recent nutrition entries with total count
     """
     try:
-        # Get total count for this user
-        total_count = db.query(func.count(NutritionEntry.entry_id)).filter(
+        start_ts: Optional[datetime] = None
+        end_ts: Optional[datetime] = None
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid date format. Use YYYY-MM-DD",
+                )
+            start_ts = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+            end_ts = start_ts + timedelta(days=1)
+
+        count_query = db.query(func.count(NutritionEntry.entry_id)).filter(
             NutritionEntry.user_id == current_user.user_id
-        ).scalar()  # How many total entries exist for this user
+        )
+        if start_ts is not None and end_ts is not None:
+            count_query = count_query.filter(
+                NutritionEntry.timestamp >= start_ts,
+                NutritionEntry.timestamp < end_ts,
+            )
+        total_count = count_query.scalar()
         
         # Get recent entries ordered by timestamp descending
-        entries = (  # Fetch the most recent meals, newest first
-            db.query(NutritionEntry)
-            .filter(NutritionEntry.user_id == current_user.user_id)
+        entries_query = db.query(NutritionEntry).filter(
+            NutritionEntry.user_id == current_user.user_id
+        )
+        if start_ts is not None and end_ts is not None:
+            entries_query = entries_query.filter(
+                NutritionEntry.timestamp >= start_ts,
+                NutritionEntry.timestamp < end_ts,
+            )
+        entries = (
+            entries_query
             .order_by(desc(NutritionEntry.timestamp))
             .limit(limit)
             .all()

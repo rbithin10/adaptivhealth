@@ -236,7 +236,7 @@ cd mobile-app && flutter test
 ## Deployment
 
 ### SSH to EC2
-ssh -i "adaptiv-key.pem" ec2-user@13.201.126.13 
+ssh -i "adaptiv-key.pem" ec2-user@--public ip--
 
 ### Backend
 ```bash

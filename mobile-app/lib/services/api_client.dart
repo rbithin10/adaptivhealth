@@ -79,6 +79,13 @@ class ApiClient {
   static Future<void> initialize() async {
     _authToken = await _storage.read(key: 'auth_token'); // Grab the saved login token
     _refreshToken = await _storage.read(key: 'refresh_token'); // Grab the saved refresh token
+    debugPrint('[DIAG][FLUTTER_API_TARGET][INIT] '
+        'baseUrl=$baseUrl '
+        'configured=${_configuredBaseUrl.isNotEmpty} '
+        'useProduction=$_useProduction '
+        'useLocal=$_useLocal '
+        'tokenPresent=${_authToken != null} '
+        'refreshPresent=${_refreshToken != null}');
   }
 
   /// Persist new tokens both in memory and in secure storage.
@@ -128,6 +135,7 @@ class ApiClient {
         receiveTimeout: const Duration(seconds: 10), // Give up waiting for a response after 10 seconds
       ),
     );
+    debugPrint('[DIAG][FLUTTER_API_TARGET][DIO_CREATE] baseUrl=${dio.options.baseUrl}');
 
     // In debug builds, trust self-signed certificates on the EC2 dev server.
     // This block is compiled out in release builds.
@@ -505,7 +513,11 @@ class ApiClient {
       if (diastolicBp != null) payload['blood_pressure_diastolic'] = diastolicBp;
       if (hrv != null) payload['hrv'] = hrv;
 
+      final fullUrl = '${_dio.options.baseUrl}/vitals';
+      debugPrint('[DIAG][FLUTTER_VITALS_POST][REQUEST] url=$fullUrl payload=$payload');
       final response = await _dio.post('/vitals', data: payload);
+      debugPrint('[DIAG][FLUTTER_VITALS_POST][RESPONSE] '
+          'url=$fullUrl status=${response.statusCode} data=${response.data}');
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -1123,11 +1135,14 @@ class ApiClient {
   ///   "total_count": 47,
   ///   "limit": 5
   /// }
-  Future<Map<String, dynamic>> getRecentNutrition({int limit = 5}) async {
+  Future<Map<String, dynamic>> getRecentNutrition({int limit = 5, String? date}) async {
     try {
       final response = await _dio.get(
         '/nutrition/recent',
-        queryParameters: {'limit': limit},
+        queryParameters: {
+          'limit': limit,
+          if (date != null && date.isNotEmpty) 'date': date,
+        },
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -1156,11 +1171,13 @@ class ApiClient {
     int? proteinGrams,
     int? carbsGrams,
     int? fatGrams,
+    DateTime? loggedAt,
   }) async {
     try {
       final data = <String, dynamic>{
         'meal_type': mealType,
         'calories': calories,
+        if (loggedAt != null) 'logged_at': loggedAt.toUtc().toIso8601String(),
       };
       if (description != null && description.isNotEmpty) {
         data['description'] = description;

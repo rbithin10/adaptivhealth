@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search } from 'lucide-react';
 import { Snackbar, Alert as MuiAlert } from '@mui/material';
 import { api } from '../services/api';
-import { User, MedicalProfileSummary, MedicalProfile } from '../types';
+import { User, MedicalProfileSummary, MedicalProfile, VitalSignResponse } from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import StatusBadge, { riskToStatus } from '../components/common/StatusBadge';
@@ -31,6 +31,7 @@ interface PatientRecordState {
 }
 
 type RecordSource = Record<string, unknown>;
+type PatientRow = User & { latest_vitals?: VitalSignResponse | null };
 
 const PatientsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ const PatientsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRisk, setFilterRisk] = useState<'all' | PatientRiskLevel>('all');
   // The full list of patients loaded from the server
-  const [patients, setPatients] = useState<User[]>([]);
+  const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
   // Toast notification state
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -102,6 +103,19 @@ const PatientsPage: React.FC = () => {
         patientUsers.map((patient) => api.getLatestRiskAssessmentForUser(patient.user_id))
       );
 
+      // Fetch each patient's latest vitals in parallel
+      const vitalsResults = await Promise.allSettled(
+        patientUsers.map((patient) => api.getLatestVitalSignsForUser(patient.user_id))
+      );
+
+      const vitalsByPatientId: Record<number, VitalSignResponse | null> = {};
+      vitalsResults.forEach((result, index) => {
+        const patientId = patientUsers[index]?.user_id;
+        if (patientId) {
+          vitalsByPatientId[patientId] = result.status === 'fulfilled' ? result.value : null;
+        }
+      });
+
       const riskByPatientId: Record<number, { level: PatientRiskLevel; score: number }> = {};
       riskResults.forEach((result, index) => {
         const patientId = patientUsers[index]?.user_id;
@@ -127,6 +141,7 @@ const PatientsPage: React.FC = () => {
           ...patient,
           risk_level: riskByPatientId[patient.user_id]?.level ?? 'low',
           risk_score: riskByPatientId[patient.user_id]?.score ?? 0,
+          latest_vitals: vitalsByPatientId[patient.user_id] ?? null,
         }))
       );
 
@@ -137,6 +152,17 @@ const PatientsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Format a timestamp as "X min ago" or "X hr(s) ago"
+  const formatTimeAgo = (isoDate?: string) => {
+    if (!isoDate) return '--';
+    const date = new Date(isoDate);
+    const diffMs = Date.now() - date.getTime();
+    const diffMin = Math.max(1, Math.floor(diffMs / 60000));
+    if (diffMin < 60) return `${diffMin} min ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    return `${diffHr} hr${diffHr > 1 ? 's' : ''} ago`;
   };
 
   // Show medical condition badges (e.g. Prior MI, Heart Failure) for a patient
@@ -709,9 +735,11 @@ const PatientsPage: React.FC = () => {
                   <StatusBadge status={riskToStatus(patient.risk_level || 'low')} size="sm" />
                 </div>
                 <div style={{ ...typography.body, fontWeight: 600 }}>
-                  -- <span style={{ ...typography.caption, fontWeight: 400 }}>BPM</span>
+                  {patient.latest_vitals?.heart_rate ?? '--'} <span style={{ ...typography.caption, fontWeight: 400 }}>BPM</span>
                 </div>
-                <div style={typography.caption}>--</div>
+                <div style={typography.caption}>
+                  {formatTimeAgo(patient.latest_vitals?.timestamp)}
+                </div>
                 <div
                   style={{
                     display: 'flex',

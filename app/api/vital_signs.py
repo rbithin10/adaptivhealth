@@ -42,10 +42,12 @@ This file saves heart data from devices and lets the app read it back.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, text
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 import logging
+import os
+import socket
 
 from app.database import get_db
 from app.models.user import User, UserRole
@@ -69,6 +71,22 @@ logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter()
+
+
+def _backend_instance_id() -> str:
+    return os.getenv("HOSTNAME") or socket.gethostname()
+
+
+def _db_target(db: Session) -> str:
+    try:
+        row = db.execute(text(
+            "SELECT current_database() AS db, "
+            "COALESCE(inet_server_addr()::text, 'local') AS addr, "
+            "COALESCE(inet_server_port(), 0) AS port"
+        )).mappings().first()
+        return f"{row['db']}@{row['addr']}:{row['port']}"
+    except Exception as e:
+        return f"unknown({e})"
 
 
 # =============================================================================
@@ -645,6 +663,15 @@ async def submit_vitals(
         "timestamp": "2026-01-15T14:30:00Z"
     }
     """
+    logger.info(
+        "[DIAG][VITALS_POST] backend=%s host=%s path=%s user=%s db=%s",
+        _backend_instance_id(),
+        request.headers.get("host"),
+        request.url.path,
+        current_user.user_id,
+        _db_target(db),
+    )
+
     # Validate heart rate is physiologically possible
     # WHY: Wearables sometimes send erroneous values (motion artifacts, sensor loss)
     # 30 BPM = severe bradycardia (requires medical attention but possible)
@@ -688,7 +715,14 @@ async def submit_vitals(
     # Check for alerts in background
     background_tasks.add_task(check_vitals_for_alerts, current_user.user_id, vital_data)
     
-    logger.info(f"Vital signs recorded for user {current_user.user_id}: HR={vital_data.heart_rate}")
+    logger.info(
+        "[DIAG][VITALS_POST_STORED] backend=%s user=%s hr=%s ts=%s db=%s",
+        _backend_instance_id(),
+        current_user.user_id,
+        vital_data.heart_rate,
+        new_vital.timestamp,
+        _db_target(db),
+    )
     
     return new_vital
 
@@ -1134,6 +1168,7 @@ async def push_critical_alert(
 # =============================================
 @router.get("/vitals/latest", response_model=VitalSignResponse)
 async def get_latest_vitals(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1142,6 +1177,15 @@ async def get_latest_vitals(
     
     Used by mobile app home screen and doctor dashboard.
     """
+    logger.info(
+        "[DIAG][VITALS_GET_LATEST] backend=%s host=%s path=%s user=%s db=%s",
+        _backend_instance_id(),
+        request.headers.get("host"),
+        request.url.path,
+        current_user.user_id,
+        _db_target(db),
+    )
+
     latest = db.query(VitalSignRecord)\
                .filter(VitalSignRecord.user_id == current_user.user_id)\
                .order_by(VitalSignRecord.timestamp.desc())\
@@ -1189,6 +1233,7 @@ async def get_vitals_summary(
 # =============================================
 @router.get("/vitals/history", response_model=VitalSignsHistoryResponse)
 async def get_vitals_history(
+    request: Request,
     days: int = Query(7, ge=1, le=90, description="Number of days of history"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(100, ge=1, le=1000, description="Records per page"),
@@ -1200,6 +1245,18 @@ async def get_vitals_history(
     
     Used by mobile app graphs and doctor dashboard analytics.
     """
+    logger.info(
+        "[DIAG][VITALS_GET_HISTORY] backend=%s host=%s path=%s user=%s days=%s page=%s per_page=%s db=%s",
+        _backend_instance_id(),
+        request.headers.get("host"),
+        request.url.path,
+        current_user.user_id,
+        days,
+        page,
+        per_page,
+        _db_target(db),
+    )
+
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
     
@@ -1243,6 +1300,7 @@ async def get_vitals_history(
 @router.get("/vitals/user/{user_id}/latest", response_model=VitalSignResponse)
 async def get_user_latest_vitals(
     user_id: int,
+    request: Request,
     current_user: User = Depends(get_current_doctor_user),
     db: Session = Depends(get_db)
 ):
@@ -1251,6 +1309,16 @@ async def get_user_latest_vitals(
     
     Clinician/Admin access only.
     """
+    logger.info(
+        "[DIAG][VITALS_GET_USER_LATEST] backend=%s host=%s path=%s clinician=%s patient=%s db=%s",
+        _backend_instance_id(),
+        request.headers.get("host"),
+        request.url.path,
+        current_user.user_id,
+        user_id,
+        _db_target(db),
+    )
+
     # Check access permissions
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
@@ -1319,6 +1387,7 @@ async def get_user_vitals_summary(
 @router.get("/vitals/user/{user_id}/history", response_model=VitalSignsHistoryResponse)
 async def get_user_vitals_history(
     user_id: int,
+    request: Request,
     days: int = Query(7, ge=1, le=90),
     page: int = Query(1, ge=1),
     per_page: int = Query(100, ge=1, le=1000),
@@ -1330,6 +1399,19 @@ async def get_user_vitals_history(
     
     Clinician/Admin access only.
     """
+    logger.info(
+        "[DIAG][VITALS_GET_USER_HISTORY] backend=%s host=%s path=%s clinician=%s patient=%s days=%s page=%s per_page=%s db=%s",
+        _backend_instance_id(),
+        request.headers.get("host"),
+        request.url.path,
+        current_user.user_id,
+        user_id,
+        days,
+        page,
+        per_page,
+        _db_target(db),
+    )
+
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(
