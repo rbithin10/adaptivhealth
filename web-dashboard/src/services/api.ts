@@ -452,7 +452,9 @@ class ApiService {
 
   // Get alert statistics (counts by severity, type, etc.)
   async getAlertStats(): Promise<AlertStatsResponse> {
-    const response = await this.client.get<AlertStatsResponse>('/alerts/stats');
+    const response = await this.client.get<AlertStatsResponse>('/alerts/stats', {
+      params: { days: 1, _ts: Date.now() },
+    });
     return response.data;
   }
 

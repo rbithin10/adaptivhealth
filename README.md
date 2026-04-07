@@ -15,6 +15,10 @@ Adaptiv Health is a clinical-grade health monitoring system designed for:
 
 ## Quick Start
 
+Dashboard available at dashboard-adaptivhealthuowd.xyz
+Mobile app-- release build apk availble at mobile-app\build\outputs\flutter-apk
+
+### To run LOCAL
 ### Prerequisites
 - Python 3.9+
 - Node.js 16+
@@ -25,7 +29,7 @@ Adaptiv Health is a clinical-grade health monitoring system designed for:
 ```bash
 cp .env.example .env        # Edit with your database URL, secret key, etc.
 cp web-dashboard/.env.example web-dashboard/.env
-```
+
 
 ### 2. Start the Backend
 ```bash
@@ -46,7 +50,8 @@ Dashboard runs on `http://localhost:3000`.
 ```bash
 cd mobile-app
 flutter pub get
-flutter run
+flutter run -d chrome --dart-define=USE_LOCAL=true
+
 ```
 
 ---
@@ -94,23 +99,34 @@ flutter run
 
 ## Architecture
 
+```text
+┌───────────────────────────────┐        ┌───────────────────────────────┐
+│     Patient Mobile App        │        │   Clinician Web Dashboard     │
+│      Flutter / Dart           │        │   React / TypeScript          │
+│ - Vitals, rehab, nutrition    │        │ - Rosters, alerts, messages   │
+│ - BLE + health platform sync  │        │ - Risk review + admin tools   │
+│ - Edge AI risk checks         │        │ - ML explainability views     │
+└──────────────┬────────────────┘        └──────────────┬────────────────┘
+           │ HTTPS + JWT                          │ HTTPS + JWT
+           └──────────────┬───────────────────────┘
+                  │
+           ┌──────────▼──────────┐
+           │   FastAPI Backend   │
+           │ - Auth + RBAC       │
+           │ - Vitals + alerts   │
+           │ - Rehab + nutrition  │
+           │ - Messaging + NLP    │
+           │ - ML prediction API  │
+           └───────┬───────┬──────┘
+               │       │
+         ┌─────────────▼┐   ┌──▼─────────────────┐
+         │ PostgreSQL   │   │ ML + Integrations   │
+         │ SQLAlchemy   │   │ scikit-learn/TFLite │
+         │ migrations   │   │ Gemini, SMTP, APIs  │
+         └──────────────┘   └─────────────────────┘
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Patient (Mobile)                       │
-│  Flutter App — 16 screens, BLE, Fitbit, health APIs     │
-└────────────────────┬────────────────────────────────────┘
-                     │ HTTPS (JWT Auth)
-┌────────────────────▼────────────────────────────────────┐
-│                  Backend (FastAPI)                       │
-│  16 API modules, 14 DB models, 11 services              │
-│  Database: PostgreSQL  │  ML: scikit-learn / TFLite      │
-└────────────────────┬────────────────────────────────────┘
-                     │ HTTPS (JWT Auth)
-┌────────────────────▼────────────────────────────────────┐
-│              Clinician (Web Dashboard)                   │
-│  React/TypeScript — 8 pages, MUI theme, Axios client    │
-└─────────────────────────────────────────────────────────┘
-```
+
+The mobile app handles patient data capture and edge-side checks, while the dashboard is the clinician workflow layer. Both clients communicate with the backend over authenticated HTTPS, and the backend centralizes persistence, business rules, ML scoring, messaging, and external service calls.
 
 ---
 
@@ -161,39 +177,30 @@ AdaptivHealth/
 
 ## API Endpoints
 
-### Authentication
-- `POST /auth/register` — Create account
-- `POST /auth/login` — Login, returns JWT
-- `POST /auth/refresh` — Refresh access token
-- `POST /auth/request-password-reset` — Request password reset email
-- `POST /auth/reset-password` — Reset password with token
+Representative endpoints:
 
-### Vital Signs
-- `GET /vitals/latest` — Current HR, SpO2, BP
-- `GET /vitals/history` — Historical data (24h/7d/30d)
-- `POST /vitals/submit` — Submit a reading
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `GET /vitals/latest`
+- `GET /vitals/history`
+- `POST /vitals/submit`
+- `POST /predictions/risk`
+- `GET /messages/`
+- `POST /messages/`
 
-### Risk Prediction
-- `POST /predictions/risk` — ML risk assessment with explainability
-
-### Messaging
-- `GET /messages/` — Conversation history
-- `POST /messages/` — Send message
-
-### Recommendations, Nutrition, Rehab, Alerts, Activity
-- See full API docs at `http://localhost:8080/docs`
+For complete route coverage, use local API docs at `http://localhost:8080/docs`.
 
 ---
 
 ## Security
 
-- JWT token authentication (HS256) with refresh and token blocklist
-- NIST-approved password hashing (pbkdf2_sha256, 600k iterations)
+- JWT authentication with refresh tokens and blocklist
+- Password hashing with `pbkdf2_sha256` (600k iterations)
 - Optional AES-256-GCM encryption for PHI fields
-- SQL injection prevention (SQLAlchemy ORM)
-- CORS configuration and rate limiting
-- HTTPS support (SSL certificates included for deployment)
-- Secure token storage on mobile (flutter_secure_storage)
+- SQLAlchemy ORM protections against injection risks
+- CORS controls and request rate limiting
+- Secure token storage on mobile (`flutter_secure_storage`)
 
 ---
 
@@ -207,7 +214,7 @@ AdaptivHealth/
 | **Database** | PostgreSQL, SQLAlchemy |
 | **ML** | scikit-learn, TensorFlow Lite |
 | **Auth** | JWT (HS256), pbkdf2_sha256 |
-| **Deployment** | Docker, Nginx, AWS RDS |
+| **Deployment** | Nginx, AWS RDS |
 
 ---
 
@@ -228,17 +235,27 @@ cd mobile-app && flutter test
 
 ## Deployment
 
+### SSH to EC2
+ssh -i "adaptiv-key.pem" ec2-user@13.201.126.13 
+
+### Backend
 ```bash
-# Backend (Docker)
-docker build -t adaptiv-health .
-docker run -p 8080:8080 --env-file .env adaptiv-health
+pip install -r requirements.txt
+python start_server.py
+```
 
-# Web dashboard
-cd web-dashboard && npm run build
-# Serve the build/ directory
+### Web Dashboard
+```bash
+cd web-dashboard
+npm run build
+```
 
-# Mobile app
-flutter build apk --release          # Android
+Serve the generated `build/` directory with your preferred static hosting.
+
+### Mobile App
+```bash
+cd mobile-app
+flutter build apk --release           # Android
 flutter build appbundle --release     # Google Play
 flutter build ios --release           # iOS
 ```
@@ -256,4 +273,4 @@ See [.env.example](.env.example) for all required and optional variables includi
 
 ---
 
-**Version**: 1.0.0
+

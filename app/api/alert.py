@@ -27,12 +27,12 @@ Manages health alerts and warnings for cardiac patients.
 # =============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
 # StreamingResponse lets us send real-time updates to the dashboard via SSE
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 # desc sorts results newest first; and_ combines filter conditions; func lets us count/aggregate
-from sqlalchemy import desc, and_, func
+from sqlalchemy import desc, and_, or_, func
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 # asyncio lets us run background loops for real-time streaming
@@ -58,7 +58,6 @@ from app.schemas.alert import (
 from app.api.auth import (
     get_current_user,
     get_current_doctor_user,
-    get_current_admin_or_doctor_user,
     check_clinician_phi_access,
     auth_service,
 )
@@ -120,19 +119,26 @@ def _compute_alert_snapshot(db: Session, days: int) -> dict:
     # Only look at alerts from the last N days
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Count how many alerts exist at each severity level (critical, warning, etc.)
+    # Count only active alerts (not resolved) within the requested period.
+    active_filter = and_(
+        Alert.created_at >= since,
+        or_(Alert.is_resolved == False, Alert.is_resolved.is_(None)),
+        Alert.resolved_at.is_(None),
+    )
+
+    # Count how many active alerts exist at each severity level (critical, warning, etc.)
     severity_counts = db.query(
         Alert.severity,
         func.count(Alert.alert_id).label("count")
     ).filter(
-        Alert.created_at >= since
+        active_filter
     ).group_by(Alert.severity).all()
 
-    # Count how many alerts have NOT been acknowledged (still need attention)
+    # Count how many active alerts have NOT been acknowledged (still need attention)
     unacknowledged = db.query(func.count(Alert.alert_id)).filter(
         and_(
-            Alert.created_at >= since,
-            Alert.acknowledged == False
+            active_filter,
+            or_(Alert.acknowledged == False, Alert.acknowledged.is_(None)),
         )
     ).scalar()
 
@@ -258,11 +264,8 @@ async def acknowledge_alert(
     
     Marks the alert as read/acknowledged by the user.
     """
-    # Find the alert by its ID, but only if it belongs to the current user
-    alert = db.query(Alert).filter(
-        Alert.alert_id == alert_id,
-        Alert.user_id == current_user.user_id
-    ).first()
+    # Find the alert by its ID
+    alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     
     # If no matching alert found, tell the user
     if not alert:
@@ -271,6 +274,20 @@ async def acknowledge_alert(
             detail="Alert not found"
         )
     
+    # Access rules:
+    # - Patients can acknowledge only their own alerts.
+    # - Clinicians/Admin can acknowledge any alert, but clinicians must have PHI access.
+    if current_user.role == UserRole.PATIENT and alert.user_id != current_user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only acknowledge your own alerts"
+        )
+
+    if current_user.role in [UserRole.CLINICIAN, UserRole.ADMIN]:
+        patient = db.query(User).filter(User.user_id == alert.user_id).first()
+        if patient:
+            check_clinician_phi_access(current_user, patient)
+
     # Mark the alert as seen/acknowledged so it no longer shows as new
     alert.acknowledged = True
     # Record when the alert was acknowledged
@@ -295,7 +312,7 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: int,
     update_data: AlertUpdate,
-    current_user: User = Depends(get_current_admin_or_doctor_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -312,14 +329,25 @@ async def resolve_alert(
             detail="Alert not found"
         )
 
-    # Make sure the clinician has permission to access this patient's data
-    patient = db.query(User).filter(User.user_id == alert.user_id).first()
-    if patient:
-        check_clinician_phi_access(current_user, patient)
+    # Access rules:
+    # - Patients can resolve only their own alerts.
+    # - Clinicians/Admin can resolve any alert, but clinicians must have PHI access.
+    if current_user.role == UserRole.PATIENT and alert.user_id != current_user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only resolve your own alerts"
+        )
+
+    if current_user.role in [UserRole.CLINICIAN, UserRole.ADMIN]:
+        patient = db.query(User).filter(User.user_id == alert.user_id).first()
+        if patient:
+            check_clinician_phi_access(current_user, patient)
     
-    # Update acknowledged status if provided in the request
+    # Resolving an alert implies it has been handled, so default to acknowledged.
     if update_data.acknowledged is not None:
         alert.acknowledged = update_data.acknowledged
+    else:
+        alert.acknowledged = True
 
     # Mark this alert as resolved (issue has been addressed)
     alert.is_resolved = True
@@ -464,7 +492,8 @@ async def get_user_alerts(
 # =============================================
 @router.get("/alerts/stats")
 async def get_alert_statistics(
-    days: int = Query(7, ge=1, le=90),
+    response: Response,
+    days: int = Query(1, ge=1, le=90),
     current_user: User = Depends(get_current_doctor_user),
     db: Session = Depends(get_db)
 ):
@@ -473,6 +502,9 @@ async def get_alert_statistics(
     
     Admin/Clinician access only. Used for dashboard metrics.
     """
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return _compute_alert_snapshot(db, days)
 
 

@@ -561,6 +561,11 @@ const DashboardPage: React.FC = () => {
     );
   }
 
+  const firstNameToken = currentUser?.full_name?.trim().split(/\s+/)[0] ?? '';
+  const greetingName = firstNameToken && !/^dr\.?$/i.test(firstNameToken)
+    ? firstNameToken
+    : 'Doctor';
+
   return (
     <div
       style={{
@@ -581,7 +586,7 @@ const DashboardPage: React.FC = () => {
       >
         {/* Page Title */}
         <h2 style={typography.pageTitle}>
-          Welcome back, {currentUser?.full_name?.split(' ')[0] || 'Doctor'}!
+          Welcome back, {greetingName}!
         </h2>
         <p style={{ ...typography.body, color: colors.neutral['500'], marginBottom: '32px' }}>
           Real-time cardiovascular patient monitoring

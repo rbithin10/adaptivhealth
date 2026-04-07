@@ -22,8 +22,8 @@ import { typography } from '../../theme/typography';
 interface VitalsPanelProps {
   latestVitals: VitalSignResponse | null;
   vitalsHistory: VitalSignsHistoryResponse | null;
-  timeRange: '1week' | '2weeks' | '1month' | '3months';
-  setTimeRange: React.Dispatch<React.SetStateAction<'1week' | '2weeks' | '1month' | '3months'>>;
+  timeRange: 'today' | '1week' | '2weeks' | '1month' | '3months';
+  setTimeRange: React.Dispatch<React.SetStateAction<'today' | '1week' | '2weeks' | '1month' | '3months'>>;
   riskAssessment: RiskAssessmentResponse | null;
   computingRisk: boolean;
   onComputeRisk: () => void;
@@ -125,12 +125,13 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
       </div>
 
       <div style={{ marginBottom: '32px', display: 'flex', gap: '8px' }}>
-        {['1week', '2weeks', '1month', '3months'].map((range) => (
+        {(['today', '1week', '2weeks', '1month', '3months'] as const).map((range) => (
           <button
             key={range}
-            onClick={() => setTimeRange(range as '1week' | '2weeks' | '1month' | '3months')}
+            onClick={() => setTimeRange(range)}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: timeRange === range ? colors.primary.default : colors.neutral['100'], color: timeRange === range ? colors.neutral.white : colors.neutral['700'], cursor: 'pointer', fontWeight: 500, transition: 'all 0.2s' }}
           >
+            {range === 'today' && 'Today'}
             {range === '1week' && '1 Week'}
             {range === '2weeks' && '2 Weeks'}
             {range === '1month' && '1 Month'}
@@ -141,44 +142,61 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
 
       <div style={{ backgroundColor: colors.neutral.white, border: `1px solid ${colors.neutral['300']}`, borderRadius: '12px', padding: '24px', marginBottom: '32px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
         <h3 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Heart Rate History</h3>
-        {vitalsHistory?.vitals?.length ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={vitalsHistory.vitals.map((v) => ({
-              time: new Date(v.timestamp).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-              }),
-              hr: v.heart_rate,
-              spo2: v.spo2,
-              systolic: v.blood_pressure?.systolic || null,
-              timestamp: v.timestamp,
-            }))}>
-              <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
-              <XAxis dataKey="time" stroke={colors.neutral['500']} style={{ fontSize: '12px' }} />
-              <YAxis stroke={colors.neutral['500']} style={{ fontSize: '12px' }} domain={[40, 180]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: colors.neutral.white,
-                  border: `1px solid ${colors.neutral['300']}`,
-                  borderRadius: '6px',
-                }}
-                formatter={(value) => {
-                  if (value === null || value === undefined) return 'N/A';
-                  const n = typeof value === 'number' ? value : Number(value);
-                  return Number.isFinite(n) ? n.toFixed(1) : 'N/A';
-                }}
-              />
-              <Legend wrapperStyle={{ paddingTop: '16px' }} />
-              <Line type="monotone" dataKey="hr" stroke={colors.critical.badge} name="Heart Rate (BPM)" dot={false} strokeWidth={2} />
-              <Line type="monotone" dataKey="spo2" stroke={colors.warning.badge} name="SpO2 (%)" dot={false} strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        ) : (
-          <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.neutral['50'], borderRadius: '8px', color: colors.neutral['500'] }}>
-            No vitals history available for chart
-          </div>
-        )}
+        {(() => {
+          const reversed = (vitalsHistory?.vitals ?? []).slice().reverse();
+          const visibleVitals = (() => {
+            if (timeRange !== 'today' || reversed.length === 0) return reversed;
+            // Filter to only the most recent calendar date present in the data.
+            // This handles emulator/device clocks that may not match the real date.
+            const latestDay = new Date(reversed[reversed.length - 1].timestamp).toDateString();
+            return reversed.filter(v => new Date(v.timestamp).toDateString() === latestDay);
+          })();
+          const chartData = visibleVitals.map((v) => ({
+            time: timeRange === 'today'
+              ? new Date(v.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+              : new Date(v.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            hr: v.heart_rate,
+            spo2: v.spo2,
+            systolic: v.blood_pressure?.systolic || null,
+            timestamp: v.timestamp,
+          }));
+          return chartData.length ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
+                <XAxis
+                  dataKey="time"
+                  stroke={colors.neutral['500']}
+                  style={{ fontSize: '12px' }}
+                  interval={timeRange === 'today' ? 'preserveStartEnd' : Math.max(0, Math.floor(chartData.length / 8))}
+                  angle={timeRange === 'today' ? 0 : -30}
+                  textAnchor={timeRange === 'today' ? 'middle' : 'end'}
+                  height={timeRange === 'today' ? 30 : 50}
+                />
+                <YAxis stroke={colors.neutral['500']} style={{ fontSize: '12px' }} domain={[40, 180]} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: colors.neutral.white,
+                    border: `1px solid ${colors.neutral['300']}`,
+                    borderRadius: '6px',
+                  }}
+                  formatter={(value) => {
+                    if (value === null || value === undefined) return 'N/A';
+                    const n = typeof value === 'number' ? value : Number(value);
+                    return Number.isFinite(n) ? n.toFixed(1) : 'N/A';
+                  }}
+                />
+                <Legend wrapperStyle={{ paddingTop: '16px' }} />
+                <Line type="monotone" dataKey="hr" stroke={colors.critical.badge} name="Heart Rate (BPM)" dot={false} strokeWidth={2} />
+                <Line type="monotone" dataKey="spo2" stroke={colors.warning.badge} name="SpO2 (%)" dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.neutral['50'], borderRadius: '8px', color: colors.neutral['500'] }}>
+              {timeRange === 'today' ? 'No vitals recorded today' : 'No vitals history available for this range'}
+            </div>
+          );
+        })()}
       </div>
     </>
   );

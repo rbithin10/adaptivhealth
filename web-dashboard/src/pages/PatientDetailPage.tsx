@@ -10,13 +10,12 @@ Shows detailed information about one patient:
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, Flame, CheckCircle, XCircle, BarChart2, MessageSquare, FileText, Info, Cpu, HardDrive, RefreshCw, Eye, PenLine, Trash2 } from 'lucide-react';
+import { ArrowLeft, Heart, Wind, Activity, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Zap, Crosshair, ArrowRight, Check, Loader, Shuffle, Clock, CheckCircle, MessageSquare, FileText, Info, RefreshCw, Eye, PenLine, Trash2 } from 'lucide-react';
 import { Snackbar, Alert as MuiAlert } from '@mui/material';
 import { api } from '../services/api';
 import {
   AlertResponse,
   ActivitySessionResponse,
-  RecommendationResponse,
   RiskAssessmentResponse,
   User,
   VitalSignResponse,
@@ -27,8 +26,6 @@ import {
   BaselineOptimizationResponse,
   RankedRecommendationResponse,
   NaturalLanguageRiskSummaryResponse,
-  RetrainingStatusResponse,
-  RetrainingReadinessResponse,
   ExplainPredictionResponse,
   MedicalProfile,
   MedicalExtractionStatusResponse,
@@ -43,7 +40,6 @@ import StatusBadge, { riskToStatus } from '../components/common/StatusBadge';
 import VitalsPanel from '../components/patient/VitalsPanel';
 import MedicalProfilePanel from '../components/patient/MedicalProfilePanel';
 import AlertsPanel from '../components/patient/AlertsPanel';
-import RiskAssessmentPanel from '../components/patient/RiskAssessmentPanel';
 import SessionHistoryPanel from '../components/patient/SessionHistoryPanel';
 import PredictionExplainabilityPanel from '../components/patient/PredictionExplainabilityPanel';
 import AdvancedMLPanel from '../components/patient/AdvancedMLPanel';
@@ -57,7 +53,6 @@ const PatientDetailPage: React.FC = () => {
   const [patient, setPatient] = useState<User | null>(null);
   const [latestVitals, setLatestVitals] = useState<VitalSignResponse | null>(null);
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentResponse | null>(null);
-  const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null);
   const [alerts, setAlerts] = useState<AlertResponse[]>([]);
   const [activities, setActivities] = useState<ActivitySessionResponse[]>([]);
   const [vitalsHistory, setVitalsHistory] = useState<VitalSignsHistoryResponse | null>(null);
@@ -86,19 +81,15 @@ const PatientDetailPage: React.FC = () => {
   const [noteSubmitting, setNoteSubmitting] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
-  const [retrainStatus, setRetrainStatus] = useState<RetrainingStatusResponse | null>(null);
-  const [retrainReadiness, setRetrainReadiness] = useState<RetrainingReadinessResponse | null>(null);
-  const [modelExpanded, setModelExpanded] = useState(true);
   const [explainData, setExplainData] = useState<ExplainPredictionResponse | null>(null);
   const [explainExpanded, setExplainExpanded] = useState(true);
   const [explainLoading, setExplainLoading] = useState(false);
   // Selectable time range for vitals history chart
-  const [timeRange, setTimeRange] = useState<'1week' | '2weeks' | '1month' | '3months'>('1week');
+  const [timeRange, setTimeRange] = useState<'today' | '1week' | '2weeks' | '1month' | '3months'>('today');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Manual risk computation button state
   const [computingRisk, setComputingRisk] = useState(false);
-  const [computeRiskMessage, setComputeRiskMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Medical history: conditions and medications
   const [medicalProfile, setMedicalProfile] = useState<MedicalProfile | null>(null);
@@ -145,7 +136,7 @@ const PatientDetailPage: React.FC = () => {
       const days = rangeToDays(timeRange);
       const [latestResult, historyResult, alertsResult, riskResult] = await Promise.allSettled([
         api.getLatestVitalSignsForUser(userId),
-        api.getVitalSignsHistoryForUser(userId, days, 1, 100),
+        api.getVitalSignsHistoryForUser(userId, days, 1, rangeToPerPage(timeRange)),
         api.getAlertsForUser(userId, 1, 5),
         api.getLatestRiskAssessmentForUser(userId),
       ]);
@@ -207,15 +198,24 @@ const PatientDetailPage: React.FC = () => {
   // Convert the selected time range to a number of days for the API
   const rangeToDays = (range: typeof timeRange) => {
     switch (range) {
-      case '2weeks':
-        return 14;
-      case '1month':
-        return 30;
-      case '3months':
-        return 90;
+      case 'today':   return 7;
+      case '2weeks':  return 14;
+      case '1month':  return 30;
+      case '3months': return 90;
       case '1week':
-      default:
-        return 7;
+      default:        return 7;
+    }
+  };
+
+  // Scale the page size so longer ranges actually return enough records
+  const rangeToPerPage = (range: typeof timeRange): number => {
+    switch (range) {
+      case 'today':   return 300;
+      case '1week':   return 500;
+      case '2weeks':  return 1000;
+      case '1month':  return 1000;
+      case '3months': return 1000;
+      default:        return 500;
     }
   };
 
@@ -240,22 +240,19 @@ const PatientDetailPage: React.FC = () => {
         api.getUserById(userId),
         api.getLatestVitalSignsForUser(userId),
         api.getLatestRiskAssessmentForUser(userId),
-        api.getLatestRecommendationForUser(userId),
         api.getAlertsForUser(userId, 1, 5),
         api.getActivitiesForUser(userId, 5, 0),
-        api.getVitalSignsHistoryForUser(userId, days, 1, 100),
+        api.getVitalSignsHistoryForUser(userId, days, 1, rangeToPerPage(timeRange)),
         api.getAnomalyDetection(userId, anomalyHours),
         api.getTrendForecast(userId, days),
         api.getBaselineOptimization(userId, days),
         api.getRankedRecommendation(userId, riskAssessment?.risk_level || 'low'),
         api.getNaturalLanguageRiskSummary(userId),
-        api.getRetrainingStatus(),
-        api.getRetrainingReadiness(),
         api.getPatientMedicalProfile(userId),
         api.getClinicalNotes(userId),
       ]);
 
-      const [userResult, vitalsResult, riskResult, recResult, alertsResult, activitiesResult, historyResult, anomalyResult, trendResult, baselineResult, recRankResult, riskSummaryResult, retrainStatusResult, retrainReadinessResult, medProfileResult, clinicalNotesResult] = results;
+      const [userResult, vitalsResult, riskResult, alertsResult, activitiesResult, historyResult, anomalyResult, trendResult, baselineResult, recRankResult, riskSummaryResult, medProfileResult, clinicalNotesResult] = results;
       const errors: string[] = [];
 
       if (userResult.status === 'fulfilled') {
@@ -277,13 +274,6 @@ const PatientDetailPage: React.FC = () => {
       } else {
         setRiskAssessment(null);
         // 404 is expected for patients who haven't had a risk assessment computed yet
-      }
-
-      if (recResult.status === 'fulfilled') {
-        setRecommendation(recResult.value);
-      } else {
-        setRecommendation(null);
-        // 404 is expected for patients who haven't had a recommendation generated yet
       }
 
       if (alertsResult.status === 'fulfilled') {
@@ -347,20 +337,6 @@ const PatientDetailPage: React.FC = () => {
         setRiskSummaryData(null);
       }
 
-      // Advanced ML: Model Retraining Status
-      if (retrainStatusResult.status === 'fulfilled') {
-        setRetrainStatus(retrainStatusResult.value);
-      } else {
-        setRetrainStatus(null);
-      }
-
-      // Advanced ML: Model Retraining Readiness
-      if (retrainReadinessResult.status === 'fulfilled') {
-        setRetrainReadiness(retrainReadinessResult.value);
-      } else {
-        setRetrainReadiness(null);
-      }
-
       // Medical Profile
       if (medProfileResult.status === 'fulfilled') {
         setMedicalProfile(medProfileResult.value);
@@ -392,20 +368,16 @@ const PatientDetailPage: React.FC = () => {
     if (!patientId) return;
     const userId = Number(patientId);
     setComputingRisk(true);
-    setComputeRiskMessage(null);
     try {
       await api.computeRiskAssessmentForUser(userId);
-      setComputeRiskMessage({ type: 'success', text: 'AI assessment complete. Refreshing data...' });
+      showSnackbar('AI assessment complete. Refreshing data...', 'success');
       await loadPatientData();
     } catch (err: any) {
       let detail = err?.response?.data?.detail || 'Unable to compute risk. The patient needs recent vitals submitted within the last 30 minutes.';
-      
-      // Check if it's a 503 error (model not loaded)
       if (err?.response?.status === 503) {
         detail = 'ML model not loaded on backend. Check backend logs, ensure model files exist in ml_models/, and restart the backend.';
       }
-      
-      setComputeRiskMessage({ type: 'error', text: detail });
+      showSnackbar(detail, 'error');
     } finally {
       setComputingRisk(false);
     }
