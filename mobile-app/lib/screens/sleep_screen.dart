@@ -282,42 +282,43 @@ class _SleepScreenState extends State<SleepScreen> {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            SizedBox(
-              width: 116,
-              height: 116,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value: (score / 100).clamp(0.0, 1.0),
-                    strokeWidth: 6,
-                    color: ringColor,
-                    backgroundColor: AdaptivColors.getBorderColor(brightness),
-                  ),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('$score',
-                            style: AdaptivTypography.heroNumber
-                                .copyWith(fontSize: 30)),
-                        Text('/100', style: AdaptivTypography.caption),
-                      ],
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: ringColor,
+                  width: 4,
+                ),
+              ),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '$score',
+                    maxLines: 1,
+                    softWrap: false,
+                    textAlign: TextAlign.center,
+                    style: AdaptivTypography.heroNumber.copyWith(
+                      fontSize: 24,
+                      height: 1.0,
                     ),
                   ),
-                ],
+                ),
               ),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('Today\'s Sleep Score',
                       style: AdaptivTypography.cardTitle),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     score >= 70
                         ? 'Well rested'
@@ -326,6 +327,8 @@ class _SleepScreenState extends State<SleepScreen> {
                             : 'Needs more sleep',
                     style: AdaptivTypography.caption.copyWith(color: ringColor),
                   ),
+                  const SizedBox(height: 4),
+                  Text('/100', style: AdaptivTypography.caption),
                 ],
               ),
             ),

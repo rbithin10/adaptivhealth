@@ -238,6 +238,11 @@ cd mobile-app && flutter test
 ### SSH to EC2
 ssh -i "adaptiv-key.pem" ec2-user@--public ip--
 
+### RDS login
+
+psql "host=adaptivhealth-db.c34gaqco4qk4.ap-south-1.rds.amazonaws.com \
+      port=5432 dbname=postgres user=postgres password=password"
+
 ### Backend
 ```bash
 pip install -r requirements.txt

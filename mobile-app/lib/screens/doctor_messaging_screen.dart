@@ -1,5 +1,5 @@
 /*
-Doctor Messaging Screen.
+Dnumbersoctor Messaging Screen.
 
 A chat screen where the patient can message their assigned clinician.
 Loads the conversation history from the server, lets the user type and
@@ -354,7 +354,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
                       },
                       icon: const Icon(Icons.arrow_back),
                       tooltip: 'Back',
-                      color: AdaptivColors.text900,
+                      color: AdaptivColors.getTextColor(brightness),
                     ),
                     const SizedBox(width: 6),
                     Text('Doctor Messages',
@@ -607,14 +607,37 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
         _clinicianId == null ? 'No clinician assigned' : 'Type your message...';
     final screenWidth = MediaQuery.sizeOf(context).width;
     final horizontalPadding = _screenHorizontalPadding(screenWidth);
+    final brightness = Theme.of(context).brightness;
+    final composerSurface = AdaptivColors.getSurfaceColor(brightness);
+    final composerBorder = AdaptivColors.getBorderColor(brightness);
+    final inputTextColor = AdaptivColors.getTextColor(brightness);
+    final inputHintColor = AdaptivColors.getSecondaryTextColor(brightness);
+    final inputFillColor = brightness == Brightness.dark
+        ? AdaptivColors.background900.withOpacity(0.72)
+        : AdaptivColors.white;
+    final inputDecoration = InputDecoration(
+      hintText: placeholder,
+      hintStyle: AdaptivTypography.body.copyWith(color: inputHintColor),
+      border: const OutlineInputBorder(),
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: composerBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(
+            color: AdaptivColors.getPrimaryColor(brightness), width: 1.5),
+      ),
+      isDense: true,
+      filled: true,
+      fillColor: inputFillColor,
+    );
 
     return SafeArea(
       child: Container(
         padding:
             EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 12),
         decoration: BoxDecoration(
-          color: AdaptivColors.white,
-          border: Border(top: BorderSide(color: AdaptivColors.border300)),
+          color: composerSurface,
+          border: Border(top: BorderSide(color: composerBorder)),
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -638,11 +661,10 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
                   TextField(
                     controller: _messageController,
                     enabled: _clinicianId != null,
-                    decoration: InputDecoration(
-                      hintText: placeholder,
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                    style:
+                        AdaptivTypography.body.copyWith(color: inputTextColor),
+                    cursorColor: AdaptivColors.getPrimaryColor(brightness),
+                    decoration: inputDecoration,
                     minLines: 1,
                     maxLines: 3,
                     textInputAction: TextInputAction.send,
@@ -660,11 +682,10 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
                   child: TextField(
                     controller: _messageController,
                     enabled: _clinicianId != null,
-                    decoration: InputDecoration(
-                      hintText: placeholder,
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                    style:
+                        AdaptivTypography.body.copyWith(color: inputTextColor),
+                    cursorColor: AdaptivColors.getPrimaryColor(brightness),
+                    decoration: inputDecoration,
                     minLines: 1,
                     maxLines: 3,
                     textInputAction: TextInputAction.send,

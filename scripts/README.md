@@ -7,7 +7,7 @@ One-off and recurring scripts for database setup, data seeding, migrations, test
 | File | What It Does |
 |------|-------------|
 | `init_db.py` | Creates all database tables from scratch |
-| `reset_database.py` | Drops and recreates all tables — ⚠️ destroys all data |
+| `reset_database.py` | Drops and recreates all tables —  destroys all data |
 | `apply_migrations.py` | Runs SQL migration files from the `migrations/` folder in order |
 | `dump_local_to_sql.py` | Exports your local database to a SQL file for backup or transfer |
 | `migrate_to_rds.py` | Migrates local data to an AWS RDS (cloud) database |
