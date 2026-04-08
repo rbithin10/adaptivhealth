@@ -59,7 +59,7 @@ import {
 } from '../types';
 
 // The server address — uses an environment variable if set, otherwise the live production URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://back-adaptivhealthuowd.xyz';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
 
 // The backend sometimes returns user data with different field names
 // This function makes them consistent so the rest of the app doesn't have to guess

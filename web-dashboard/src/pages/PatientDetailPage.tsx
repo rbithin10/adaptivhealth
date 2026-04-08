@@ -164,7 +164,7 @@ const PatientDetailPage: React.FC = () => {
     const token = localStorage.getItem('token');
     if (!token || typeof EventSource === 'undefined') return;
 
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://back-adaptivhealthuowd.xyz';
+    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
     let es: EventSource | null = null;
     try {
       es = new EventSource(
