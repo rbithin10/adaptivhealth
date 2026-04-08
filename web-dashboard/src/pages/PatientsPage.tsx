@@ -17,7 +17,7 @@ import { typography } from '../theme/typography';
 import StatusBadge, { riskToStatus } from '../components/common/StatusBadge';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://back-adaptivhealthuowd.xyz';
 
 // What risk category a patient falls into
 type PatientRiskLevel = 'low' | 'moderate' | 'high' | 'critical';

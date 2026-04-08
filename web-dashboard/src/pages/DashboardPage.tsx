@@ -37,7 +37,7 @@ import StatCard from '../components/cards/StatCard';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
 // Base URL for the backend API and whether live alert push (SSE) is enabled
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://back-adaptivhealthuowd.xyz';
 const ENABLE_ALERT_PUSH = process.env.REACT_APP_ENABLE_ALERT_PUSH === 'true';
 
 // Top-level stats shown on the dashboard cards
