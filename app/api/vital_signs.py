@@ -883,6 +883,7 @@ async def submit_vitals_batch_sync(
         records_created += 1
 
         prediction = item.prediction or {}
+        logger.info(f"[EDGE_SYNC] user={current_user.user_id} prediction={prediction}")
         risk_score_raw = prediction.get("risk_score")
         risk_level_raw = prediction.get("risk_level")
 
