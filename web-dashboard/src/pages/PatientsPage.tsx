@@ -813,11 +813,16 @@ const PatientsPage: React.FC = () => {
                   >
                     {isRowRecordLoading ? 'Loading...' : (canViewRowRecord ? 'View' : 'Refresh')}
                   </button>
-                  {getMedicalRecordTip(patient) && !isRowRecordLoading && (
-                    <span style={{ ...typography.caption, color: colors.neutral['500'], fontSize: '11px' }}>
-                      {getMedicalRecordTip(patient)}
-                    </span>
-                  )}
+                  <span
+                    style={{
+                      ...typography.caption,
+                      color: colors.neutral['500'],
+                      fontSize: '11px',
+                      visibility: getMedicalRecordTip(patient) && !isRowRecordLoading ? 'visible' : 'hidden',
+                    }}
+                  >
+                    {getMedicalRecordTip(patient) || 'empty'}
+                  </span>
                 </div>
               </div>
                 );

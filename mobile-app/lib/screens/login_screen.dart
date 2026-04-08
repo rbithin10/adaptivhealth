@@ -218,12 +218,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       body: Container(
+        constraints: const BoxConstraints.expand(),
         // Image backdrop with overlay for login (theme-aware)
         decoration: BoxDecoration(
           color: AdaptivColors.getBackgroundColor(brightness),
           image: DecorationImage(
             image: const AssetImage('assets/images/login_bg.png'),
             fit: BoxFit.cover,
+            alignment: Alignment.center,
             colorFilter: ColorFilter.mode(
               Colors.black.withOpacity(brightness == Brightness.dark ? 0.6 : 0.4),
               BlendMode.darken,
@@ -231,10 +233,14 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
+          child: LayoutBuilder(
+            builder: (context, viewport) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: viewport.maxHeight),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 40),
@@ -530,11 +536,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-              ],
-            ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
-      ),
       ),
     );
   }

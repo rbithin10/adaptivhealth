@@ -121,10 +121,42 @@ const PatientDetailPage: React.FC = () => {
     setSnackbarOpen(true);
   };
 
-  // Reload patient data whenever the patient ID or time range changes
+  // Reload full patient data only when patient changes
   useEffect(() => {
     loadPatientData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId]);
+
+  // Range switch should update only the history chart data, not the entire page payload.
+  useEffect(() => {
+    if (!patientId) return;
+    const userId = Number(patientId);
+    if (Number.isNaN(userId)) return;
+
+    let cancelled = false;
+
+    const loadHistoryForRange = async () => {
+      try {
+        const days = rangeToDays(timeRange);
+        const history = await api.getVitalSignsHistoryForUser(
+          userId,
+          days,
+          1,
+          rangeToPerPage(timeRange),
+        );
+        if (!cancelled) {
+          setVitalsHistory(history);
+        }
+      } catch {
+        // Keep the existing chart data when range-specific fetch fails.
+      }
+    };
+
+    void loadHistoryForRange();
+
+    return () => {
+      cancelled = true;
+    };
   }, [patientId, timeRange]);
 
   // Lightweight refresh: fetches only vitals, history, alerts, and risk (4 calls).

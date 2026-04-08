@@ -51,6 +51,57 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
   const heartRate = latestVitals?.heart_rate ?? null;
   const spo2Value = latestVitals?.spo2 ?? null;
 
+  const rangeDays: Record<VitalsPanelProps['timeRange'], number> = {
+    today: 1,
+    '1week': 7,
+    '2weeks': 14,
+    '1month': 30,
+    '3months': 90,
+  };
+
+  const allVitals = vitalsHistory?.vitals ?? [];
+  const sortedVitals = allVitals
+    .slice()
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+
+  const nowMs = Date.now();
+  const cutoffMs = nowMs - rangeDays[timeRange] * 24 * 60 * 60 * 1000;
+
+  const visibleVitals = sortedVitals.filter((v) => {
+    const ts = Date.parse(v.timestamp);
+    if (!Number.isFinite(ts)) return false;
+    return ts >= cutoffMs && ts <= nowMs;
+  });
+
+  const chartData = visibleVitals.map((v) => ({
+    time: timeRange === 'today'
+      ? new Date(v.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      : new Date(v.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    hr: v.heart_rate,
+    spo2: v.spo2,
+    systolic: v.blood_pressure?.systolic || null,
+    timestamp: v.timestamp,
+  }));
+
+  const maxHeartRate = chartData.reduce((max, point) => Math.max(max, point.hr ?? 0), 0);
+  const yAxisMax = Math.max(180, Math.ceil((maxHeartRate + 5) / 10) * 10);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // @ts-expect-error debug-only window hook for production console inspection
+    window.__adaptivVitalsDebug = {
+      timeRange,
+      cutoffMs,
+      allCount: allVitals.length,
+      visibleCount: visibleVitals.length,
+      vitalsHistory,
+      visibleVitals,
+      chartData,
+      yAxisMax,
+      updatedAt: new Date().toISOString(),
+    };
+  }, [timeRange, cutoffMs, allVitals, visibleVitals, vitalsHistory, chartData, yAxisMax]);
+
   return (
     <>
       <h2 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Current Vitals</h2>
@@ -142,25 +193,7 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
 
       <div style={{ backgroundColor: colors.neutral.white, border: `1px solid ${colors.neutral['300']}`, borderRadius: '12px', padding: '24px', marginBottom: '32px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
         <h3 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Heart Rate History</h3>
-        {(() => {
-          const reversed = (vitalsHistory?.vitals ?? []).slice().reverse();
-          const visibleVitals = (() => {
-            if (timeRange !== 'today' || reversed.length === 0) return reversed;
-            // Filter to only the most recent calendar date present in the data.
-            // This handles emulator/device clocks that may not match the real date.
-            const latestDay = new Date(reversed[reversed.length - 1].timestamp).toDateString();
-            return reversed.filter(v => new Date(v.timestamp).toDateString() === latestDay);
-          })();
-          const chartData = visibleVitals.map((v) => ({
-            time: timeRange === 'today'
-              ? new Date(v.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-              : new Date(v.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            hr: v.heart_rate,
-            spo2: v.spo2,
-            systolic: v.blood_pressure?.systolic || null,
-            timestamp: v.timestamp,
-          }));
-          return chartData.length ? (
+        {chartData.length ? (
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral['300']} />
@@ -173,7 +206,7 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
                   textAnchor={timeRange === 'today' ? 'middle' : 'end'}
                   height={timeRange === 'today' ? 30 : 50}
                 />
-                <YAxis stroke={colors.neutral['500']} style={{ fontSize: '12px' }} domain={[40, 180]} />
+                <YAxis stroke={colors.neutral['500']} style={{ fontSize: '12px' }} domain={[40, yAxisMax]} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: colors.neutral.white,
@@ -195,8 +228,7 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
             <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.neutral['50'], borderRadius: '8px', color: colors.neutral['500'] }}>
               {timeRange === 'today' ? 'No vitals recorded today' : 'No vitals history available for this range'}
             </div>
-          );
-        })()}
+          )}
       </div>
     </>
   );
