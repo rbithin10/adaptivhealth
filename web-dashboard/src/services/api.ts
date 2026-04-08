@@ -184,7 +184,7 @@ class ApiService {
     formData.append('username', email);
     formData.append('password', password);
 
-    const response = await this.client.post<TokenResponse>('/session/start', formData, {
+    const response = await axios.post<TokenResponse>(`${API_BASE_URL}/api/v1/session/start`, formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
@@ -209,7 +209,7 @@ class ApiService {
   async logout(): Promise<void> {
     try {
       // Tell the server to revoke the token so it can't be reused
-      await this.client.post('/session/end');
+      await axios.post(`${API_BASE_URL}/api/v1/session/end`);
     } catch {
       // Even if the server request fails, we still clear local data
     } finally {
