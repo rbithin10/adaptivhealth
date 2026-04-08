@@ -45,6 +45,32 @@ import PredictionExplainabilityPanel from '../components/patient/PredictionExpla
 import AdvancedMLPanel from '../components/patient/AdvancedMLPanel';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
+type TimeRange = 'today' | '1week' | '2weeks' | '1month' | '3months';
+
+// Convert the selected time range to a number of days for the API.
+const rangeToDays = (range: TimeRange) => {
+  switch (range) {
+    case 'today':   return 7;
+    case '2weeks':  return 14;
+    case '1month':  return 30;
+    case '3months': return 90;
+    case '1week':
+    default:        return 7;
+  }
+};
+
+// Scale the page size so longer ranges actually return enough records.
+const rangeToPerPage = (range: TimeRange): number => {
+  switch (range) {
+    case 'today':   return 300;
+    case '1week':   return 500;
+    case '2weeks':  return 1000;
+    case '1month':  return 1000;
+    case '3months': return 1000;
+    default:        return 500;
+  }
+};
+
 const PatientDetailPage: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
@@ -85,7 +111,7 @@ const PatientDetailPage: React.FC = () => {
   const [explainExpanded, setExplainExpanded] = useState(true);
   const [explainLoading, setExplainLoading] = useState(false);
   // Selectable time range for vitals history chart
-  const [timeRange, setTimeRange] = useState<'today' | '1week' | '2weeks' | '1month' | '3months'>('today');
+  const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Manual risk computation button state
@@ -224,30 +250,6 @@ const PatientDetailPage: React.FC = () => {
       setMedicalExtractionStatus(status);
     } catch {
       setMedicalExtractionStatus(null);
-    }
-  };
-
-  // Convert the selected time range to a number of days for the API
-  const rangeToDays = (range: typeof timeRange) => {
-    switch (range) {
-      case 'today':   return 7;
-      case '2weeks':  return 14;
-      case '1month':  return 30;
-      case '3months': return 90;
-      case '1week':
-      default:        return 7;
-    }
-  };
-
-  // Scale the page size so longer ranges actually return enough records
-  const rangeToPerPage = (range: typeof timeRange): number => {
-    switch (range) {
-      case 'today':   return 300;
-      case '1week':   return 500;
-      case '2weeks':  return 1000;
-      case '1month':  return 1000;
-      case '3months': return 1000;
-      default:        return 500;
     }
   };
 

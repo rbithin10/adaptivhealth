@@ -59,7 +59,7 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
     '3months': 90,
   };
 
-  const allVitals = vitalsHistory?.vitals ?? [];
+  const allVitals = React.useMemo(() => vitalsHistory?.vitals ?? [], [vitalsHistory]);
   const sortedVitals = allVitals
     .slice()
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
