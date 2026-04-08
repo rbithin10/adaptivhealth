@@ -54,7 +54,8 @@ const PatientsPage: React.FC = () => {
   const [viewerUrl, setViewerUrl] = useState('');
   const [viewerTitle, setViewerTitle] = useState('Medical Record');
   const [viewerObjectUrl, setViewerObjectUrl] = useState<string | null>(null);
-  const tableGridTemplate = 'minmax(140px,1.8fr) 52px 72px minmax(155px,1.6fr) 108px 88px 100px 108px 80px';
+  const tableGridTemplate = 'minmax(140px,1.8fr) 52px 72px minmax(155px,1.6fr) 108px 88px 100px 80px 108px';
+  const tableMinWidth = '1040px';
 
   const showSnackbar = (message: string, severity: 'success' | 'error') => {
     setSnackbarMessage(message);
@@ -669,7 +670,9 @@ const PatientsPage: React.FC = () => {
             backgroundColor: colors.neutral.white,
             border: `1px solid ${colors.neutral['300']}`,
             borderRadius: '12px',
-            overflow: 'hidden',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            overscrollBehaviorX: 'contain',
             boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
           }}
         >
@@ -678,6 +681,7 @@ const PatientsPage: React.FC = () => {
             style={{
               display: 'grid',
               gridTemplateColumns: tableGridTemplate,
+              minWidth: tableMinWidth,
               gap: '12px',
               padding: '16px 20px',
               backgroundColor: colors.neutral['50'],
@@ -696,8 +700,8 @@ const PatientsPage: React.FC = () => {
             <div>Risk Level</div>
             <div>Heart Rate</div>
             <div>Last Reading</div>
-            <div style={{ textAlign: 'center' }}>Medical Records</div>
             <div style={{ textAlign: 'center' }}>Detail</div>
+            <div style={{ textAlign: 'center' }}>Medical Records</div>
           </div>
 
           {/* Table Rows */}
@@ -718,6 +722,7 @@ const PatientsPage: React.FC = () => {
                 style={{
                   display: 'grid',
                   gridTemplateColumns: tableGridTemplate,
+                  minWidth: tableMinWidth,
                   gap: '12px',
                   padding: '16px 20px',
                   borderBottom: idx < filteredPatients.length - 1 ? `1px solid ${colors.neutral['300']}` : 'none',
@@ -739,43 +744,6 @@ const PatientsPage: React.FC = () => {
                 </div>
                 <div style={typography.caption}>
                   {formatTimeAgo(patient.latest_vitals?.timestamp)}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'flex-start',
-                    gap: '4px',
-                    minHeight: '42px',
-                  }}
-                >
-                  <button
-                    onClick={() => canViewRowRecord
-                      ? handleViewMedicalRecord(patient)
-                      : refreshRecordForPatient(patient.user_id)
-                    }
-                    disabled={isRowRecordLoading}
-                    style={{
-                      minWidth: '84px',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: `1px solid ${canViewRowRecord ? colors.primary.default : colors.neutral['400']}`,
-                      backgroundColor: colors.neutral.white,
-                      color: canViewRowRecord ? colors.primary.default : colors.neutral['600'],
-                      cursor: isRowRecordLoading ? 'not-allowed' : 'pointer',
-                      fontWeight: 600,
-                      fontSize: '12px',
-                      opacity: isRowRecordLoading ? 0.65 : 1,
-                    }}
-                  >
-                    {isRowRecordLoading ? 'Loading...' : (canViewRowRecord ? 'View' : 'Refresh')}
-                  </button>
-                  {getMedicalRecordTip(patient) && !isRowRecordLoading && (
-                    <span style={{ ...typography.caption, color: colors.neutral['500'], fontSize: '11px' }}>
-                      {getMedicalRecordTip(patient)}
-                    </span>
-                  )}
                 </div>
                 <div
                   style={{
@@ -813,6 +781,43 @@ const PatientsPage: React.FC = () => {
                   <span style={{ ...typography.caption, fontSize: '11px', visibility: 'hidden' }}>
                     empty
                   </span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    gap: '4px',
+                    minHeight: '42px',
+                  }}
+                >
+                  <button
+                    onClick={() => canViewRowRecord
+                      ? handleViewMedicalRecord(patient)
+                      : refreshRecordForPatient(patient.user_id)
+                    }
+                    disabled={isRowRecordLoading}
+                    style={{
+                      minWidth: '84px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: `1px solid ${canViewRowRecord ? colors.primary.default : colors.neutral['400']}`,
+                      backgroundColor: colors.neutral.white,
+                      color: canViewRowRecord ? colors.primary.default : colors.neutral['600'],
+                      cursor: isRowRecordLoading ? 'not-allowed' : 'pointer',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      opacity: isRowRecordLoading ? 0.65 : 1,
+                    }}
+                  >
+                    {isRowRecordLoading ? 'Loading...' : (canViewRowRecord ? 'View' : 'Refresh')}
+                  </button>
+                  {getMedicalRecordTip(patient) && !isRowRecordLoading && (
+                    <span style={{ ...typography.caption, color: colors.neutral['500'], fontSize: '11px' }}>
+                      {getMedicalRecordTip(patient)}
+                    </span>
+                  )}
                 </div>
               </div>
                 );

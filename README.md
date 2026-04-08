@@ -2,7 +2,7 @@
 
 A comprehensive cardiac-rehabilitation health monitoring platform with a **FastAPI backend**, **React clinician dashboard**, and **Flutter patient mobile app**.
 
----
+------------------------------------
 
 ## Overview
 
@@ -11,7 +11,7 @@ Adaptiv Health is a clinical-grade health monitoring system designed for:
 - **Clinicians** — Monitor patients, assess risk, manage alerts, and message patients via the web dashboard
 - **Backend** — Secure data management with ML-powered risk prediction, anomaly detection, and AI coaching
 
----
+------------------------------------
 
 ## Quick Start
 
@@ -25,10 +25,14 @@ Mobile app-- release build apk availble at mobile-app\build\outputs\flutter-apk
 - Flutter 3.13+
 - PostgreSQL 12+
 
+
+
+
 ### 1. Configure Environment
 ```bash
 cp .env.example .env        # Edit with your database URL, secret key, etc.
 cp web-dashboard/.env.example web-dashboard/.env
+```
 
 
 ### 2. Start the Backend
@@ -38,23 +42,49 @@ python start_server.py
 ```
 Backend runs on `http://localhost:8080`. API docs at `/docs`.
 
+
+
+
+
 ### 3. Start the Web Dashboard
 ```bash
+for web,
+dashboard-adaptivhealthuowd.xyz
+
+for local,
 cd web-dashboard
 npm install
 npm start
 ```
 Dashboard runs on `http://localhost:3000`.
 
+
+test login for dashbaord,
+username: doctor@test.com
+password: password123
+
+
+
 ### 4. Start the Mobile App
 ```bash
+for web,
+flutter run -d chrome --dart-define=API_BASE_URL=https://api.back-adaptivhealthuowd.xyz/api/v1
+
+for local,
 cd mobile-app
 flutter pub get
 flutter run -d chrome --dart-define=USE_LOCAL=true
 
 ```
 
----
+test login for mobile-app,
+username: patient1@test.com
+password: password123
+
+------------------------------------
+
+
+
 
 ## Features
 
@@ -95,7 +125,7 @@ flutter run -d chrome --dart-define=USE_LOCAL=true
 - Medication reminders
 - Rate limiting and CORS
 
----
+-----------------------------------
 
 ## Architecture
 
@@ -173,7 +203,7 @@ AdaptivHealth/
 └── start.bat                     # Windows quick start
 ```
 
----
+-------------------------------------
 
 ## API Endpoints
 
@@ -191,7 +221,7 @@ Representative endpoints:
 
 For complete route coverage, use local API docs at `http://localhost:8080/docs`.
 
----
+-----------------------------------
 
 ## Security
 
@@ -202,7 +232,7 @@ For complete route coverage, use local API docs at `http://localhost:8080/docs`.
 - CORS controls and request rate limiting
 - Secure token storage on mobile (`flutter_secure_storage`)
 
----
+-----------------------------------
 
 ## Technology Stack
 
@@ -216,7 +246,7 @@ For complete route coverage, use local API docs at `http://localhost:8080/docs`.
 | **Auth** | JWT (HS256), pbkdf2_sha256 |
 | **Deployment** | Nginx, AWS RDS |
 
----
+------------------------------------
 
 ## Testing
 
@@ -231,7 +261,7 @@ cd web-dashboard && npm test
 cd mobile-app && flutter test
 ```
 
----
+------------------------------------
 
 ## Deployment
 
@@ -265,7 +295,7 @@ flutter build appbundle --release     # Google Play
 flutter build ios --release           # iOS
 ```
 
----
+-----------------------------------
 
 ## Environment Variables
 
@@ -276,6 +306,7 @@ See [.env.example](.env.example) for all required and optional variables includi
 - `SMTP_*` — Email configuration for password resets
 - `PHI_ENCRYPTION_KEY` — Optional field-level encryption
 
----
+-----------------------------------
+-----------------------------------
 
 

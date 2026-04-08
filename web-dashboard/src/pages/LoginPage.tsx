@@ -15,8 +15,10 @@ import {
   Box,
   Alert,
   CircularProgress,
+  InputAdornment,
+  IconButton,
 } from '@mui/material';
-import { FavoriteOutlined } from '@mui/icons-material';
+import { FavoriteOutlined, Visibility, VisibilityOff } from '@mui/icons-material';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 
@@ -35,6 +37,7 @@ const LoginPage: React.FC = () => {
   // Login form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -201,11 +204,24 @@ const LoginPage: React.FC = () => {
             <TextField
               fullWidth
               label="Password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               margin="normal"
               required
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      onClick={() => setShowPassword((current) => !current)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
             <Box sx={{ textAlign: 'right', mt: 1 }}>
               <Button variant="text" size="small" onClick={() => setShowForgotPassword(true)}>

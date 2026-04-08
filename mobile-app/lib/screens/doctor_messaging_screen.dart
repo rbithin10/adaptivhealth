@@ -629,6 +629,7 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
       isDense: true,
       filled: true,
       fillColor: inputFillColor,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     );
 
     return SafeArea(
@@ -639,64 +640,47 @@ class _DoctorMessagingScreenState extends State<DoctorMessagingScreen> {
           color: composerSurface,
           border: Border(top: BorderSide(color: composerBorder)),
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isTightComposer = constraints.maxWidth < 380;
-            final sendButton = ElevatedButton(
-              onPressed: canSend ? _sendMessage : null,
-              child: _isSending
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Send'),
-            );
-
-            if (isTightComposer) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: _messageController,
-                    enabled: _clinicianId != null,
-                    style:
-                        AdaptivTypography.body.copyWith(color: inputTextColor),
-                    cursorColor: AdaptivColors.getPrimaryColor(brightness),
-                    decoration: inputDecoration,
-                    minLines: 1,
-                    maxLines: 3,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: canSend ? (_) => _sendMessage() : null,
-                  ),
-                  const SizedBox(height: 8),
-                  Align(alignment: Alignment.centerRight, child: sendButton),
-                ],
-              );
-            }
-
-            return Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    enabled: _clinicianId != null,
-                    style:
-                        AdaptivTypography.body.copyWith(color: inputTextColor),
-                    cursorColor: AdaptivColors.getPrimaryColor(brightness),
-                    decoration: inputDecoration,
-                    minLines: 1,
-                    maxLines: 3,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: canSend ? (_) => _sendMessage() : null,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                sendButton,
-              ],
-            );
-          },
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _messageController,
+                enabled: _clinicianId != null,
+                style:
+                    AdaptivTypography.body.copyWith(color: inputTextColor),
+                cursorColor: AdaptivColors.getPrimaryColor(brightness),
+                decoration: inputDecoration,
+                minLines: 1,
+                maxLines: 3,
+                textInputAction: TextInputAction.send,
+                onSubmitted: canSend ? (_) => _sendMessage() : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: canSend
+                  ? AdaptivColors.getPrimaryColor(brightness)
+                  : AdaptivColors.text400,
+              child: IconButton(
+                onPressed: canSend ? _sendMessage : null,
+                icon: _isSending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.send, color: Colors.white, size: 18),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ),
+          ],
         ),
       ),
     );

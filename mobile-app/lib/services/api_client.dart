@@ -218,7 +218,7 @@ class ApiClient {
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await _dio.post(
-        '/auth/signin',
+        '/session/start',
         data: {
           'username': email,  // The backend expects "username" even though it's really an email
           'password': password,
