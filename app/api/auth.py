@@ -136,12 +136,13 @@ def _resolve_authenticated_user_from_payload(payload: Optional[dict], db: Sessio
 
 def _set_dashboard_session_cookie(response: Response, access_token: str) -> None:
     """Set HttpOnly dashboard session cookie for browser-based auth."""
+    is_production = settings.environment == "production"
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=access_token,
         httponly=True,
-        secure=False,  # Local HTTP dev only; use secure=True in production over HTTPS.
-        samesite="lax",
+        secure=is_production,
+        samesite="none" if is_production else "lax",
         max_age=settings.access_token_expire_minutes * 60,
         path="/",
     )
@@ -149,11 +150,12 @@ def _set_dashboard_session_cookie(response: Response, access_token: str) -> None
 
 def _clear_dashboard_session_cookie(response: Response) -> None:
     """Clear dashboard session cookie during logout."""
+    is_production = settings.environment == "production"
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         httponly=True,
-        secure=False,  # Local HTTP dev only; use secure=True in production over HTTPS.
-        samesite="lax",
+        secure=is_production,
+        samesite="none" if is_production else "lax",
         path="/",
     )
 
