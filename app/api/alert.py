@@ -520,64 +520,86 @@ async def stream_alert_statistics(
     """Real-time stream that pushes alert updates to the clinician dashboard instantly.
     Uses Server-Sent Events (SSE) so the browser gets live updates without refreshing."""
     # Support both cookie-based dashboard auth and legacy token-query SSE auth.
-    if token:
-        user = _get_doctor_user_from_token_query(token, db)
-    else:
-        user = get_current_user_from_session_cookie(request, db)
-        if user.role not in [UserRole.CLINICIAN, UserRole.ADMIN]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Clinician access required for alert stream",
-            )
+    try:
+        if token:
+            user = _get_doctor_user_from_token_query(token, db)
+        else:
+            user = get_current_user_from_session_cookie(request, db)
+            if user.role not in [UserRole.CLINICIAN, UserRole.ADMIN]:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Clinician access required for alert stream",
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Alerts SSE initialization failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Alert stream unavailable",
+        ) from exc
 
     logger.info(f"Alerts SSE connected for clinician/admin user {user.user_id}")
 
     async def event_generator():
-        # Track the last data we sent so we only push when something changes
+        # Track the last data we sent so we only push when something changes.
         last_signature = ""
-        # Count loops between heartbeat messages (keeps the connection alive)
+        # Count loops between heartbeat messages (keeps the connection alive).
         heartbeat_counter = 0
 
-        while True:
-            # Stop the stream if the dashboard has closed the connection
-            if await request.is_disconnected():
-                logger.info(f"Alerts SSE disconnected for user {user.user_id}")
-                break
+        try:
+            while True:
+                # Stop the stream if the dashboard has closed the connection.
+                if await request.is_disconnected():
+                    logger.info(f"Alerts SSE disconnected for user {user.user_id}")
+                    break
 
-            # Get the latest alert statistics from the database
-            snapshot = _compute_alert_snapshot(db, days)
+                try:
+                    # Get the latest alert statistics from the database.
+                    snapshot = _compute_alert_snapshot(db, days)
+                except Exception:
+                    logger.exception("Alerts SSE snapshot generation failed for user %s", user.user_id)
+                    yield f"event: error\ndata: {json.dumps({'detail': 'Alert stream unavailable'})}\n\n"
+                    break
 
-            # Create a fingerprint of the current data to detect changes
-            signature_obj = {
-                "severity_breakdown": snapshot.get("severity_breakdown", {}),
-                "unacknowledged_count": snapshot.get("unacknowledged_count", 0),
-            }
-            signature = json.dumps(signature_obj, sort_keys=True)
-
-            # Only send data to the dashboard if something has actually changed
-            if signature != last_signature:
-                last_signature = signature
-                payload = {
-                    "event": "alerts_update",
-                    "data": snapshot,
+                # Create a fingerprint of the current data to detect changes.
+                signature_obj = {
+                    "severity_breakdown": snapshot.get("severity_breakdown", {}),
+                    "unacknowledged_count": snapshot.get("unacknowledged_count", 0),
                 }
-                # Send the updated alert data as an SSE event
-                yield f"event: alerts_update\ndata: {json.dumps(payload)}\n\n"
+                signature = json.dumps(signature_obj, sort_keys=True)
 
-            # Send a heartbeat every ~15 seconds to keep the connection alive
-            heartbeat_counter += 1
-            if heartbeat_counter >= int(max(1, round(15.0 / poll_seconds))):
-                heartbeat_counter = 0
-                yield f"event: heartbeat\ndata: {json.dumps({'ts': datetime.now(timezone.utc).isoformat()})}\n\n"
+                # Only send data to the dashboard if something has actually changed.
+                if signature != last_signature:
+                    last_signature = signature
+                    payload = {
+                        "event": "alerts_update",
+                        "data": snapshot,
+                    }
+                    # Send the updated alert data as an SSE event.
+                    yield f"event: alerts_update\ndata: {json.dumps(payload)}\n\n"
 
-            # Wait before checking again (default 1 second between checks)
-            await asyncio.sleep(poll_seconds)
+                # Send a heartbeat every ~15 seconds to keep the connection alive.
+                heartbeat_counter += 1
+                if heartbeat_counter >= int(max(1, round(15.0 / poll_seconds))):
+                    heartbeat_counter = 0
+                    yield f"event: heartbeat\ndata: {json.dumps({'ts': datetime.now(timezone.utc).isoformat()})}\n\n"
+
+                # Wait before checking again (default 1 second between checks).
+                await asyncio.sleep(poll_seconds)
+        except asyncio.CancelledError:
+            logger.info(f"Alerts SSE cancelled for user {user.user_id}")
+            raise
+        except Exception:
+            logger.exception("Alerts SSE stream failed for user %s", user.user_id)
+            yield f"event: error\ndata: {json.dumps({'detail': 'Alert stream unavailable'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },

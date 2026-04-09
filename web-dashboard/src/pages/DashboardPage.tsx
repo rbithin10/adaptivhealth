@@ -308,13 +308,37 @@ const DashboardPage: React.FC = () => {
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
     let reconnectDelayMs = 1000; // Start with 1s backoff, doubles on each retry up to 30s
+    let sseDisabled = false;
+    let sseWarningLogged = false;
+
+    const disableSseFallback = (reason: string, error?: unknown) => {
+      sseDisabled = true;
+      if (!sseWarningLogged) {
+        sseWarningLogged = true;
+        console.warn('[DIAG][REACT_SSE_DISABLED][DASHBOARD]', { reason, error });
+      }
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
 
     const onPushMessage = () => {
       void refreshAlertWidgets();
     };
 
     const connectSse = () => {
-      if (typeof EventSource === 'undefined') {
+      if (sseDisabled || typeof EventSource === 'undefined') {
+        if (typeof EventSource === 'undefined' && !sseWarningLogged) {
+          sseWarningLogged = true;
+          console.warn('[DIAG][REACT_SSE_DISABLED][DASHBOARD]', {
+            reason: 'EventSource is not available in this browser',
+          });
+        }
         return;
       }
 
@@ -337,21 +361,10 @@ const DashboardPage: React.FC = () => {
         };
         eventSource.onmessage = onPushMessage;
         eventSource.onerror = () => {
-          if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-          }
-          // Schedule reconnect with exponential backoff (cap at 30s)
-          const nextDelay = Math.min(reconnectDelayMs * 2, 30000);
-          reconnectDelayMs = nextDelay;
-          reconnectTimer = window.setTimeout(() => {
-            console.info('[DIAG][REACT_SSE_RECONNECT]', { afterDelayMs: nextDelay });
-            connectSse();
-          }, nextDelay);
+          disableSseFallback('SSE connection failed; using polling fallback');
         };
       } catch (e) {
-        console.error('[DIAG][REACT_SSE_ERROR]', e);
-        eventSource = null;
+        disableSseFallback('SSE connection setup failed; using polling fallback', e);
       }
     };
 
