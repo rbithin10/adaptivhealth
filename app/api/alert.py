@@ -530,10 +530,25 @@ async def stream_alert_statistics(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Clinician access required for alert stream",
                 )
-    except HTTPException:
+    except HTTPException as exc:
+        logger.warning(
+            "Alerts SSE init rejected",
+            extra={
+                "status_code": exc.status_code,
+                "detail": exc.detail,
+                "has_token_query": bool(token),
+                "path": str(request.url.path),
+            },
+        )
         raise
     except Exception as exc:
-        logger.exception("Alerts SSE initialization failed")
+        logger.exception(
+            "Alerts SSE initialization failed",
+            extra={
+                "has_token_query": bool(token),
+                "path": str(request.url.path),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Alert stream unavailable",

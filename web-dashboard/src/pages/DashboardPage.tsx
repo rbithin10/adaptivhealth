@@ -45,8 +45,8 @@ import ClinicianTopBar from '../components/common/ClinicianTopBar';
 // Base URL for the backend API and whether live alert push (SSE) is enabled
 const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
 const API_BASE_URL = runtimeEnv.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
-// SSE push enabled by default; set env var to 'false' to disable
-const ENABLE_ALERT_PUSH = runtimeEnv.REACT_APP_ENABLE_ALERT_PUSH !== 'false';
+// Production-safe default: alert push is opt-in via env var.
+const ENABLE_ALERT_PUSH = runtimeEnv.REACT_APP_ENABLE_ALERT_PUSH === 'true';
 
 // Top-level stats shown on the dashboard cards
 interface Stats {
@@ -286,8 +286,7 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  // Set up live alert refreshing: poll every second, listen for SSE pushes
-  // and window-focus / visibility-change events. SSE reconnects on error with exponential backoff.
+  // Set up live alert refreshing: poll every second, plus optional SSE pushes.
   useEffect(() => {
     if (!currentUser) return;
 
@@ -307,7 +306,6 @@ const DashboardPage: React.FC = () => {
 
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
-    let reconnectDelayMs = 1000; // Start with 1s backoff, doubles on each retry up to 30s
     let sseDisabled = false;
     let sseWarningLogged = false;
 
@@ -349,14 +347,11 @@ const DashboardPage: React.FC = () => {
           apiBaseUrlResolved: API_BASE_URL,
           sseUrl,
           enableAlertPush: ENABLE_ALERT_PUSH,
-          reconnectDelayMs,
         });
         // SSE uses the dashboard HttpOnly session cookie for authentication.
         eventSource = new EventSource(sseUrl, { withCredentials: true });
 
         eventSource.onopen = () => {
-          // Reset backoff on successful connection
-          reconnectDelayMs = 1000;
           void refreshAlertWidgets();
         };
         eventSource.onmessage = onPushMessage;
@@ -381,7 +376,7 @@ const DashboardPage: React.FC = () => {
       });
     }, 1000);
 
-    // SSE push enabled by default for real-time critical alert visibility
+    // SSE push is optional and disabled by default unless explicitly enabled.
     if (ENABLE_ALERT_PUSH) {
       connectSse();
     }

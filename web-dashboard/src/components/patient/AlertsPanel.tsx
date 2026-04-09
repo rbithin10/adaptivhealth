@@ -63,11 +63,11 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAckn
     <div style={{ backgroundColor: colors.neutral.white, border: `1px solid ${colors.neutral['300']}`, borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
       <h3 style={{ ...typography.sectionTitle, marginBottom: '12px' }}>Alert History</h3>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', marginBottom: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginBottom: '12px' }}>
         <select
           value={severityFilter}
           onChange={(e) => setSeverityFilter(e.target.value)}
-          style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+          style={{ width: '100%', minWidth: 0, padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
         >
           <option value="all">All Severities</option>
           <option value="info">Info</option>
@@ -79,7 +79,7 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAckn
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as AlertStatusFilter)}
-          style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+          style={{ width: '100%', minWidth: 0, padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
         >
           <option value="all">All Statuses</option>
           <option value="active">Active</option>
@@ -90,7 +90,7 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAckn
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+          style={{ width: '100%', minWidth: 0, padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
         >
           <option value="all">All Types</option>
           {availableTypes.map((typeValue) => (
@@ -103,6 +103,8 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAckn
         <button
           onClick={resetFilters}
           style={{
+            width: '100%',
+            minWidth: 0,
             padding: '8px 12px',
             borderRadius: '8px',
             border: `1px solid ${colors.neutral['300']}`,
@@ -139,6 +141,16 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAckn
                 </div>
                 <div style={{ ...typography.caption, color: text, marginTop: '4px', marginBottom: '8px' }}>
                   {formatTimeAgo(alert.created_at)}
+                </div>
+                <div style={{ ...typography.caption, color: text, marginTop: '-4px', marginBottom: '8px', opacity: 0.85 }}>
+                  {new Date(alert.created_at).toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZoneName: 'short',
+                  })}
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {!alert.acknowledged && (

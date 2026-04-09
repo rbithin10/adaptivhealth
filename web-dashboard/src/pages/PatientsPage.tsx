@@ -101,7 +101,12 @@ const PatientsPage: React.FC = () => {
 
       // Fetch each patient's latest risk score in parallel
       const riskResults = await Promise.allSettled(
-        patientUsers.map((patient) => api.getLatestRiskAssessmentForUser(patient.user_id))
+        patientUsers.map((patient) =>
+          api.getLatestRiskAssessmentForUser(patient.user_id, {
+            allowNotFound: true,
+            requestSource: 'patients-list',
+          })
+        )
       );
 
       // Fetch each patient's latest vitals in parallel

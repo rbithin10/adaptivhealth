@@ -196,7 +196,10 @@ const PatientDetailPage: React.FC = () => {
         api.getLatestVitalSignsForUser(userId),
         api.getVitalSignsHistoryForUser(userId, days, 1, rangeToPerPage(timeRange)),
         api.getAlertsForUser(userId, 1, 200),
-        api.getLatestRiskAssessmentForUser(userId),
+        api.getLatestRiskAssessmentForUser(userId, {
+          allowNotFound: true,
+          requestSource: 'patient-detail-refresh',
+        }),
       ]);
       if (latestResult.status === 'fulfilled') setLatestVitals(latestResult.value);
       if (historyResult.status === 'fulfilled') setVitalsHistory(historyResult.value);
@@ -215,26 +218,7 @@ const PatientDetailPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, timeRange]);
 
-  // SSE: listen for critical alerts → instantly re-fetch vitals so the doctor
-  // sees emergency data in ~1-2s instead of waiting for the next 60s poll.
-  useEffect(() => {
-    if (!patientId) return;
-    if (typeof EventSource === 'undefined') return;
-
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
-    let es: EventSource | null = null;
-    try {
-      // SSE uses the dashboard HttpOnly session cookie for authentication.
-      es = new EventSource(`${API_BASE_URL}/api/v1/alerts/stream`, { withCredentials: true });
-      es.onmessage = () => { void refreshVitals(); };
-      es.onerror = () => { if (es) { es.close(); es = null; } };
-    } catch {
-      es = null;
-    }
-
-    return () => { if (es) es.close(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patientId, timeRange]);
+  // Production-safe mode: rely on polling on patient detail to avoid duplicate SSE clients.
 
   // Check if there's a pending document extraction job
   useEffect(() => {
@@ -271,7 +255,10 @@ const PatientDetailPage: React.FC = () => {
       const results = await Promise.allSettled([
         api.getUserById(userId),
         api.getLatestVitalSignsForUser(userId),
-        api.getLatestRiskAssessmentForUser(userId),
+        api.getLatestRiskAssessmentForUser(userId, {
+          allowNotFound: true,
+          requestSource: 'patient-detail-load',
+        }),
         api.getAlertsForUser(userId, 1, 200),
         api.getActivitiesForUser(userId, 5, 0),
         api.getVitalSignsHistoryForUser(userId, days, 1, rangeToPerPage(timeRange)),
@@ -421,8 +408,21 @@ const PatientDetailPage: React.FC = () => {
     const diffMs = Date.now() - date.getTime();
     const diffMin = Math.max(1, Math.floor(diffMs / 60000));
     if (diffMin < 60) return `${diffMin} min ago`;
+
     const diffHr = Math.floor(diffMin / 60);
-    return `${diffHr} hr${diffHr > 1 ? 's' : ''} ago`;
+    if (diffHr < 24) return `${diffHr} hr${diffHr > 1 ? 's' : ''} ago`;
+
+    const diffDays = Math.floor(diffHr / 24);
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+
+    const diffWeeks = Math.floor(diffDays / 7);
+    if (diffDays < 30) return `${diffWeeks} week${diffWeeks > 1 ? 's' : ''} ago`;
+
+    const diffMonths = Math.floor(diffDays / 30);
+    if (diffDays < 365) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+
+    const diffYears = Math.floor(diffDays / 365);
+    return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
   };
 
   // Parse risk factors from the JSON string stored in the assessment
