@@ -143,14 +143,16 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAckn
                   {formatTimeAgo(alert.created_at)}
                 </div>
                 <div style={{ ...typography.caption, color: text, marginTop: '-4px', marginBottom: '8px', opacity: 0.85 }}>
-                  {new Date(alert.created_at).toLocaleString(undefined, {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    timeZoneName: 'short',
-                  })}
+                  {alert.created_at
+                    ? new Date(alert.created_at).toLocaleString(undefined, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short',
+                      })
+                    : 'Date unavailable'}
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {!alert.acknowledged && (
