@@ -629,10 +629,18 @@ const PatientDetailPage: React.FC = () => {
         style={{
           backgroundColor: colors.neutral.white,
           borderBottom: `1px solid ${colors.neutral['300']}`,
-          padding: '16px 32px',
+          padding: '12px 32px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div
+          style={{
+            maxWidth: '1440px',
+            margin: '0 auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+          }}
+        >
           <button
             onClick={() => navigate('/patients')}
             style={{
