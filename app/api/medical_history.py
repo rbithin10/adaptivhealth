@@ -51,7 +51,7 @@ from app.schemas.medical_history import (
     MedicalProfileResponse, DocumentUploadResponse, ExtractionConfirmRequest,
     MedicalExtractionStatusResponse,
 )
-from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
+from app.api.auth import get_current_user_session_or_bearer, get_current_doctor_user_session_or_bearer, check_clinician_phi_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -64,7 +64,7 @@ def _build_document_view_url(user_id: int, document_id: int) -> str:
 
 @router.get("/medical-extraction/status", response_model=MedicalExtractionStatusResponse)
 async def get_medical_extraction_status(
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
 ):
     """Return document extraction readiness status for clinicians/admins."""
     del clinician  # endpoint requires role check only
@@ -236,7 +236,7 @@ def _get_patient_or_404(patient_id: int, db: Session) -> User:
 @router.get("/patients/{patient_id}/medical-history", response_model=List[MedicalHistoryResponse])
 async def get_patient_medical_history(
     patient_id: int,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Get a patient's medical conditions (clinician only)."""
@@ -269,7 +269,7 @@ async def get_patient_medical_history(
 async def add_patient_condition(
     patient_id: int,
     data: MedicalHistoryCreate,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Add a medical condition to a patient's history (clinician only)."""
@@ -316,7 +316,7 @@ async def update_patient_condition(
     patient_id: int,
     history_id: int,
     data: MedicalHistoryUpdate,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Update a medical condition (clinician only)."""
@@ -365,7 +365,7 @@ async def update_patient_condition(
 async def delete_patient_condition(
     patient_id: int,
     history_id: int,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Remove a medical condition (clinician only)."""
@@ -397,7 +397,7 @@ async def delete_patient_condition(
 @router.get("/patients/{patient_id}/medications", response_model=List[MedicationResponse])
 async def get_patient_medications(
     patient_id: int,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Get a patient's medications (clinician only)."""
@@ -433,7 +433,7 @@ async def get_patient_medications(
 async def add_patient_medication(
     patient_id: int,
     data: MedicationCreate,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Add a medication to a patient (clinician only). Auto-sets clinical flags."""
@@ -493,7 +493,7 @@ async def update_patient_medication(
     patient_id: int,
     medication_id: int,
     data: MedicationUpdate,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Update a medication (clinician only)."""
@@ -549,7 +549,7 @@ async def update_patient_medication(
 async def delete_patient_medication(
     patient_id: int,
     medication_id: int,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Remove a medication (clinician only)."""
@@ -581,7 +581,7 @@ async def delete_patient_medication(
 @router.get("/patients/{patient_id}/medical-profile", response_model=MedicalProfileResponse)
 async def get_patient_medical_profile(
     patient_id: int,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Get combined medical profile with AI flags (clinician only)."""
@@ -597,7 +597,7 @@ async def get_patient_medical_profile(
 async def view_uploaded_document(
     patient_id: int,
     document_id: int,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Stream an uploaded patient document for authorized clinicians/admins."""
@@ -636,7 +636,7 @@ async def view_uploaded_document(
 
 @router.get("/me/medical-history", response_model=List[MedicalHistoryResponse])
 async def get_my_medical_history(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """View own medical conditions (patient, read-only)."""
@@ -662,7 +662,7 @@ async def get_my_medical_history(
 
 @router.get("/me/medications", response_model=List[MedicationResponse])
 async def get_my_medications(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """View own medications (patient, read-only)."""
@@ -691,7 +691,7 @@ async def get_my_medications(
 
 @router.get("/me/medical-profile", response_model=MedicalProfileResponse)
 async def get_my_medical_profile(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """View own combined medical profile with AI flags (patient, read-only)."""
@@ -712,7 +712,7 @@ ALLOWED_EXTENSIONS = {"pdf", "txt"}  # Only these file types can be uploaded
 async def upload_patient_document(
     patient_id: int,
     file: UploadFile = File(...),
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -829,7 +829,7 @@ async def upload_patient_document(
 async def confirm_document_extraction(
     patient_id: int,
     data: ExtractionConfirmRequest,
-    clinician: User = Depends(get_current_doctor_user),
+    clinician: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """

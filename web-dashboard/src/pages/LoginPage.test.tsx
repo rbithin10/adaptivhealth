@@ -16,7 +16,6 @@ jest.mock('react-router-dom', () => ({
 // Fake the API layer — we don't want real HTTP calls in unit tests
 const mockApi = {
   login: jest.fn(),
-  getCurrentUser: jest.fn(),
   requestPasswordReset: jest.fn(),
 };
 
@@ -61,8 +60,7 @@ describe('LoginPage', () => {
 
   // After a successful login, admin users should land on the admin page
   it('navigates admin users to admin page after login', async () => {
-    mockApi.login.mockResolvedValue({ access_token: 'token-value', refresh_token: 'refresh' });
-    mockApi.getCurrentUser.mockResolvedValue({ user_role: 'admin', full_name: 'Admin User' });
+    mockApi.login.mockResolvedValue({ id: 1, email: 'admin@example.com', role: 'admin' });
 
     render(
       <MemoryRouter>

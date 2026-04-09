@@ -173,7 +173,6 @@ const PatientDashboardPage: React.FC = () => {
   const handleLogout = async () => {
     try {
       await api.logout();
-      localStorage.removeItem('token');
       navigate('/login');
     } catch (error) {
       console.error('Error logging out:', error);

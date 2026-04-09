@@ -39,11 +39,13 @@ This file handles sign up, login, and token refresh.
 # =============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 import logging
+from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
 from app.models.user import User, UserRole
@@ -67,6 +69,93 @@ router = APIRouter()
 # Auth service instance
 auth_service = AuthService()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/access")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/access", auto_error=False)
+
+SESSION_COOKIE_NAME = "adaptiv_session"
+
+
+class DashboardSessionLoginResponse(BaseModel):
+    """Minimal dashboard login payload when using cookie-based auth."""
+    id: int
+    email: EmailStr
+    role: str
+
+
+def _resolve_authenticated_user_from_payload(payload: Optional[dict], db: Session) -> User:
+    """Validate access-token payload and return the matching active user."""
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    # Check if this specific token has been revoked (e.g. after logout)
+    jti = payload.get("jti")
+    if jti:
+        from app.models.token_blocklist import TokenBlocklist
+        if db.query(TokenBlocklist).filter(TokenBlocklist.jti == jti).first():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload"
+        )
+
+    # Use user_id column (matches Massoud's AWS schema)
+    user = db.query(User).filter(User.user_id == int(user_id)).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated"
+        )
+
+    # Null role is a data-integrity error — fail loudly rather than silently
+    # defaulting a clinician to PATIENT permissions
+    if user.role is None:
+        logger.error(f"User {user.user_id} has no assigned role — account misconfigured")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account configuration error: role not assigned. Contact support."
+        )
+
+    return user
+
+
+def _set_dashboard_session_cookie(response: Response, access_token: str) -> None:
+    """Set HttpOnly dashboard session cookie for browser-based auth."""
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=False,  # Local HTTP dev only; use secure=True in production over HTTPS.
+        samesite="lax",
+        max_age=settings.access_token_expire_minutes * 60,
+        path="/",
+    )
+
+
+def _clear_dashboard_session_cookie(response: Response) -> None:
+    """Clear dashboard session cookie during logout."""
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        httponly=True,
+        secure=False,  # Local HTTP dev only; use secure=True in production over HTTPS.
+        samesite="lax",
+        path="/",
+    )
 
 
 
@@ -189,56 +278,52 @@ def get_current_user(
         HTTPException: If token is invalid or user not found
     """
     payload = auth_service.decode_token(token)
-    
-    if not payload or payload.get("type") != "access":
+    return _resolve_authenticated_user_from_payload(payload, db)
+
+
+def get_current_user_from_session_cookie(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> User:
+    """Authenticate dashboard requests using the HttpOnly session cookie."""
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not session_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token",
-            headers={"WWW-Authenticate": "Bearer"}
+            detail="Session cookie missing",
         )
-    
-    # Check if this specific token has been revoked (e.g. after logout)
-    jti = payload.get("jti")
-    if jti:
-        from app.models.token_blocklist import TokenBlocklist
-        if db.query(TokenBlocklist).filter(TokenBlocklist.jti == jti).first():
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has been revoked",
-                headers={"WWW-Authenticate": "Bearer"}
-            )
-    
-    user_id = payload.get("sub")
-    if not user_id:
+
+    payload = auth_service.decode_token(session_token)
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload"
+            detail="Invalid session cookie",
         )
-    
-    # Use user_id column (matches Massoud's AWS schema)
-    user = db.query(User).filter(User.user_id == int(user_id)).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated"
-        )
-    
-    # Null role is a data-integrity error — fail loudly rather than silently
-    # defaulting a clinician to PATIENT permissions
-    if user.role is None:
-        logger.error(f"User {user.user_id} has no assigned role — account misconfigured")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account configuration error: role not assigned. Contact support."
-        )
-    
-    return user
+    return _resolve_authenticated_user_from_payload(payload, db)
+
+
+def get_current_user_session_or_bearer(
+    request: Request,
+    bearer_token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> User:
+    """Prefer dashboard cookie auth, fallback to bearer for mobile compatibility."""
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_token:
+        payload = auth_service.decode_token(session_token)
+        if payload:
+            return _resolve_authenticated_user_from_payload(payload, db)
+
+    if bearer_token:
+        payload = auth_service.decode_token(bearer_token)
+        if payload:
+            return _resolve_authenticated_user_from_payload(payload, db)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 # =============================================
@@ -348,6 +433,47 @@ def get_current_admin_or_doctor_user(current_user: User = Depends(get_current_us
     Raises:
         HTTPException: If user is patient
     """
+    if current_user.role not in (UserRole.ADMIN, UserRole.CLINICIAN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or clinician access required"
+        )
+    return current_user
+
+
+def get_current_admin_user_session_or_bearer(
+    current_user: User = Depends(get_current_user_session_or_bearer)
+) -> User:
+    """Admin check for endpoints that allow cookie or bearer authentication."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return current_user
+
+
+def get_current_doctor_user_session_or_bearer(
+    current_user: User = Depends(get_current_user_session_or_bearer)
+) -> User:
+    """Clinician-only check for endpoints that allow cookie or bearer authentication."""
+    if current_user.role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin users cannot access patient health data"
+        )
+    if current_user.role != UserRole.CLINICIAN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Clinician access required"
+        )
+    return current_user
+
+
+def get_current_admin_or_doctor_user_session_or_bearer(
+    current_user: User = Depends(get_current_user_session_or_bearer)
+) -> User:
+    """Admin/clinician check for endpoints that allow cookie or bearer authentication."""
     if current_user.role not in (UserRole.ADMIN, UserRole.CLINICIAN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -551,15 +677,14 @@ async def register_user_admin(
 # =============================================
 @router.post("/access", response_model=TokenResponse)         # canonical backend name
 @router.post("/auth/signin", response_model=TokenResponse)    # mobile alias
-@router.post("/session/start", response_model=TokenResponse)  # dashboard alias
 @limiter.limit("5/minute")
-async def login(
+async def login_with_tokens(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
     """
-    Authenticate user and return JWT tokens.
+    Authenticate user and return JWT tokens for mobile clients.
     
     - **username**: User email
     - **password**: User password
@@ -582,6 +707,30 @@ async def login(
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
         user=user
+    )
+
+
+@router.post("/session/start", response_model=DashboardSessionLoginResponse)
+@limiter.limit("5/minute")
+async def login_dashboard_session(
+    request: Request,
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """Authenticate dashboard user and set HttpOnly session cookie."""
+    user = authenticate_user(db, form_data.username, form_data.password)
+
+    access_token = auth_service.create_access_token(
+        data={"sub": str(user.user_id), "role": (user.role or UserRole.PATIENT).value}
+    )
+    _set_dashboard_session_cookie(response, access_token)
+
+    logger.info(f"Dashboard session started for user: {user.user_id} - {user.email}")
+    return DashboardSessionLoginResponse(
+        id=user.user_id,
+        email=user.email,
+        role=(user.role or UserRole.PATIENT).value,
     )
 
 
@@ -835,8 +984,7 @@ async def confirm_password_reset(
 # =============================================
 @router.post("/logout")
 @router.post("/auth/signout")    # mobile alias
-@router.post("/session/end")     # dashboard alias
-async def logout(
+async def logout_mobile(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -863,4 +1011,11 @@ async def logout(
                 db.commit()
 
     logger.info(f"User logged out: {current_user.user_id}")
+    return {"message": "Logged out successfully"}
+
+
+@router.post("/session/end")
+async def logout_dashboard_session(response: Response):
+    """End dashboard cookie session and clear the HttpOnly cookie."""
+    _clear_dashboard_session_cookie(response)
     return {"message": "Logged out successfully"}

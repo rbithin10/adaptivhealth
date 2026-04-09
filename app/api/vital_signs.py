@@ -60,7 +60,11 @@ from app.schemas.vital_signs import (
     EdgeBatchSyncRequest, EdgeBatchItem,
 )
 from app.services.encryption import encryption_service
-from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
+from app.api.auth import (
+    get_current_user_session_or_bearer,
+    get_current_doctor_user_session_or_bearer,
+    check_clinician_phi_access,
+)
 from app.rate_limiter import limiter
 from app.services.ml_prediction import predict_risk, is_model_loaded
 from app.services.risk_drivers import build_drivers_from_vitals
@@ -628,7 +632,7 @@ async def submit_vitals(
     request: Request,
     vital_data: VitalSignCreate,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -739,7 +743,7 @@ async def submit_vitals_batch(
     request: Request,
     batch_data: VitalSignBatchCreate,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -798,12 +802,12 @@ async def submit_vitals_batch(
 
 
 @router.post("/vitals/batch-sync")
-@limiter.limit("10/minute")
+@limiter.limit("100/minute")
 async def submit_vitals_batch_sync(
     request: Request,
     sync_payload: EdgeBatchSyncRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -971,7 +975,7 @@ async def submit_vitals_batch_sync(
 async def push_critical_alert(
     request: Request,
     payload: EdgeBatchItem,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -1170,7 +1174,7 @@ async def push_critical_alert(
 @router.get("/vitals/latest", response_model=VitalSignResponse)
 async def get_latest_vitals(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -1210,7 +1214,7 @@ async def get_latest_vitals(
 @router.get("/vitals/summary")
 async def get_vitals_summary(
     days: int = Query(7, ge=1, le=90, description="Number of days to summarize"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -1238,7 +1242,7 @@ async def get_vitals_history(
     days: int = Query(7, ge=1, le=90, description="Number of days of history"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(100, ge=1, le=1000, description="Records per page"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -1302,7 +1306,7 @@ async def get_vitals_history(
 async def get_user_latest_vitals(
     user_id: int,
     request: Request,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -1354,7 +1358,7 @@ async def get_user_latest_vitals(
 async def get_user_vitals_summary(
     user_id: int,
     days: int = Query(7, ge=1, le=90),
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -1392,7 +1396,7 @@ async def get_user_vitals_history(
     days: int = Query(7, ge=1, le=90),
     page: int = Query(1, ge=1),
     per_page: int = Query(100, ge=1, le=1000),
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """

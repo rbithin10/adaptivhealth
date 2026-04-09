@@ -59,19 +59,18 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // Save tokens so the user stays logged in
+      // Backend sets HttpOnly session cookie; frontend stores only user metadata.
       const response = await api.login(email, password);
-      localStorage.setItem('token', response.access_token);
-      if (response.refresh_token) {
-        localStorage.setItem('refresh_token', response.refresh_token);
-      }
-      
-      // Fetch and store user data
-      const user = await api.getCurrentUser();
-      localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('user', JSON.stringify({
+        id: response.id,
+        user_id: response.id,
+        email: response.email,
+        role: response.role,
+        user_role: response.role,
+      }));
       
       // Send admins to the admin page, everyone else to the main dashboard
-      const role = user.user_role;
+      const role = response.role;
       if (role === 'admin') {
         navigate('/admin');
       } else {

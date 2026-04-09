@@ -53,6 +53,7 @@ const ClinicianTopBar: React.FC = () => {
 
   // Log out: tell the server, then go to the login page
   const handleLogout = async () => {
+    // This clears the HttpOnly session cookie on the backend and local user cache in the client.
     await api.logout();
     navigate('/login');
   };

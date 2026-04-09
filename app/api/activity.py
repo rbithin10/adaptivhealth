@@ -44,7 +44,7 @@ from app.schemas.activity import (
     ActivitySessionResponse
 )
 # Import authentication helpers to verify who is making the request
-from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
+from app.api.auth import get_current_user_session_or_bearer, get_current_doctor_user_session_or_bearer, check_clinician_phi_access
 
 # Set up a logger for this file so we can track what happens
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ router = APIRouter()
 @router.post("/activities/start", response_model=ActivitySessionResponse)
 async def start_activity_session(
     activity_data: ActivitySessionCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -112,7 +112,7 @@ async def start_activity_session(
 async def end_activity_session(
     session_id: int,
     activity_data: ActivitySessionUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -173,7 +173,7 @@ async def get_my_activities(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     activity_type: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -214,7 +214,7 @@ async def get_user_activities(
     user_id: int,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -250,7 +250,7 @@ async def get_user_activities(
 @router.get("/activities/{session_id}", response_model=ActivitySessionResponse)
 async def get_activity_session(
     session_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """

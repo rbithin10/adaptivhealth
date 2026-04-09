@@ -28,6 +28,7 @@ enum MockScenario {
   workout,    // Full exercise: warmup → steady → peak → cooldown (90 ticks)
   sleep,      // Sleep cycles: NREM and REM with low heart rate, BP dip
   emergency,  // Life-threatening: HR>180, SpO2<90, BP>160 — triggers all alerts
+  criticalDrill, // Alternating critical triggers to reliably exercise alert pipeline
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +215,8 @@ class MockVitalsService {
         return 'nrem1';
       case MockScenario.emergency:
         return 'critical';
+      case MockScenario.criticalDrill:
+        return 'drill_warmup';
     }
   }
 
@@ -328,7 +331,83 @@ class MockVitalsService {
         return _sleepVitals(baseline);
       case MockScenario.emergency:
         return _emergencyVitals(baseline);
+      case MockScenario.criticalDrill:
+        return _criticalDrillVitals(baseline);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // CRITICAL DRILL scenario
+  //
+  // Designed for QA/demo: alternates critical trigger TYPES every tick so
+  // alert cooldown per type does not suppress all subsequent critical cycles.
+  // This reliably exercises:
+  // - local threshold critical alerts
+  // - critical confirmation flow (2 critical cycles within 60s)
+  // - immediate critical cloud push path
+  // ---------------------------------------------------------------------------
+  _Vitals _criticalDrillVitals(int baseline) {
+    final tick = _scenarioTick % 30;
+
+    if (tick < 6) {
+      // Warmup near warning range without crossing critical thresholds.
+      final hr = _clampInt(_gaussInt(148, 3), 140, 154);
+      final spo2 = _clampInt(_gaussInt(93, 1), 92, 95);
+      final bpSys = _clampInt(_gaussInt(158, 3), 152, 164);
+      final bpDia = _clampInt(_gaussInt(92, 3), 85, 100);
+      final hrv = _clampDouble(_gaussDouble(16, 2), 10, 24);
+      return _Vitals(hr, spo2, bpSys, bpDia, hrv, 'drill_warmup');
+    }
+
+    if (tick < 18) {
+      // Alternate critical trigger categories every 5 seconds.
+      // tick%3 => 0 high HR critical, 1 low SpO2 critical, 2 high BP critical
+      final mode = tick % 3;
+      if (mode == 0) {
+        final hr = _clampInt(_gaussInt(186, 4), 181, 198);
+        final spo2 = _clampInt(_gaussInt(95, 1), 93, 97);
+        final bpSys = _clampInt(_gaussInt(150, 4), 142, 158);
+        final bpDia = _clampInt(_gaussInt(90, 3), 84, 98);
+        final hrv = _clampDouble(_gaussDouble(8, 1.5), 5, 14);
+        return _Vitals(hr, spo2, bpSys, bpDia, hrv, 'drill_hr_critical');
+      }
+      if (mode == 1) {
+        final hr = _clampInt(_gaussInt(132, 5), 120, 145);
+        final spo2 = _clampInt(_gaussInt(86, 1), 84, 88);
+        final bpSys = _clampInt(_gaussInt(146, 4), 138, 156);
+        final bpDia = _clampInt(_gaussInt(88, 3), 80, 96);
+        final hrv = _clampDouble(_gaussDouble(9, 1.5), 5, 14);
+        return _Vitals(hr, spo2, bpSys, bpDia, hrv, 'drill_spo2_critical');
+      }
+
+      final hr = _clampInt(_gaussInt(136, 5), 124, 148);
+      final spo2 = _clampInt(_gaussInt(95, 1), 93, 97);
+      final bpSys = _clampInt(_gaussInt(186, 4), 181, 198);
+      final bpDia = _clampInt(_gaussInt(102, 3), 95, 112);
+      final hrv = _clampDouble(_gaussDouble(8, 1.5), 5, 14);
+      return _Vitals(hr, spo2, bpSys, bpDia, hrv, 'drill_bp_critical');
+    }
+
+    // Recovery tail so users can see alert state settle.
+    final t = (tick - 18).toDouble();
+    final hr = _clampInt(
+      _gaussInt(baseline + (150 - baseline) * exp(-t / 4), 3),
+      baseline - 5,
+      155,
+    );
+    final spo2 = _clampInt((90 + 8 * (1 - exp(-t / 3))).round(), 90, 98);
+    final bpSys = _clampInt(
+      (176 - 48 * (1 - exp(-t / 4))).round() + _gaussInt(0, 3),
+      118,
+      184,
+    );
+    final bpDia = _clampInt(
+      (100 - 22 * (1 - exp(-t / 4))).round() + _gaussInt(0, 2),
+      68,
+      108,
+    );
+    final hrv = _clampDouble(_gaussDouble(10 + 18 * (1 - exp(-t / 5)), 2), 8, 36);
+    return _Vitals(hr, spo2, bpSys, bpDia, hrv, 'drill_recovery');
   }
 
   // ---------------------------------------------------------------------------
@@ -560,6 +639,12 @@ class MockVitalsService {
       case 'critical':
       case 'recovery':
       case 'post_event': return 'resting';
+      case 'drill_warmup':
+      case 'drill_hr_critical':
+      case 'drill_spo2_critical':
+      case 'drill_bp_critical':
+      case 'drill_recovery':
+        return 'resting';
       default:           return 'resting';
     }
   }

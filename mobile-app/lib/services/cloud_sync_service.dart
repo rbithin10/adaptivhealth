@@ -29,13 +29,13 @@ import '../models/edge_prediction.dart';
 
 // The different states the sync system can be in
 enum CloudSyncState {
-  online,       // Connected to the server and ready to sync
-  offline,      // No internet connection
-  authExpired,  // Login token expired — user needs to sign in again
-  rateLimited,  // Server says we're sending too many requests
-  serverError,  // Server is having problems
-  syncing,      // Currently uploading data to the server
-  idle,         // Nothing to sync — all caught up
+  online, // Connected to the server and ready to sync
+  offline, // No internet connection
+  authExpired, // Login token expired — user needs to sign in again
+  rateLimited, // Server says we're sending too many requests
+  serverError, // Server is having problems
+  syncing, // Currently uploading data to the server
+  idle, // Nothing to sync — all caught up
 }
 
 // ============================================================================
@@ -43,6 +43,11 @@ enum CloudSyncState {
 // ============================================================================
 
 class CloudSyncService {
+  static const String _useLocal = String.fromEnvironment(
+    'USE_LOCAL',
+    defaultValue: 'false',
+  );
+
   // The HTTP client used to talk to the server
   final Dio _dio;
 
@@ -65,6 +70,7 @@ class CloudSyncService {
   static const _probeTimeout = Duration(seconds: 4);
   // Don't let the local queue grow beyond 500 items
   static const _maxQueueSize = 500;
+  static const _defaultRateLimitCooldown = Duration(seconds: 60);
   // Current state of the sync system (online, offline, syncing, etc.)
   CloudSyncState _syncState = CloudSyncState.idle;
   // Whether we think the phone has internet right now
@@ -75,6 +81,7 @@ class CloudSyncService {
   String? _lastQueueEventType;
   String? _lastQueueEventMessage;
   DateTime? _lastQueueEventAt;
+  DateTime? _rateLimitCooldownUntil;
 
   // Timer that triggers sync every 15 minutes
   Timer? _syncTimer;
@@ -133,6 +140,10 @@ class CloudSyncService {
     _updateDerivedSyncState();
     // Tell the UI about our state
     _notifyStateChanged();
+    _logLocalSyncDiag(
+      'INIT',
+      'baseUrl=${_dio.options.baseUrl} queue=${_pendingSyncs.length} state=$_syncState online=$_isConnectivityOnline',
+    );
 
     // Set up the 15-minute automatic sync timer
     _syncTimer = Timer.periodic(_syncInterval, (_) => trySync());
@@ -148,6 +159,8 @@ class CloudSyncService {
     required Map<String, dynamic> vitals,
     List<Map<String, dynamic>>? alerts,
     Map<String, dynamic>? gpsData,
+    bool immediateCriticalPush = false,
+    String? immediateCriticalReason,
   }) async {
     // Package the prediction with a timestamp for the sync queue
     final entry = {
@@ -177,16 +190,23 @@ class CloudSyncService {
     await _saveQueue();
     _updateDerivedSyncState();
     _notifyStateChanged();
+    _logLocalSyncDiag(
+      'QUEUE',
+      'queued type=${prediction?.riskLevel ?? "standard"} pending=${_pendingSyncs.length}',
+    );
 
-    // If this is a HIGH or CRITICAL risk, try to send it immediately
-    // so the doctor's dashboard updates within seconds (not 15 min)
-    if (prediction != null &&
-        (prediction.riskLevel == 'high' || prediction.riskLevel == 'critical')) {
+    // If this is a high AI risk OR a confirmed threshold-critical event,
+    // try to send it immediately so the dashboard updates within seconds.
+    final predictionDemandsImmediatePush = prediction != null &&
+        (prediction.riskLevel == 'high' || prediction.riskLevel == 'critical');
+
+    if (predictionDemandsImmediatePush || immediateCriticalPush) {
       unawaited(
         pushCriticalAlertNow(
           prediction: prediction,
           vitals: vitals,
           alerts: alerts,
+          reason: immediateCriticalReason,
         ),
       );
     }
@@ -210,9 +230,10 @@ class CloudSyncService {
 
   // Send a critical alert directly to the server RIGHT NOW (bypasses the 15-min queue)
   Future<bool> pushCriticalAlertNow({
-    required EdgeRiskPrediction prediction,
+    EdgeRiskPrediction? prediction,
     required Map<String, dynamic> vitals,
     List<Map<String, dynamic>>? alerts,
+    String? reason,
   }) async {
     try {
       // Send the critical reading to the server immediately
@@ -221,15 +242,16 @@ class CloudSyncService {
         data: {
           'timestamp': DateTime.now().toIso8601String(),
           'vitals': vitals,
-          'prediction': prediction.toJson(),
+          if (prediction != null) 'prediction': prediction.toJson(),
           if (alerts != null && alerts.isNotEmpty) 'alerts': alerts,
+          if (reason != null) 'push_reason': reason,
         },
       );
       // Record that the immediate push worked
       _recordQueueEvent(
         type: 'critical_push_success',
         message:
-            'Critical ${prediction.riskLevel} alert pushed immediately '
+            'Critical ${prediction?.riskLevel ?? "threshold-confirmed"} alert pushed immediately '
             '(bypassed 15-min queue).',
       );
       return true;
@@ -237,8 +259,7 @@ class CloudSyncService {
       // Push failed — not a problem, the reading is still in the regular queue
       _recordQueueEvent(
         type: 'critical_push_failed',
-        message:
-            'Immediate critical push failed '
+        message: 'Immediate critical push failed '
             '(${e.response?.statusCode ?? "no response"}). '
             'Reading is queued for next batch sync.',
       );
@@ -247,7 +268,8 @@ class CloudSyncService {
       // Unexpected error — reading is safely in the queue
       _recordQueueEvent(
         type: 'critical_push_failed',
-        message: 'Immediate critical push failed unexpectedly. Reading is queued.',
+        message:
+            'Immediate critical push failed unexpectedly. Reading is queued.',
       );
       return false;
     }
@@ -256,13 +278,17 @@ class CloudSyncService {
   // Try to upload all queued data to the server (called every 15 min and on-demand)
   Future<bool> trySync() async {
     // Don't start a new sync if one is already running
-    if (_isSyncing) return false;
+    if (_isSyncing) {
+      _logLocalSyncDiag('SYNC_SKIP', 'already_syncing=true');
+      return false;
+    }
 
     // Nothing to upload — just check connectivity and return
     if (_pendingSyncs.isEmpty) {
       await _probeConnectivity(updateError: false);
       _updateDerivedSyncState();
       _notifyStateChanged();
+      _logLocalSyncDiag('SYNC_SKIP', 'pending=0 state=$_syncState');
       return false;
     }
 
@@ -276,6 +302,17 @@ class CloudSyncService {
         _syncState == CloudSyncState.rateLimited ||
         _syncState == CloudSyncState.serverError) {
       _notifyStateChanged();
+      if (_syncState == CloudSyncState.rateLimited) {
+        _logLocalSyncDiag(
+          'SYNC_SKIP',
+          'state=$_syncState cooldownRemaining=${_remainingRateLimitCooldownSeconds()}s errorType=$_lastSyncErrorType errorMessage=$_lastSyncErrorMessage',
+        );
+      } else {
+        _logLocalSyncDiag(
+          'SYNC_SKIP',
+          'state=$_syncState errorType=$_lastSyncErrorType errorMessage=$_lastSyncErrorMessage',
+        );
+      }
       return false;
     }
 
@@ -290,6 +327,10 @@ class CloudSyncService {
 
       // Then upload the regular prediction data in batches
       final predictionSynced = await _syncPredictions();
+      _logLocalSyncDiag(
+        'SYNC_DONE',
+        'emergency=$emergencySynced prediction=$predictionSynced pending=${_pendingSyncs.length}',
+      );
 
       // If we uploaded anything, record the time and clear errors
       if (emergencySynced > 0 || predictionSynced > 0) {
@@ -305,6 +346,10 @@ class CloudSyncService {
     } on DioException catch (e) {
       // Network or server error — keep the queue and try again later
       _setSyncErrorFromDio(e);
+      _logLocalSyncDiag(
+        'SYNC_FAIL',
+        'status=${e.response?.statusCode} type=${e.type} mappedError=$_lastSyncErrorType',
+      );
       _isSyncing = false;
       _updateDerivedSyncState();
       _notifyStateChanged();
@@ -317,6 +362,7 @@ class CloudSyncService {
       _isSyncing = false;
       _updateDerivedSyncState();
       _notifyStateChanged();
+      _logLocalSyncDiag('SYNC_FAIL', 'unexpected=$e');
       return false;
     }
   }
@@ -362,9 +408,8 @@ class CloudSyncService {
   // Upload GPS emergency alerts first (they are the highest priority)
   Future<int> _syncEmergencies() async {
     // Find all GPS emergency items in the queue
-    final emergencies = _pendingSyncs
-        .where((e) => e['type'] == 'gps_emergency')
-        .toList();
+    final emergencies =
+        _pendingSyncs.where((e) => e['type'] == 'gps_emergency').toList();
 
     // Count how many emergencies we successfully uploaded
     int syncedCount = 0;
@@ -403,7 +448,8 @@ class CloudSyncService {
                 'timestamp': emergency['timestamp'],
                 'vitals': {
                   ...vitals,
-                  'timestamp': emergencyData['timestamp'] ?? emergency['timestamp'],
+                  'timestamp':
+                      emergencyData['timestamp'] ?? emergency['timestamp'],
                 },
                 'prediction': {
                   'risk_score': emergencyData['risk_score'] ?? 1.0,
@@ -416,7 +462,8 @@ class CloudSyncService {
                     'alert_type': 'gps_emergency',
                     'severity': 'critical',
                     'title': 'Edge AI Emergency',
-                    'message': 'Critical risk detected with emergency location capture',
+                    'message':
+                        'Critical risk detected with emergency location capture',
                   }
                 ],
                 'gps': emergencyData,
@@ -459,9 +506,8 @@ class CloudSyncService {
   // Upload regular AI predictions in batches of 50
   Future<int> _syncPredictions() async {
     // Find all non-emergency items in the queue
-    final predictions = _pendingSyncs
-        .where((e) => e['type'] != 'gps_emergency')
-        .toList();
+    final predictions =
+        _pendingSyncs.where((e) => e['type'] != 'gps_emergency').toList();
 
     if (predictions.isEmpty) return 0;
 
@@ -470,6 +516,10 @@ class CloudSyncService {
     final batch = predictions.take(batchSize).toList();
 
     try {
+      _logLocalSyncDiag(
+        'BATCH_POST',
+        'url=${_dio.options.baseUrl}/vitals/batch-sync batch=${batch.length} pending=${_pendingSyncs.length}',
+      );
       // Upload this batch to the server
       await _dio.post(
         '/vitals/batch-sync',
@@ -487,10 +537,19 @@ class CloudSyncService {
       await _saveQueue();
       _updateDerivedSyncState();
       _notifyStateChanged();
+      _logLocalSyncDiag(
+        'BATCH_OK',
+        'uploaded=${batch.length} remaining=${_pendingSyncs.length}',
+      );
       return batch.length;
     } on DioException catch (e) {
+      _logLocalSyncDiag(
+        'BATCH_FAIL',
+        'status=${e.response?.statusCode} type=${e.type} response=${e.response?.data}',
+      );
       final statusCode = e.response?.statusCode ?? 0;
-      if (statusCode >= 400 && statusCode < 500 &&
+      if (statusCode >= 400 &&
+          statusCode < 500 &&
           statusCode != 401 &&
           statusCode != 403 &&
           statusCode != 429) {
@@ -545,9 +604,8 @@ class CloudSyncService {
       final data = prefs.getString('edge_sync_queue');
       if (data != null) {
         final list = json.decode(data) as List;
-        _pendingSyncs = list
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        _pendingSyncs =
+            list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
     } catch (_) {
       _pendingSyncs = [];
@@ -571,6 +629,9 @@ class CloudSyncService {
 
   // Record a sync error for display in the UI
   void _setSyncError({required String type, required String message}) {
+    if (type != 'rate_limited') {
+      _rateLimitCooldownUntil = null;
+    }
     _lastSyncErrorType = type;
     _lastSyncErrorMessage = message;
     _lastSyncErrorAt = DateTime.now();
@@ -579,6 +640,7 @@ class CloudSyncService {
 
   // Clear any previous sync error (called after a successful sync)
   void _clearSyncError() {
+    _rateLimitCooldownUntil = null;
     _lastSyncErrorType = null;
     _lastSyncErrorMessage = null;
     _lastSyncErrorAt = null;
@@ -602,10 +664,7 @@ class CloudSyncService {
     }
 
     if (statusCode == 429) {
-      _setSyncError(
-        type: 'rate_limited',
-        message: 'Sync temporarily rate-limited. Retrying automatically.',
-      );
+      _setRateLimitedError(e);
       return;
     }
 
@@ -703,6 +762,8 @@ class CloudSyncService {
         _clearSyncError();
       }
       _updateDerivedSyncState();
+      _logLocalSyncDiag(
+          'PROBE_OK', 'state=$_syncState online=$_isConnectivityOnline');
       return _syncState;
     } on DioException catch (e) {
       final mapped = _mapDioToState(e);
@@ -716,14 +777,12 @@ class CloudSyncService {
             message: 'Authentication expired. Please sign in again.',
           );
         } else if (mapped == CloudSyncState.rateLimited) {
-          _setSyncError(
-            type: 'rate_limited',
-            message: 'Sync temporarily rate-limited. Retrying automatically.',
-          );
+          _setRateLimitedError(e);
         } else if (mapped == CloudSyncState.serverError) {
           _setSyncError(
             type: 'server_error',
-            message: 'Server is temporarily unavailable. Will retry automatically.',
+            message:
+                'Server is temporarily unavailable. Will retry automatically.',
           );
         } else if (mapped == CloudSyncState.offline) {
           _setSyncError(
@@ -734,8 +793,86 @@ class CloudSyncService {
       }
 
       _updateDerivedSyncState();
+      _logLocalSyncDiag(
+        'PROBE_FAIL',
+        'status=${e.response?.statusCode} type=${e.type} mapped=$mapped',
+      );
       return mapped;
     }
+  }
+
+  void _logLocalSyncDiag(String stage, String message) {
+    if (_useLocal != 'true') {
+      return;
+    }
+    debugPrint('[DIAG][LOCAL_SYNC][$stage] $message');
+  }
+
+  void _setRateLimitedError(DioException e) {
+    final retryAfterSeconds = _parseRetryAfterSeconds(e);
+    final cooldownSeconds =
+        retryAfterSeconds ?? _defaultRateLimitCooldown.inSeconds;
+    _rateLimitCooldownUntil =
+        DateTime.now().add(Duration(seconds: cooldownSeconds));
+
+    if (retryAfterSeconds == null) {
+      _logLocalSyncDiag(
+        'RATE_LIMIT_FALLBACK',
+        'Retry-After missing/invalid; using fallback cooldown=${cooldownSeconds}s until=$_rateLimitCooldownUntil',
+      );
+    } else {
+      _logLocalSyncDiag(
+        'RATE_LIMIT_RETRY_AFTER',
+        'Retry-After=${cooldownSeconds}s until=$_rateLimitCooldownUntil',
+      );
+    }
+
+    _setSyncError(
+      type: 'rate_limited',
+      message:
+          'Sync temporarily rate-limited. Retrying automatically in ${cooldownSeconds}s.',
+    );
+  }
+
+  int _remainingRateLimitCooldownSeconds() {
+    final until = _rateLimitCooldownUntil;
+    if (until == null) {
+      return 0;
+    }
+    final remaining = until.difference(DateTime.now()).inSeconds;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  bool _isRateLimitCooldownActive() {
+    return _remainingRateLimitCooldownSeconds() > 0;
+  }
+
+  int? _parseRetryAfterSeconds(DioException e) {
+    final retryAfterHeader = e.response?.headers.value('retry-after');
+    if (retryAfterHeader == null || retryAfterHeader.trim().isEmpty) {
+      return null;
+    }
+    final parsed = int.tryParse(retryAfterHeader.trim());
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  }
+
+  void _clearRateLimitIfExpired() {
+    if (_lastSyncErrorType != 'rate_limited') {
+      return;
+    }
+
+    if (_isRateLimitCooldownActive()) {
+      return;
+    }
+
+    _rateLimitCooldownUntil = null;
+    _lastSyncErrorType = null;
+    _lastSyncErrorMessage = null;
+    _lastSyncErrorAt = null;
+    _logLocalSyncDiag('RATE_LIMIT_CLEARED', 'cooldown elapsed, resuming sync');
   }
 
   // Convert an HTTP error into our sync state categories
@@ -790,8 +927,13 @@ class CloudSyncService {
 
     // If we're being rate limited, show that
     if (_lastSyncErrorType == 'rate_limited') {
-      _syncState = CloudSyncState.rateLimited;
-      return;
+      _clearRateLimitIfExpired();
+      if (_lastSyncErrorType == 'rate_limited' &&
+          _isRateLimitCooldownActive()) {
+        _syncState = CloudSyncState.rateLimited;
+        return;
+      }
+      // Cooldown expired, keep state evaluation going.
     }
 
     // If the server has errors, show that

@@ -86,6 +86,10 @@ class EdgeAiStore extends ChangeNotifier {
   DateTime? _lastEdgeAlertNotificationAt;
   // Whether the PREVIOUS reading was critical (to detect new critical episodes)
   bool _wasCriticalPreviousCycle = false;
+  // Confirmation state to reduce false-positive immediate critical pushes.
+  int _criticalThresholdStreak = 0;
+  DateTime? _lastThresholdCriticalAt;
+  static const Duration _criticalConfirmationWindow = Duration(seconds: 60);
 
   // ---- Collect recent readings for better AI predictions ----
   // The AI model needs multiple readings to see trends (not just one number).
@@ -226,7 +230,8 @@ class EdgeAiStore extends ChangeNotifier {
         maxSafeHr != null &&
         _hrWindow.length >= 3) {
       // Calculate average, highest, and lowest heart rate from recent readings
-      final avgHr = (_hrWindow.reduce((a, b) => a + b) / _hrWindow.length).round();
+      final avgHr =
+          (_hrWindow.reduce((a, b) => a + b) / _hrWindow.length).round();
       final peakHr = _hrWindow.reduce(max);
       final minHr = _hrWindow.reduce(min);
       // Average blood oxygen level, or use current reading, or default to 97% (normal)
@@ -234,9 +239,11 @@ class EdgeAiStore extends ChangeNotifier {
           ? (_spo2Window.reduce((a, b) => a + b) / _spo2Window.length).round()
           : (spo2 ?? 97);
       // How many minutes have passed since we started collecting readings
-      final elapsedMin = DateTime.now().difference(_windowStart!).inSeconds / 60.0;
+      final elapsedMin =
+          DateTime.now().difference(_windowStart!).inSeconds / 60.0;
       // Clamp duration between 1 and 30 minutes for the AI model
-      final durationMin = max(1, min(elapsedMin.round(), durationMinutes ?? 30));
+      final durationMin =
+          max(1, min(elapsedMin.round(), durationMinutes ?? 30));
 
       latestPrediction = _mlService.predictRisk(
         age: age,
@@ -258,7 +265,12 @@ class EdgeAiStore extends ChangeNotifier {
     notifyListeners();
 
     // Step 3: If something is critically wrong, capture the user's GPS location for emergency
-    final isCritical = activeAlerts.any((a) => a.severity == 'critical') ||
+    final hasThresholdCritical =
+        activeAlerts.any((a) => a.severity == 'critical');
+    final thresholdCriticalConfirmed =
+        _updateThresholdCriticalConfirmation(hasThresholdCritical);
+
+    final isCritical = hasThresholdCritical ||
         (latestPrediction != null && latestPrediction!.riskScore >= 0.80);
 
     _maybeNotifyCriticalDetection(isCritical);
@@ -282,11 +294,27 @@ class EdgeAiStore extends ChangeNotifier {
       'timestamp': DateTime.now().toIso8601String(),
     };
 
+    final alertsForSync = activeAlerts.map((a) => a.toJson()).toList();
+    if (thresholdCriticalConfirmed) {
+      alertsForSync.add({
+        'alert_type': 'threshold_critical_confirmed',
+        'severity': 'critical',
+        'title': 'Confirmed critical threshold event',
+        'message':
+            'Two consecutive critical threshold readings were detected within 60 seconds.',
+        'source': 'threshold_rule',
+        'requires_immediate_push': true,
+      });
+    }
+
     await _syncService.queuePrediction(
       prediction: latestPrediction,
       vitals: vitalsData,
-      alerts: activeAlerts.map((a) => a.toJson()).toList(),
+      alerts: alertsForSync,
       gpsData: latestEmergency?.toJson(),
+      immediateCriticalPush: thresholdCriticalConfirmed,
+      immediateCriticalReason:
+          thresholdCriticalConfirmed ? 'confirmed_threshold_critical' : null,
     );
     pendingSyncCount = _syncService.pendingCount;
     notifyListeners(); // update sync count badge only
@@ -399,8 +427,8 @@ class EdgeAiStore extends ChangeNotifier {
     final isNewCriticalCycle = isCritical && !_wasCriticalPreviousCycle;
     final lastNotified = _lastEdgeAlertNotificationAt;
     // Don't send another notification if we sent one less than 5 minutes ago
-    final outsideDebounce =
-        lastNotified == null || now.difference(lastNotified) >= const Duration(minutes: 5);
+    final outsideDebounce = lastNotified == null ||
+        now.difference(lastNotified) >= const Duration(minutes: 5);
 
     // Only show notification if it's a new critical episode AND we haven't notified recently
     if (isNewCriticalCycle && outsideDebounce) {
@@ -413,5 +441,25 @@ class EdgeAiStore extends ChangeNotifier {
     }
 
     _wasCriticalPreviousCycle = isCritical;
+  }
+
+  bool _updateThresholdCriticalConfirmation(bool hasThresholdCritical) {
+    if (!hasThresholdCritical) {
+      _criticalThresholdStreak = 0;
+      _lastThresholdCriticalAt = null;
+      return false;
+    }
+
+    final now = DateTime.now();
+    final previous = _lastThresholdCriticalAt;
+    if (previous != null &&
+        now.difference(previous) <= _criticalConfirmationWindow) {
+      _criticalThresholdStreak += 1;
+    } else {
+      _criticalThresholdStreak = 1;
+    }
+
+    _lastThresholdCriticalAt = now;
+    return _criticalThresholdStreak >= 2;
   }
 }

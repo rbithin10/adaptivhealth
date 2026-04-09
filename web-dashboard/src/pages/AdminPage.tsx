@@ -125,6 +125,7 @@ const AdminPage: React.FC = () => {
 
   // Sign out and return to login
   const handleLogout = async () => {
+    // Clears server-side dashboard cookie session and local cached user metadata.
     await api.logout();
     navigate('/login');
   };

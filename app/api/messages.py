@@ -30,7 +30,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.message import Message
 from app.schemas.message import MessageCreate, MessageResponse, InboxSummaryResponse
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 from app.services.encryption import encryption_service
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ def _parse_conversation_id(conversation_id: str) -> int:
 async def get_message_thread(
     other_user_id: int,
     limit: int = Query(default=50, ge=1, le=200, description="Max messages to return"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -132,7 +132,7 @@ async def get_message_thread(
 @router.post("/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 async def send_message(
     message_data: MessageCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -193,7 +193,7 @@ async def send_message(
 @router.post("/messages/{message_id}/read", response_model=MessageResponse)
 async def mark_message_read(
     message_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -238,7 +238,7 @@ async def mark_message_read(
 # =============================================
 @router.get("/messages/inbox", response_model=List[InboxSummaryResponse])
 async def get_messaging_inbox(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -331,7 +331,7 @@ async def get_messaging_inbox(
 @router.get("/messaging/conversations")
 async def get_messaging_conversations(
     include_unread: bool = Query(default=True, description="Include unread count"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """List active conversations in a spec-compatible response shape."""
@@ -398,7 +398,7 @@ async def get_conversation_messages(
     conversation_id: str,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """Retrieve message history for a conversation in spec-compatible shape."""
@@ -467,7 +467,7 @@ async def get_conversation_messages(
 async def send_conversation_message(
     conversation_id: str,
     payload: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """Send a conversation message in a spec-compatible request/response shape."""
@@ -522,7 +522,7 @@ async def send_conversation_message(
 @router.put("/messaging/conversations/{conversation_id}/read")
 async def mark_conversation_read(
     conversation_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """Mark all unread incoming messages in a conversation as read."""

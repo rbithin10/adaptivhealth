@@ -2,8 +2,7 @@
 API client for the web dashboard.
 
 Talks to the backend server to get user data, vital signs, risk scores,
-and alerts. Automatically adds the login token to every request so the
-server knows who is asking.
+and alerts. Uses browser-managed HttpOnly cookies for authenticated requests.
 
 Matches backend API at /api/v1 with correct endpoint prefixes and schemas.
 */
@@ -12,7 +11,7 @@ Matches backend API at /api/v1 with correct endpoint prefixes and schemas.
 import axios, { AxiosInstance, AxiosError } from 'axios';
 // Import all the data shapes we expect back from the server
 import {
-  TokenResponse,
+  DashboardSessionLoginResponse,
   User,
   UserProfileResponse,
   UserListResponse,
@@ -83,51 +82,23 @@ class ApiService {
       envApiUrl: process.env.REACT_APP_API_URL ?? null,
       apiBaseUrlResolved: API_BASE_URL,
       axiosBaseUrl: axiosBase,
-      refreshUrl: `${API_BASE_URL}/api/v1/session/extend`,
     });
 
     // Set up the HTTP client with the server address and default settings
     this.client = axios.create({
       baseURL: axiosBase,  // All requests go to /api/v1 on the server
+      // Cookie-based dashboard auth: browser sends HttpOnly session cookie automatically.
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json', // Tell the server we're sending JSON data
       },
     });
 
-    // Before every request, automatically attach the user's login token
-    // so the server knows who is making the request
-    this.client.interceptors.request.use(
-      (config) => {
-        const token = localStorage.getItem('token'); // Get the saved login token
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`; // Add it to the request header
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
-    // After every response, check if the user's session expired (401 error)
-    // If so, try to refresh the token automatically so the user stays logged in
+    // On 401, cookie session is invalid/expired. Clear local user cache and redirect to login.
     this.client.interceptors.response.use(
       (response) => response, // If the response is fine, just pass it through
       async (error: AxiosError) => {
-        const originalRequest = (error.config ?? {}) as AxiosError['config'] & { _retry?: boolean };
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          console.log('[DEBUG] 401 detected, attempting refresh');
-          originalRequest._retry = true; // Mark this request so we don't retry forever
-          const refreshResult = await this.refreshSession();
-          if (refreshResult) {
-            const newToken = localStorage.getItem('token');
-            if (newToken) {
-              originalRequest.headers = originalRequest.headers ?? {};
-              originalRequest.headers.Authorization = `Bearer ${newToken}`;
-            }
-            return this.client(originalRequest);
-          }
-          // Refresh failed — clear login data and send the user to login
-          localStorage.removeItem('token');
-          localStorage.removeItem('refresh_token');
+        if (error.response?.status === 401) {
           localStorage.removeItem('user');
           window.location.href = '/login';
         }
@@ -136,40 +107,19 @@ class ApiService {
     );
   }
 
-  // Refresh the current session using the saved refresh token.
-  // Returns true if a new access token was stored.
-  private async refreshSession(): Promise<boolean> {
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (!refreshToken) {
-      return false;
-    }
-
-    try {
-      const resp = await axios.post(`${API_BASE_URL}/api/v1/session/extend`, { refresh_token: refreshToken });
-      const newToken = resp.data.access_token;
-      localStorage.setItem('token', newToken);
-      if (resp.data.refresh_token) {
-        localStorage.setItem('refresh_token', resp.data.refresh_token);
-      }
-      return Boolean(newToken);
-    } catch {
-      return false;
-    }
-  }
-
   // =========================================================================
   // Health Checks — Quick checks to see if the server is running
   // =========================================================================
 
   // Check if the main server is alive and responding
   async getHealth(): Promise<HealthCheckResponse> {
-    const response = await this.client.get<HealthCheckResponse>('/health');
+    const response = await axios.get<HealthCheckResponse>(`${API_BASE_URL}/health`);
     return response.data;
   }
 
   // Check if the database connection is working
   async getDatabaseHealth(): Promise<DatabaseHealthCheckResponse> {
-    const response = await this.client.get<DatabaseHealthCheckResponse>('/health/db');
+    const response = await axios.get<DatabaseHealthCheckResponse>(`${API_BASE_URL}/health/db`);
     return response.data;
   }
 
@@ -177,14 +127,14 @@ class ApiService {
   // Authentication — Login, logout, register, and password reset
   // =========================================================================
 
-  // Log in with email and password — returns a token the app stores to stay logged in
-  async login(email: string, password: string): Promise<TokenResponse> {
+  // Log in with email and password. Backend sets HttpOnly cookie and returns minimal user info.
+  async login(email: string, password: string): Promise<DashboardSessionLoginResponse> {
     // The login endpoint expects form data (not JSON), like a traditional web form
     const formData = new URLSearchParams();
     formData.append('username', email);
     formData.append('password', password);
 
-    const response = await axios.post<TokenResponse>(`${API_BASE_URL}/api/v1/session/start`, formData, {
+    const response = await this.client.post<DashboardSessionLoginResponse>('/session/start', formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
     return response.data;
@@ -205,16 +155,13 @@ class ApiService {
     return response.data;
   }
 
-  // Log out — tells the server to expire the token and clears local saved data
+  // Log out — clears the dashboard session cookie and local user cache
   async logout(): Promise<void> {
     try {
-      // Tell the server to revoke the token so it can't be reused
-      await axios.post(`${API_BASE_URL}/api/v1/session/end`);
+      await this.client.post('/session/end');
     } catch {
-      // Even if the server request fails, we still clear local data
+      // Even if the server request fails, we still clear local user data.
     } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refresh_token');
       localStorage.removeItem('user');
     }
   }
@@ -381,12 +328,38 @@ class ApiService {
     return response.data;
   }
 
-  // Get the most recent risk assessment for a specific patient
-  async getLatestRiskAssessmentForUser(userId: number): Promise<RiskAssessmentResponse> {
-    const response = await this.client.get<RiskAssessmentResponse>(
-      `/patients/${userId}/risk-assessments/latest`
-    );
-    return response.data;
+  // Get the most recent risk assessment for a specific patient.
+  // If allowNotFound=true, a 404 means "no assessment yet" and returns null.
+  async getLatestRiskAssessmentForUser(
+    userId: number,
+    options?: { allowNotFound?: boolean; requestSource?: string }
+  ): Promise<RiskAssessmentResponse | null> {
+    const requestSource =
+      options?.requestSource ||
+      (typeof window !== 'undefined' && /^\/patients\/\d+$/.test(window.location.pathname)
+        ? 'patient-detail'
+        : 'bulk-or-other');
+
+    console.info('[PATIENT_ID_DEBUG][RISK_LATEST_REQUEST]', {
+      requestSource,
+      userId,
+      url: `/patients/${userId}/risk-assessments/latest`,
+      pathname: typeof window !== 'undefined' ? window.location.pathname : null,
+      at: new Date().toISOString(),
+    });
+
+    try {
+      const response = await this.client.get<RiskAssessmentResponse>(
+        `/patients/${userId}/risk-assessments/latest`
+      );
+      return response.data;
+    } catch (error) {
+      const axiosErr = error as AxiosError;
+      if (options?.allowNotFound && axiosErr.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   // Ask the server to calculate a fresh risk assessment for the logged-in user

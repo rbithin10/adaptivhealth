@@ -27,7 +27,7 @@ import logging
 
 from app.database import get_db
 from app.models.user import User
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 from app.schemas.rehab import (
     RehabProgramResponse,
     CompleteSessionRequest,
@@ -52,7 +52,7 @@ router = APIRouter()
 # =============================================
 @router.get("/rehab/current-program", response_model=RehabProgramResponse)
 def get_current_rehab_program(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -94,7 +94,7 @@ def get_current_rehab_program(
 @router.post("/rehab/complete-session", response_model=ProgressResponse)
 def complete_rehab_session(
     request: CompleteSessionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -127,7 +127,7 @@ def complete_rehab_session(
 # =============================================
 @router.get("/rehab/progress", response_model=ProgressResponse)
 def get_rehab_progress(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """

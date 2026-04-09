@@ -195,7 +195,7 @@ const PatientDetailPage: React.FC = () => {
       const [latestResult, historyResult, alertsResult, riskResult] = await Promise.allSettled([
         api.getLatestVitalSignsForUser(userId),
         api.getVitalSignsHistoryForUser(userId, days, 1, rangeToPerPage(timeRange)),
-        api.getAlertsForUser(userId, 1, 5),
+        api.getAlertsForUser(userId, 1, 200),
         api.getLatestRiskAssessmentForUser(userId),
       ]);
       if (latestResult.status === 'fulfilled') setLatestVitals(latestResult.value);
@@ -219,15 +219,13 @@ const PatientDetailPage: React.FC = () => {
   // sees emergency data in ~1-2s instead of waiting for the next 60s poll.
   useEffect(() => {
     if (!patientId) return;
-    const token = localStorage.getItem('token');
-    if (!token || typeof EventSource === 'undefined') return;
+    if (typeof EventSource === 'undefined') return;
 
     const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
     let es: EventSource | null = null;
     try {
-      es = new EventSource(
-        `${API_BASE_URL}/api/v1/alerts/stream?token=${encodeURIComponent(token)}`
-      );
+      // SSE uses the dashboard HttpOnly session cookie for authentication.
+      es = new EventSource(`${API_BASE_URL}/api/v1/alerts/stream`, { withCredentials: true });
       es.onmessage = () => { void refreshVitals(); };
       es.onerror = () => { if (es) { es.close(); es = null; } };
     } catch {
@@ -274,7 +272,7 @@ const PatientDetailPage: React.FC = () => {
         api.getUserById(userId),
         api.getLatestVitalSignsForUser(userId),
         api.getLatestRiskAssessmentForUser(userId),
-        api.getAlertsForUser(userId, 1, 5),
+        api.getAlertsForUser(userId, 1, 200),
         api.getActivitiesForUser(userId, 5, 0),
         api.getVitalSignsHistoryForUser(userId, days, 1, rangeToPerPage(timeRange)),
         api.getAnomalyDetection(userId, anomalyHours),

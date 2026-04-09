@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File, 
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 from sqlalchemy import func as sa_func
 from app.config import settings
 
@@ -74,7 +74,7 @@ DISCLAIMER_SUFFIX = (
 async def get_risk_summary(
     time_window_hours: int = Query(24, ge=1, le=168, description="Time window in hours"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Get a natural-language risk summary for the authenticated user.
@@ -179,7 +179,7 @@ async def get_risk_summary(
 async def get_todays_workout(
     date_param: Optional[date] = Query(None, alias="date", description="Date (defaults to today)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Get a natural-language workout recommendation for today.
@@ -280,7 +280,7 @@ async def get_todays_workout(
 async def get_alert_explanation(
     alert_id: Optional[int] = Query(None, description="Alert ID (defaults to latest)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Get a natural-language explanation of an alert.
@@ -425,7 +425,7 @@ async def get_alert_explanation(
 async def get_progress_summary(
     range_param: str = Query("7d", alias="range", description="Time range (7d or 30d)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Get a motivational natural-language progress summary.
@@ -612,7 +612,7 @@ def _check_chat_rate_limit(user_id: int) -> None:
 async def post_chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     AI health coach chat endpoint.
@@ -659,7 +659,7 @@ async def post_chat_with_image(
     message: str = Form(...),
     analysis_type: str = Form("general"),
     conversation_history: str = Form("[]"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Gemini Vision chat endpoint for image + text analysis.

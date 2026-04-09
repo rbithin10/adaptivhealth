@@ -14,8 +14,14 @@ Adaptiv Health is a clinical-grade health monitoring system designed for:
 ------------------------------------
 
 ## Quick Start
-
+```bash
 Dashboard available at dashboard-adaptivhealthuowd.xyz
+
+cd\mobile-app
+flutter pub get
+flutter run -d chrome --dart-define=API_BASE_URL=https://api.back-adaptivhealthuowd.xyz/api/v1
+```
+
 Mobile app-- release build apk availble at mobile-app\build\outputs\flutter-apk
 
 ### To run LOCAL

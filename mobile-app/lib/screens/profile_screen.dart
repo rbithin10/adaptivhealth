@@ -1062,6 +1062,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 value: MockScenario.emergency,
                 child: Text('Emergency — critical HR/SpO₂/BP, all alerts fire', overflow: TextOverflow.ellipsis),
               ),
+              DropdownMenuItem(
+                value: MockScenario.criticalDrill,
+                child: Text('Critical Alert Drill — alternating critical triggers', overflow: TextOverflow.ellipsis),
+              ),
             ],
             onChanged: _mockRunning
                 ? null

@@ -10,21 +10,14 @@ If the backend adds a new field, it should be added here too.
 */
 
 // ============================================================================
-// Authentication — Data returned when a user logs in or refreshes their session
+// Authentication — Dashboard cookie-session login payload
 // ============================================================================
 
-// What we get back right after a successful login
-export interface LoginResponse {
-  access_token: string;       // The secret key we send with every request to prove who we are
-  token_type: string;         // Always "bearer" — tells the server how to read the token
-}
-
-// Extended login response that may include a refresh token for staying logged in longer
-export interface TokenResponse {
-  access_token: string;       // Short-lived key for making requests
-  refresh_token?: string;     // Longer-lived key used to get a new access_token without logging in again
-  token_type: string;         // How the server reads the token
-  expires_in?: number;        // How many seconds until the access token expires
+// Dashboard login returns minimal user details while auth is held in HttpOnly cookie.
+export interface DashboardSessionLoginResponse {
+  id: number;
+  email: string;
+  role: 'patient' | 'clinician' | 'admin';
 }
 
 // ============================================================================

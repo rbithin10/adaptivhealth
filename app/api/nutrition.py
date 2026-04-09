@@ -42,7 +42,7 @@ from app.schemas.nutrition import (
     NutritionLogCreate,
     NutritionLogResponse,
 )
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -90,7 +90,7 @@ def _save_nutrition_entry(
 @router.post("/nutrition", response_model=NutritionResponse, status_code=status.HTTP_201_CREATED)
 async def create_nutrition_entry(
     entry_data: NutritionCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -146,7 +146,7 @@ async def create_nutrition_entry(
 @router.post("/nutrition/logs", response_model=NutritionLogResponse, status_code=status.HTTP_201_CREATED)
 async def log_meal_consumption(
     log_data: NutritionLogCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -214,7 +214,7 @@ async def log_meal_consumption(
 async def get_recent_nutrition_entries(
     limit: int = Query(default=5, ge=1, le=100, description="Number of entries to return"),
     date_str: Optional[str] = Query(default=None, alias="date", description="Filter entries by date (YYYY-MM-DD)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -296,7 +296,7 @@ async def get_recent_nutrition_entries(
 @router.delete("/nutrition/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_nutrition_entry(
     entry_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -691,7 +691,7 @@ async def get_nutrition_recommendations(
         alias="date",
         description="Date in YYYY-MM-DD format (defaults to today)",
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -780,7 +780,7 @@ async def get_nutrition_recommendations(
 async def get_nutrition_progress(
     start_date: str = Query(..., description="Start date in YYYY-MM-DD format"),
     end_date: str = Query(..., description="End date in YYYY-MM-DD format"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """Return nutrition progress summary for a date range."""

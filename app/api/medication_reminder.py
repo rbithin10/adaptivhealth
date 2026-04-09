@@ -40,7 +40,7 @@ from app.schemas.medication_reminder import (
     AdherenceResponse,
     AdherenceHistoryResponse,
 )
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,7 +52,7 @@ router = APIRouter()
 @router.post("/medications/reminders", response_model=ReminderResponse, status_code=status.HTTP_201_CREATED)
 async def create_medication_reminder(
     payload: ReminderCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -112,7 +112,7 @@ async def create_medication_reminder(
 # =============================================================================
 @router.get("/medications/reminders", response_model=List[ReminderResponse])
 async def get_medication_reminders(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -164,7 +164,7 @@ async def get_medication_reminders(
 async def update_medication_reminder(
     medication_id: int,
     settings: ReminderSettingUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -231,7 +231,7 @@ async def update_medication_reminder(
 @router.delete("/medications/{medication_id}/reminder", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_medication_reminder(
     medication_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -279,7 +279,7 @@ async def delete_medication_reminder(
 @router.post("/medications/adherence", response_model=AdherenceResponse)
 async def log_medication_adherence(
     data: AdherenceCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -371,7 +371,7 @@ async def log_medication_adherence(
 @router.get("/medications/adherence/history", response_model=AdherenceHistoryResponse)
 async def get_adherence_history(
     days: int = Query(default=7, ge=1, le=90, description="Number of days to look back"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """

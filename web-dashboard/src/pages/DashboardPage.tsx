@@ -30,15 +30,23 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../services/api';
-import { AlertResponse, AlertStatsResponse, PendingConsentRequest, User, VitalSignResponse } from '../types';
+import {
+  AlertStatsResponse,
+  PendingConsentRequest,
+  RetrainingStatusResponse,
+  User,
+  VitalSignResponse,
+} from '../types';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import StatCard from '../components/cards/StatCard';
 import ClinicianTopBar from '../components/common/ClinicianTopBar';
 
 // Base URL for the backend API and whether live alert push (SSE) is enabled
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
-const ENABLE_ALERT_PUSH = process.env.REACT_APP_ENABLE_ALERT_PUSH === 'true';
+const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+const API_BASE_URL = runtimeEnv.REACT_APP_API_URL || 'https://api.back-adaptivhealthuowd.xyz';
+// SSE push enabled by default; set env var to 'false' to disable
+const ENABLE_ALERT_PUSH = runtimeEnv.REACT_APP_ENABLE_ALERT_PUSH !== 'false';
 
 // Top-level stats shown on the dashboard cards
 interface Stats {
@@ -55,6 +63,14 @@ interface MonitoringSummary {
   highOrCriticalRiskPatients: number;
 }
 
+interface MlPredictionSummary {
+  low: number;
+  moderate: number;
+  high: number;
+  critical: number;
+  noAssessment: number;
+}
+
 interface HrTrendSeries {
   key: string;
   label: string;
@@ -64,6 +80,13 @@ interface HrTrendSeries {
 interface HrTrendPoint {
   day: string;
   [seriesKey: string]: string | number | null;
+}
+
+interface BackendHealthState {
+  apiStatus: 'healthy' | 'unhealthy' | 'unknown';
+  dbStatus: 'healthy' | 'unhealthy' | 'unknown';
+  lastCheckedAt: string | null;
+  error: string | null;
 }
 
 const toRecord = (value: unknown): Record<string, unknown> => {
@@ -125,9 +148,23 @@ const DashboardPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [alertStats, setAlertStats] = useState<AlertStatsResponse | null>(null);
-  // Five most recent alerts shown in the bottom widget
-  const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
   const [dataWarning, setDataWarning] = useState<string | null>(null);
+  const [mlPredictionSummary, setMlPredictionSummary] = useState<MlPredictionSummary>({
+    low: 0,
+    moderate: 0,
+    high: 0,
+    critical: 0,
+    noAssessment: 0,
+  });
+  const [modelStatus, setModelStatus] = useState<RetrainingStatusResponse | null>(null);
+  const [latestPredictionTimestamp, setLatestPredictionTimestamp] = useState<string | null>(null);
+  const [backendHealth, setBackendHealth] = useState<BackendHealthState>({
+    apiStatus: 'unknown',
+    dbStatus: 'unknown',
+    lastCheckedAt: null,
+    error: null,
+  });
+  const [lastBackendDataAt, setLastBackendDataAt] = useState<string | null>(null);
   // Consent requests a clinician still needs to approve
   const [pendingConsent, setPendingConsent] = useState<PendingConsentRequest[]>([]);
   // 24-hour monitoring coverage stats
@@ -154,14 +191,10 @@ const DashboardPage: React.FC = () => {
   // Refresh just the alert widgets (called by polling, SSE, and focus events)
   const refreshAlertWidgets = async (): Promise<boolean> => {
     try {
-      const [statsResponse, alertsResponse] = await Promise.all([
-        api.getAlertStats(),
-        api.getAlerts(1, 5),
-      ]);
+      const statsResponse = await api.getAlertStats();
 
       const normalizedStats = normalizeAlertStats(statsResponse ?? {});
       setAlertStats(normalizedStats);
-      setRecentAlerts(alertsResponse?.alerts ?? []);
 
       const criticalCount =
         Number(normalizedStats.by_severity?.critical ?? 0) +
@@ -171,6 +204,7 @@ const DashboardPage: React.FC = () => {
         ...prev,
         criticalAlerts: criticalCount,
       }));
+      setLastBackendDataAt(new Date().toISOString());
       return true;
     } catch (error) {
       const status = getHttpStatus(error);
@@ -182,8 +216,78 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  // Refresh just the ML prediction status card without running the full dashboard loader.
+  const refreshMlCardWidgets = async (): Promise<boolean> => {
+    try {
+      const [usersResponse, statusResponse] = await Promise.all([
+        api.getAllUsers(1, 200),
+        api.getRetrainingStatus(),
+      ]);
+
+      setModelStatus(statusResponse ?? null);
+
+      const patientUsers = (usersResponse?.users ?? []).filter((userItem) => {
+        const userRole = (userItem.user_role ?? '').toLowerCase();
+        return userRole === 'patient';
+      });
+
+      if (patientUsers.length === 0) {
+        setMlPredictionSummary({
+          low: 0,
+          moderate: 0,
+          high: 0,
+          critical: 0,
+          noAssessment: 0,
+        });
+        setLatestPredictionTimestamp(new Date().toISOString());
+        return true;
+      }
+
+      const riskResults = await Promise.all(
+        patientUsers.map((patient) =>
+          api.getLatestRiskAssessmentForUser(patient.user_id, {
+            allowNotFound: true,
+            requestSource: 'ml-card-refresh',
+          })
+        )
+      );
+
+      const summary: MlPredictionSummary = {
+        low: 0,
+        moderate: 0,
+        high: 0,
+        critical: 0,
+        noAssessment: 0,
+      };
+
+      riskResults.forEach((assessment) => {
+        if (!assessment) {
+          summary.noAssessment += 1;
+          return;
+        }
+
+        const level = String(assessment.risk_level ?? '').toLowerCase();
+        if (level === 'low') summary.low += 1;
+        else if (level === 'moderate') summary.moderate += 1;
+        else if (level === 'high') summary.high += 1;
+        else if (level === 'critical') summary.critical += 1;
+        else summary.noAssessment += 1;
+      });
+
+      setMlPredictionSummary(summary);
+      return true;
+    } catch (error) {
+      const status = getHttpStatus(error);
+      if (status === 401) {
+        return false;
+      }
+      console.warn('Could not refresh ML card widgets:', error);
+      return true;
+    }
+  };
+
   // Set up live alert refreshing: poll every second, listen for SSE pushes
-  // and window-focus / visibility-change events
+  // and window-focus / visibility-change events. SSE reconnects on error with exponential backoff.
   useEffect(() => {
     if (!currentUser) return;
 
@@ -202,30 +306,33 @@ const DashboardPage: React.FC = () => {
     };
 
     let eventSource: EventSource | null = null;
-
-    const token = localStorage.getItem('token');
+    let reconnectTimer: number | null = null;
+    let reconnectDelayMs = 1000; // Start with 1s backoff, doubles on each retry up to 30s
 
     const onPushMessage = () => {
       void refreshAlertWidgets();
     };
 
     const connectSse = () => {
-      if (!token || typeof EventSource === 'undefined') {
+      if (typeof EventSource === 'undefined') {
         return;
       }
 
       try {
-        const sseUrl = `${API_BASE_URL}/api/v1/alerts/stream?token=${encodeURIComponent(token)}`;
+        const sseUrl = `${API_BASE_URL}/api/v1/alerts/stream`;
         console.info('[DIAG][REACT_SSE_TARGET][DASHBOARD]', {
-          envApiUrl: process.env.REACT_APP_API_URL ?? null,
+          envApiUrl: runtimeEnv.REACT_APP_API_URL ?? null,
           apiBaseUrlResolved: API_BASE_URL,
           sseUrl,
           enableAlertPush: ENABLE_ALERT_PUSH,
-          tokenPresent: Boolean(token),
+          reconnectDelayMs,
         });
-        eventSource = new EventSource(sseUrl);
+        // SSE uses the dashboard HttpOnly session cookie for authentication.
+        eventSource = new EventSource(sseUrl, { withCredentials: true });
 
         eventSource.onopen = () => {
+          // Reset backoff on successful connection
+          reconnectDelayMs = 1000;
           void refreshAlertWidgets();
         };
         eventSource.onmessage = onPushMessage;
@@ -234,8 +341,16 @@ const DashboardPage: React.FC = () => {
             eventSource.close();
             eventSource = null;
           }
+          // Schedule reconnect with exponential backoff (cap at 30s)
+          const nextDelay = Math.min(reconnectDelayMs * 2, 30000);
+          reconnectDelayMs = nextDelay;
+          reconnectTimer = window.setTimeout(() => {
+            console.info('[DIAG][REACT_SSE_RECONNECT]', { afterDelayMs: nextDelay });
+            connectSse();
+          }, nextDelay);
         };
-      } catch {
+      } catch (e) {
+        console.error('[DIAG][REACT_SSE_ERROR]', e);
         eventSource = null;
       }
     };
@@ -253,6 +368,7 @@ const DashboardPage: React.FC = () => {
       });
     }, 1000);
 
+    // SSE push enabled by default for real-time critical alert visibility
     if (ENABLE_ALERT_PUSH) {
       connectSse();
     }
@@ -262,10 +378,29 @@ const DashboardPage: React.FC = () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.clearInterval(intervalId);
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
       if (eventSource) {
         eventSource.close();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.user_id]);
+
+  // Independent 60s refresh for ML card widgets.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const intervalId = window.setInterval(() => {
+      void refreshMlCardWidgets().then((ok) => {
+        if (!ok) {
+          window.clearInterval(intervalId);
+        }
+      });
+    }, 60_000);
+
+    return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.user_id]);
 
@@ -308,13 +443,15 @@ const DashboardPage: React.FC = () => {
         return;
       }
 
-      // Fetch patients, alert stats, and recent alerts in parallel
-      const [usersResult, statsResult, alertsResult] =
+      // Fetch core widgets and backend health checks in parallel
+      const [usersResult, statsResult, modelStatusResult, apiHealthResult, dbHealthResult] =
         await withTimeout(
           Promise.allSettled([
             api.getAllUsers(1, 200),
             api.getAlertStats(),
-            api.getAlerts(1, 5),
+            api.getRetrainingStatus(),
+            api.getHealth(),
+            api.getDatabaseHealth(),
           ])
         );
 
@@ -330,12 +467,40 @@ const DashboardPage: React.FC = () => {
 
       const usersList = usersResult.status === 'fulfilled' ? usersResult.value : null;
       const statsResponse = statsResult.status === 'fulfilled' ? statsResult.value : null;
-      const alertsResponse = alertsResult.status === 'fulfilled' ? alertsResult.value : null;
+      const mlStatusResponse = modelStatusResult.status === 'fulfilled' ? modelStatusResult.value : null;
+      const apiHealthResponse = apiHealthResult.status === 'fulfilled' ? apiHealthResult.value : null;
+      const dbHealthResponse = dbHealthResult.status === 'fulfilled' ? dbHealthResult.value : null;
+
+      const apiIsHealthy = apiHealthResponse?.status === 'healthy';
+      const dbIsHealthy =
+        dbHealthResponse?.status === 'healthy' &&
+        dbHealthResponse?.database === 'connected';
+
+      const healthErrors: string[] = [];
+      if (apiHealthResult.status === 'rejected') healthErrors.push('API health check failed');
+      if (dbHealthResult.status === 'rejected') healthErrors.push('Database health check failed');
+
+      setBackendHealth({
+        apiStatus: apiIsHealthy ? 'healthy' : 'unhealthy',
+        dbStatus: dbIsHealthy ? 'healthy' : 'unhealthy',
+        lastCheckedAt: new Date().toISOString(),
+        error: healthErrors.length > 0 ? healthErrors.join('. ') : null,
+      });
+
+      const hasFreshBackendData =
+        usersResult.status === 'fulfilled' ||
+        statsResult.status === 'fulfilled' ||
+        modelStatusResult.status === 'fulfilled';
+      if (hasFreshBackendData) {
+        setLastBackendDataAt(new Date().toISOString());
+      }
 
       const failedWidgets: string[] = [];
       if (usersResult.status === 'rejected') failedWidgets.push('patients');
       if (statsResult.status === 'rejected') failedWidgets.push('alert stats');
-      if (alertsResult.status === 'rejected') failedWidgets.push('alerts');
+      if (modelStatusResult.status === 'rejected') failedWidgets.push('ml model status');
+      if (apiHealthResult.status === 'rejected') failedWidgets.push('api health');
+      if (dbHealthResult.status === 'rejected') failedWidgets.push('database health');
       if (failedWidgets.length > 0) {
         setDataWarning(`Some dashboard widgets could not load: ${failedWidgets.join(', ')}.`);
       }
@@ -344,7 +509,8 @@ const DashboardPage: React.FC = () => {
 
       setCurrentUser(user);
       setAlertStats(normalizedStats);
-      setRecentAlerts(alertsResponse?.alerts ?? []);
+        setModelStatus(mlStatusResponse);
+      setLatestPredictionTimestamp(new Date().toISOString());
 
       const activeCount = usersList?.users?.filter((u) => u.is_active).length ?? 0;
       const criticalCount =
@@ -368,8 +534,13 @@ const DashboardPage: React.FC = () => {
           Promise.allSettled(
             patientUsers.map((patient) => api.getVitalSignsHistoryForUser(patient.user_id, 7, 1, 100))
           ),
-          Promise.allSettled(
-            patientUsers.map((patient) => api.getLatestRiskAssessmentForUser(patient.user_id))
+          Promise.all(
+            patientUsers.map((patient) =>
+              api.getLatestRiskAssessmentForUser(patient.user_id, {
+                allowNotFound: true,
+                requestSource: 'bulk-dashboard',
+              })
+            )
           ),
         ]);
 
@@ -389,18 +560,25 @@ const DashboardPage: React.FC = () => {
         };
 
         const riskByPatientId: Record<number, { level: string; score: number }> = {};
+        let noAssessmentCount = 0;
 
-        riskResults.forEach((result, index) => {
+        riskResults.forEach((assessment, index) => {
           const patientId = patientUsers[index]?.user_id;
           if (!patientId) return;
 
-          const level = result.status === 'fulfilled'
-            ? String(result.value?.risk_level ?? 'low').toLowerCase()
-            : 'low';
-          const riskScore = result.status === 'fulfilled'
-            ? Number(result.value?.risk_score ?? 0)
-            : 0;
-          const normalizedLevel = ['low', 'moderate', 'high', 'critical'].includes(level) ? level : 'low';
+          if (!assessment) {
+            noAssessmentCount += 1;
+            return;
+          }
+
+          const level = String(assessment.risk_level ?? '').toLowerCase();
+          const riskScore = Number(assessment.risk_score ?? 0);
+          const normalizedLevel = ['low', 'moderate', 'high', 'critical'].includes(level) ? level : null;
+
+          if (!normalizedLevel) {
+            noAssessmentCount += 1;
+            return;
+          }
 
           riskByPatientId[patientId] = { level: normalizedLevel, score: riskScore };
 
@@ -409,6 +587,24 @@ const DashboardPage: React.FC = () => {
           else if (normalizedLevel === 'high') riskCounts.high += 1;
           else if (normalizedLevel === 'critical') riskCounts.critical += 1;
         });
+
+        setMlPredictionSummary({
+          low: riskCounts.low,
+          moderate: riskCounts.moderate,
+          high: riskCounts.high,
+          critical: riskCounts.critical,
+          noAssessment: noAssessmentCount,
+        });
+
+        const latestAssessmentTimestamp = riskResults
+          .map((assessment) => assessment?.assessment_date ?? null)
+          .filter((value): value is string => Boolean(value))
+          .sort();
+        const mostRecentAssessmentTimestamp =
+          latestAssessmentTimestamp.length > 0
+            ? latestAssessmentTimestamp[latestAssessmentTimestamp.length - 1]
+            : null;
+        setLatestPredictionTimestamp(mostRecentAssessmentTimestamp);
 
         const historyByPatientId: Record<number, VitalSignResponse[]> = {};
         historyResults.forEach((result, index) => {
@@ -503,6 +699,13 @@ const DashboardPage: React.FC = () => {
           { range: 'Critical', count: riskCounts.critical },
         ]);
       } else {
+        setMlPredictionSummary({
+          low: 0,
+          moderate: 0,
+          high: 0,
+          critical: 0,
+          noAssessment: 0,
+        });
         setMonitoringSummary({
           patientsWithReadings24h: 0,
           patientsWithoutReadings24h: 0,
@@ -515,6 +718,13 @@ const DashboardPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading dashboard:', error);
+      setBackendHealth((prev) => ({
+        ...prev,
+        apiStatus: 'unhealthy',
+        dbStatus: prev.dbStatus === 'healthy' ? 'healthy' : 'unhealthy',
+        lastCheckedAt: new Date().toISOString(),
+        error: 'Backend verification failed during dashboard refresh.',
+      }));
       const message =
         error instanceof Error && error.message === 'Request timed out'
           ? 'The dashboard is taking too long to respond. Please check the backend and try again.'
@@ -571,6 +781,34 @@ const DashboardPage: React.FC = () => {
   const greetingName = firstNameToken && !/^dr\.?$/i.test(firstNameToken)
     ? firstNameToken
     : 'Doctor';
+  const docsUrl = `${API_BASE_URL.replace(/\/+$/, '')}/docs`;
+  const apiHealthy = backendHealth.apiStatus === 'healthy';
+  const dbHealthy = backendHealth.dbStatus === 'healthy';
+  const hasFreshData =
+    Boolean(lastBackendDataAt) &&
+    Date.now() - new Date(lastBackendDataAt as string).getTime() <= 5 * 60 * 1000;
+  const backendFullyHealthy = apiHealthy && dbHealthy && hasFreshData;
+  const bannerColors = backendFullyHealthy
+    ? colors.stable
+    : (apiHealthy || dbHealthy || hasFreshData)
+      ? colors.warning
+      : colors.critical;
+  const statusLabel = backendFullyHealthy
+    ? 'Healthy'
+    : (backendHealth.apiStatus === 'unknown' && backendHealth.dbStatus === 'unknown')
+      ? 'Checking'
+      : 'Attention Needed';
+  const apiStatusText = apiHealthy ? 'Healthy' : 'Unavailable';
+  const dbStatusText = dbHealthy ? 'Connected' : 'Unavailable';
+  const dataFlowText = hasFreshData
+    ? `Fresh dashboard data received ${formatTimeAgo(lastBackendDataAt ?? undefined)}.`
+    : 'No recent successful dashboard data sync.';
+  const ingressText = monitoringSummary.totalReadings24h > 0
+    ? `${monitoringSummary.totalReadings24h} patient readings received in the last 24h.`
+    : 'No patient readings were recorded in the last 24h.';
+  const healthCheckedText = backendHealth.lastCheckedAt
+    ? formatTimeAgo(backendHealth.lastCheckedAt)
+    : 'pending';
 
   return (
     <div
@@ -868,6 +1106,8 @@ const DashboardPage: React.FC = () => {
                     dataKey="range"
                     stroke={colors.neutral['500']}
                     style={{ fontSize: '12px' }}
+                    interval={0}
+                    minTickGap={0}
                   />
                   <YAxis
                     stroke={colors.neutral['500']}
@@ -892,7 +1132,7 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Recent Activity Feed */}
+        {/* ML Prediction Status */}
         <div
           style={{
             backgroundColor: colors.neutral.white,
@@ -903,23 +1143,53 @@ const DashboardPage: React.FC = () => {
             marginBottom: '32px',
           }}
         >
-          <h3 style={typography.sectionTitle}>Recent Activity</h3>
+          <h3 style={typography.sectionTitle}>ML Prediction Health Status</h3>
+          <p style={{ ...typography.caption, marginBottom: '16px' }}>
+            Shows how many patients have predictions and when they were last generated.
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '12px',
+              marginBottom: '16px',
+            }}
+          >
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.stable.background }}>
+              <div style={typography.caption}>Low</div>
+              <div style={{ ...typography.cardTitle, marginTop: '4px' }}>{mlPredictionSummary.low}</div>
+            </div>
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.warning.background }}>
+              <div style={typography.caption}>Moderate</div>
+              <div style={{ ...typography.cardTitle, marginTop: '4px' }}>{mlPredictionSummary.moderate}</div>
+            </div>
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#FEE2E2' }}>
+              <div style={typography.caption}>High</div>
+              <div style={{ ...typography.cardTitle, marginTop: '4px' }}>{mlPredictionSummary.high}</div>
+            </div>
+            <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.critical.background }}>
+              <div style={typography.caption}>Critical</div>
+              <div style={{ ...typography.cardTitle, marginTop: '4px' }}>{mlPredictionSummary.critical}</div>
+            </div>
+          </div>
+
           <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {recentAlerts.length === 0 ? (
+            {!modelStatus ? (
               <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
-                <p style={typography.body}>No recent alerts.</p>
+                <p style={typography.body}>Model status is not available right now.</p>
               </div>
             ) : (
-              recentAlerts.map((alert) => (
-                <div
-                  key={alert.alert_id}
-                  style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}
-                >
+              <>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: colors.neutral['50'] }}>
                   <p style={typography.body}>
-                    • {alert.title || alert.alert_type.replaceAll('_', ' ')} ({formatTimeAgo(alert.created_at)})
+                    Model: {modelStatus?.model_exists ? 'Ready' : 'Not available'}
+                  </p>
+                  <p style={typography.caption}>
+                    Latest predictions: {latestPredictionTimestamp ? formatTimeAgo(latestPredictionTimestamp) : 'No predictions yet'}
                   </p>
                 </div>
-              ))
+              </>
             )}
           </div>
         </div>
@@ -991,17 +1261,43 @@ const DashboardPage: React.FC = () => {
         {/* Backend Status */}
         <div
           style={{
-            backgroundColor: colors.primary.ultralight,
-            border: `1px solid ${colors.primary.light}`,
+            backgroundColor: bannerColors.background,
+            border: `1px solid ${bannerColors.border}`,
             borderRadius: '12px',
             padding: '20px',
           }}
         >
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              backgroundColor: bannerColors.badge,
+              color: '#fff',
+              borderRadius: '999px',
+              padding: '4px 10px',
+              fontSize: '12px',
+              fontWeight: 700,
+              marginBottom: '10px',
+            }}
+          >
+            Backend Health Status: {statusLabel}
+          </div>
           <p style={{ ...typography.body, margin: '0 0 8px 0' }}>
-            <strong>Backend Status:</strong> Connected to http://localhost:8080
+            <strong>Connected Backend:</strong> {API_BASE_URL}
+          </p>
+          <p style={{ ...typography.caption, margin: '0 0 6px 0', color: bannerColors.text }}>
+            API: {apiStatusText} | Database: {dbStatusText} | Data Flow: {hasFreshData ? 'Fresh' : 'Stale'}
+          </p>
+          <p style={{ ...typography.caption, margin: '0 0 6px 0' }}>
+            {dataFlowText} {ingressText}
+          </p>
+          <p style={{ ...typography.caption, margin: '0 0 6px 0' }}>
+            Last health check: {healthCheckedText}.
+            {backendHealth.error ? ` ${backendHealth.error}` : ''}
           </p>
           <p style={{ ...typography.caption, margin: 0 }}>
-            API Documentation: Visit http://localhost:8080/docs for interactive testing
+            API Documentation: Visit {docsUrl} for interactive testing
           </p>
         </div>
       </main>

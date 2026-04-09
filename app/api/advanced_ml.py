@@ -73,7 +73,7 @@ from app.services.retraining_pipeline import (
 from app.services.explainability import explain_prediction
 from app.services import ml_prediction
 from app.services.ml_prediction import get_ml_service
-from app.api.auth import get_current_user, get_current_doctor_user
+from app.api.auth import get_current_user_session_or_bearer, get_current_doctor_user_session_or_bearer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -127,7 +127,7 @@ async def detect_vital_anomalies(
     hours: int = Query(24, ge=1, le=168, description="Hours of data to analyze"),
     z_threshold: float = Query(2.0, ge=1.0, le=4.0, description="Z-score threshold"),
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -189,7 +189,7 @@ async def forecast_vital_trends(
     days: int = Query(14, ge=7, le=90, description="Days of history to analyze"),
     forecast_days: int = Query(14, ge=7, le=30, description="Days to forecast"),
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -249,7 +249,7 @@ async def forecast_vital_trends(
 async def optimize_baseline(
     days: int = Query(7, ge=3, le=30, description="Days of resting data"),
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -307,7 +307,7 @@ async def optimize_baseline(
 @router.post("/baseline-optimization/apply")
 async def apply_baseline_optimization(
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -384,7 +384,7 @@ async def get_ranked_rec(
     risk_level: str = Query("low", description="Current risk level"),
     variant: Optional[str] = Query(None, description="Force variant A or B"),
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Get a recommendation with A/B variant assignment for testing.
@@ -419,7 +419,7 @@ async def get_ranked_rec(
 async def record_rec_outcome(
     data: RecommendationOutcomeRequest,
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Record outcome of a recommendation for A/B analysis.
@@ -460,7 +460,7 @@ async def record_rec_outcome(
 async def get_natural_language_alert(
     data: NaturalLanguageAlertRequest,
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -503,7 +503,7 @@ async def get_natural_language_alert(
 async def get_natural_language_risk_summary(
     user_id: Optional[int] = Query(None, description="Patient ID (doctor/admin only)"),
     audience: str = Query("clinician", description="Summary audience: 'clinician' or 'patient'"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -603,7 +603,7 @@ async def get_natural_language_risk_summary(
 # =============================================
 @router.get("/model/retraining-status")
 async def model_retraining_status(
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
 ):
     """Get the current model status and retraining metadata (clinician only)."""
     return get_retraining_status()
@@ -617,7 +617,7 @@ async def model_retraining_status(
 # =============================================
 @router.get("/model/retraining-readiness")
 async def check_retraining_readiness(
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """
@@ -645,7 +645,7 @@ async def check_retraining_readiness(
 # =============================================
 @router.post("/model/prepare-training-data")
 async def prepare_training_data_endpoint(
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db),
 ):
     """Validate and prepare training data from stored risk assessments."""
@@ -677,7 +677,7 @@ class RetrainingMetadataRequest(BaseModel):
 @router.post("/model/save-retraining-metadata")
 async def save_retraining_metadata_endpoint(
     body: RetrainingMetadataRequest,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
 ):
     """Save metadata about a completed retraining run."""
     return save_retraining_metadata(
@@ -701,7 +701,7 @@ async def save_retraining_metadata_endpoint(
 @router.post("/predict/explain")
 async def explain_risk_prediction(
     request: ExplainPredictionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
 ):
     """
     Run a risk prediction and return feature importance explanations.

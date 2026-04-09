@@ -73,6 +73,14 @@ class ApiClient {
 
   static bool _isRefreshing = false; // Prevents multiple token refresh attempts from running at the same time
 
+  static String? _readStringField(Map<String, dynamic> data, String key) {
+    final value = data[key];
+    if (value is String && value.isNotEmpty) {
+      return value;
+    }
+    return null;
+  }
+
   /// Load previously saved tokens from secure device storage.
   /// Must be called once from main() before runApp() so the app starts
   /// in an authenticated state when a valid session already exists.
@@ -187,8 +195,14 @@ class ApiClient {
                 data: {'refresh_token': _refreshToken},
                 options: Options(extra: {'_retried': true}),
               );
-              final newToken = refreshResp.data['access_token'] as String; // The new login token
-              final newRefresh = refreshResp.data['refresh_token'] as String?; // Sometimes the server also gives a new refresh token
+              final refreshData = Map<String, dynamic>.from(
+                (refreshResp.data as Map?) ?? <String, dynamic>{},
+              );
+              final newToken = _readStringField(refreshData, 'access_token');
+              final newRefresh = _readStringField(refreshData, 'refresh_token');
+              if (newToken == null) {
+                throw Exception('Refresh response missing access_token');
+              }
               await _saveTokens(accessToken: newToken, refreshToken: newRefresh);
               // Now retry the original request that failed, using the fresh token
               error.requestOptions.headers['Authorization'] = 'Bearer $newToken';
@@ -218,7 +232,7 @@ class ApiClient {
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await _dio.post(
-        '/session/start',
+        '/auth/signin',
         data: {
           'username': email,  // The backend expects "username" even though it's really an email
           'password': password,
@@ -228,13 +242,20 @@ class ApiClient {
           headers: {'Content-Type': Headers.formUrlEncodedContentType},
         ),
       );
+      final data = Map<String, dynamic>.from(
+        (response.data as Map?) ?? <String, dynamic>{},
+      );
       
       // Save the login tokens so the user stays logged in even after closing the app
-      final accessToken = response.data['access_token'] as String;
-      final refreshToken = response.data['refresh_token'] as String?;
+      final accessToken = _readStringField(data, 'access_token');
+      final refreshToken = _readStringField(data, 'refresh_token');
+      if (accessToken == null) {
+        final detail = data['detail']?.toString() ?? 'No access token in login response';
+        throw Exception('Login failed: $detail');
+      }
       await _saveTokens(accessToken: accessToken, refreshToken: refreshToken);
       
-      return response.data; // Return the full server response to the caller
+      return data; // Return the full server response to the caller
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -1135,14 +1156,18 @@ class ApiClient {
   ///   "total_count": 47,
   ///   "limit": 5
   /// }
-  Future<Map<String, dynamic>> getRecentNutrition({int limit = 5, String? date}) async {
+  Future<Map<String, dynamic>> getRecentNutrition({
+    int limit = 5,
+    String? date,
+  }) async {
     try {
+      final queryParams = <String, dynamic>{'limit': limit};
+      if (date != null && date.trim().isNotEmpty) {
+        queryParams['date'] = date.trim();
+      }
       final response = await _dio.get(
         '/nutrition/recent',
-        queryParameters: {
-          'limit': limit,
-          if (date != null && date.isNotEmpty) 'date': date,
-        },
+        queryParameters: queryParams,
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -1177,7 +1202,6 @@ class ApiClient {
       final data = <String, dynamic>{
         'meal_type': mealType,
         'calories': calories,
-        if (loggedAt != null) 'logged_at': loggedAt.toUtc().toIso8601String(),
       };
       if (description != null && description.isNotEmpty) {
         data['description'] = description;
@@ -1185,6 +1209,7 @@ class ApiClient {
       if (proteinGrams != null) data['protein_grams'] = proteinGrams;
       if (carbsGrams != null) data['carbs_grams'] = carbsGrams;
       if (fatGrams != null) data['fat_grams'] = fatGrams;
+      if (loggedAt != null) data['logged_at'] = loggedAt.toIso8601String();
 
       final response = await _dio.post('/nutrition', data: data);
       return response.data as Map<String, dynamic>;

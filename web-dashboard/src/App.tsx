@@ -53,8 +53,8 @@ const getStoredUserRole = (): 'patient' | 'clinician' | 'admin' | null => {
 // A wrapper that checks if the user is logged in before showing a page
 // If not logged in, it sends them to the login page instead
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const token = localStorage.getItem('token');
-  if (!token) {
+  const user = localStorage.getItem('user');
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
   return <>{children}</>;
@@ -63,8 +63,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 // Same as ProtectedRoute, but also checks the user's role
 // If logged in but wrong role (e.g. patient trying to access admin), redirect to dashboard
 const RoleProtectedRoute: React.FC<RoleProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const token = localStorage.getItem('token');
-  if (!token) {
+  const user = localStorage.getItem('user');
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
 
@@ -83,9 +83,10 @@ interface DashboardWrapperProps {}
 const DashboardWrapper: React.FC<DashboardWrapperProps> = () => {
   const userStr = localStorage.getItem('user');
   const user = userStr ? JSON.parse(userStr) : null;
+  const role = (user?.user_role || user?.role || '').toLowerCase();
   
   // Patients see their personal health dashboard
-  if (user?.user_role === 'patient') {
+  if (role === 'patient') {
     return <PatientDashboardPage />;
   }
   

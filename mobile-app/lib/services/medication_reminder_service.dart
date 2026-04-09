@@ -25,7 +25,8 @@ class MedicationReminderService {
   MedicationReminderService._internal();
 
   // The single shared instance used everywhere in the app
-  static final MedicationReminderService _instance = MedicationReminderService._internal();
+  static final MedicationReminderService _instance =
+      MedicationReminderService._internal();
 
   // When other files call MedicationReminderService(), return the shared instance
   factory MedicationReminderService() {
@@ -33,7 +34,8 @@ class MedicationReminderService {
   }
 
   // The notification plugin that talks to the phone's notification system
-  final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
   // Whether we've already set up the notification system
   bool _initialized = false;
 
@@ -51,7 +53,8 @@ class MedicationReminderService {
     tz_data.initializeTimeZones();
 
     // Tell Android to use the app icon for notifications
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
 
     // Ask iOS for permission to show alerts, badges, and sounds
     const iosSettings = DarwinInitializationSettings(
@@ -74,12 +77,14 @@ class MedicationReminderService {
 
     // Make sure we have notification permission on iOS
     await _notifications
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: true, sound: true);
 
     // Make sure we have notification permission on Android 13+
     await _notifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
     _initialized = true;
@@ -95,10 +100,11 @@ class MedicationReminderService {
 
   // Schedule daily reminders for all medications that have reminders turned on
   Future<void> scheduleReminders(List<Map<String, dynamic>> medications) async {
-    // Can't schedule if notifications aren't set up yet
-    if (!_initialized) {
+    // Can't schedule on web or if notifications aren't set up yet
+    if (kIsWeb || !_initialized) {
       if (kDebugMode) {
-        debugPrint('MedicationReminderService not initialized, skipping schedule');
+        debugPrint(
+            'MedicationReminderService schedule skipped (web or not initialized)');
       }
       return;
     }
@@ -204,18 +210,47 @@ class MedicationReminderService {
 
   // Cancel all scheduled medication reminders
   Future<void> cancelAll() async {
+    if (kIsWeb || !_initialized) {
+      if (kDebugMode) {
+        debugPrint(
+            'MedicationReminderService cancelAll skipped (web or not initialized)');
+      }
+      return;
+    }
     await _notifications.cancelAll();
     if (kDebugMode) debugPrint('All medication reminders cancelled');
   }
 
   // Cancel a specific medication reminder by its ID
   Future<void> cancel(int id) async {
+    if (kIsWeb || !_initialized) {
+      if (kDebugMode) {
+        debugPrint(
+            'MedicationReminderService cancel skipped (web or not initialized)');
+      }
+      return;
+    }
     await _notifications.cancel(id);
     if (kDebugMode) debugPrint('Cancelled reminder id: $id');
   }
 
   // Download the latest medications from the server and reschedule all reminders
   Future<void> refreshReminders(ApiClient apiClient) async {
+    if (kIsWeb) {
+      if (kDebugMode) {
+        debugPrint('MedicationReminderService refresh skipped on web');
+      }
+      return;
+    }
+
+    if (!_initialized) {
+      if (kDebugMode) {
+        debugPrint(
+            'MedicationReminderService refresh skipped (not initialized)');
+      }
+      return;
+    }
+
     try {
       // Get the current list of medications from the server
       final medications = await apiClient.getMedicationReminders();
@@ -224,7 +259,8 @@ class MedicationReminderService {
       // Schedule fresh reminders for all enabled medications
       await scheduleReminders(medications);
       if (kDebugMode) {
-        debugPrint('Medication reminders refreshed: ${medications.length} medications');
+        debugPrint(
+            'Medication reminders refreshed: ${medications.length} medications');
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Failed to refresh medication reminders: $e');

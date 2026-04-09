@@ -46,7 +46,7 @@ from app.models.user import User, UserRole
 # Alert model used to notify clinicians about consent changes
 from app.models.alert import Alert
 # Authentication helper to verify who is making the request
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 
 # Set up a logger for tracking consent-related events
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ class ReviewRequest(BaseModel):
 # =============================================
 @router.get("/consent/status", response_model=ConsentStatusResponse)
 async def get_my_consent_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Get current patient's sharing consent status."""
@@ -113,7 +113,7 @@ async def get_my_consent_status(
 @router.post("/consent/disable")
 async def request_sharing_disable(
     body: DisableRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -170,7 +170,7 @@ async def request_sharing_disable(
 # =============================================
 @router.post("/consent/enable")
 async def enable_sharing(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Patient re-enables data sharing (from SHARING_OFF state)."""
@@ -212,7 +212,7 @@ async def enable_sharing(
 # =============================================
 @router.get("/consent/pending")
 async def list_pending_requests(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Clinician: list all patients with pending disable requests."""
@@ -248,7 +248,7 @@ async def list_pending_requests(
 async def review_consent_request(
     patient_id: int,
     body: ReviewRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """

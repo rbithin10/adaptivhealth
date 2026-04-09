@@ -25,7 +25,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.clinical_note import ClinicalNote
 from app.schemas.clinical_note import ClinicalNoteCreate, ClinicalNoteUpdate, ClinicalNoteResponse
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user_session_or_bearer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -58,7 +58,7 @@ def _note_to_response(note: ClinicalNote, db: Session) -> ClinicalNoteResponse:
 @router.get("/clinical-notes/{user_id}", response_model=List[ClinicalNoteResponse])
 def get_clinical_notes(
     user_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -81,7 +81,7 @@ def get_clinical_notes(
 @router.post("/clinical-notes", response_model=ClinicalNoteResponse, status_code=status.HTTP_201_CREATED)
 def create_clinical_note(
     payload: ClinicalNoteCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -108,7 +108,7 @@ def create_clinical_note(
 def update_clinical_note(
     note_id: int,
     payload: ClinicalNoteUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Update the content of an existing clinical note."""
@@ -128,7 +128,7 @@ def update_clinical_note(
 @router.delete("/clinical-notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_clinical_note(
     note_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """Delete a clinical note."""

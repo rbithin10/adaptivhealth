@@ -16,18 +16,119 @@ interface AlertsPanelProps {
   onResolveAlert: (alertId: number) => Promise<void>;
 }
 
+type AlertStatusFilter = 'all' | 'active' | 'acknowledged' | 'resolved';
+
 // The alerts list component — shows each alert with Acknowledge and Resolve buttons
 const AlertsPanel: React.FC<AlertsPanelProps> = ({ alerts, formatTimeAgo, onAcknowledgeAlert, onResolveAlert }) => {
+  const [severityFilter, setSeverityFilter] = React.useState<string>('all');
+  const [statusFilter, setStatusFilter] = React.useState<AlertStatusFilter>('all');
+  const [typeFilter, setTypeFilter] = React.useState<string>('all');
+
+  const availableTypes = React.useMemo(() => {
+    const allTypes = alerts.map((alert) => alert.alert_type).filter(Boolean);
+    return Array.from(new Set(allTypes)).sort();
+  }, [alerts]);
+
+  const filteredAlerts = React.useMemo(() => {
+    return alerts.filter((alert) => {
+      if (severityFilter !== 'all' && alert.severity !== severityFilter) {
+        return false;
+      }
+
+      if (typeFilter !== 'all' && alert.alert_type !== typeFilter) {
+        return false;
+      }
+
+      if (statusFilter === 'active') {
+        return !alert.resolved_at;
+      }
+      if (statusFilter === 'acknowledged') {
+        return Boolean(alert.acknowledged);
+      }
+      if (statusFilter === 'resolved') {
+        return Boolean(alert.resolved_at);
+      }
+
+      return true;
+    });
+  }, [alerts, severityFilter, statusFilter, typeFilter]);
+
+  const resetFilters = () => {
+    setSeverityFilter('all');
+    setStatusFilter('all');
+    setTypeFilter('all');
+  };
+
   return (
     <div style={{ backgroundColor: colors.neutral.white, border: `1px solid ${colors.neutral['300']}`, borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-      <h3 style={{ ...typography.sectionTitle, marginBottom: '16px' }}>Alert History</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {alerts.length === 0 ? (
+      <h3 style={{ ...typography.sectionTitle, marginBottom: '12px' }}>Alert History</h3>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', marginBottom: '12px' }}>
+        <select
+          value={severityFilter}
+          onChange={(e) => setSeverityFilter(e.target.value)}
+          style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+        >
+          <option value="all">All Severities</option>
+          <option value="info">Info</option>
+          <option value="warning">Warning</option>
+          <option value="critical">Critical</option>
+          <option value="emergency">Emergency</option>
+        </select>
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as AlertStatusFilter)}
+          style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+        >
+          <option value="all">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+        </select>
+
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.neutral['300']}`, fontSize: '13px' }}
+        >
+          <option value="all">All Types</option>
+          {availableTypes.map((typeValue) => (
+            <option key={typeValue} value={typeValue}>
+              {String(typeValue).replaceAll('_', ' ')}
+            </option>
+          ))}
+        </select>
+
+        <button
+          onClick={resetFilters}
+          style={{
+            padding: '8px 12px',
+            borderRadius: '8px',
+            border: `1px solid ${colors.neutral['300']}`,
+            backgroundColor: colors.neutral.white,
+            color: colors.neutral['800'],
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Reset
+        </button>
+      </div>
+
+      <div style={{ ...typography.caption, marginBottom: '12px' }}>
+        Showing {filteredAlerts.length} of {alerts.length} alerts
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '360px', overflowY: 'scroll', paddingRight: '4px' }}>
+        {filteredAlerts.length === 0 ? (
           <div style={{ padding: '12px', backgroundColor: colors.neutral['50'], borderRadius: '8px' }}>
-            <div style={{ ...typography.body, fontWeight: 600 }}>No alerts available</div>
+            <div style={{ ...typography.body, fontWeight: 600 }}>
+              {alerts.length === 0 ? 'No alerts available' : 'No alerts match the selected filters'}
+            </div>
           </div>
         ) : (
-          alerts.map((alert) => {
+          filteredAlerts.map((alert) => {
             const isCritical = alert.severity === 'critical' || alert.severity === 'emergency';
             const bg = isCritical ? colors.critical.background : colors.warning.background;
             const text = isCritical ? colors.critical.text : colors.warning.text;

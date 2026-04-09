@@ -56,8 +56,9 @@ from app.schemas.alert import (
 )
 # Authentication helpers to verify who is making the request
 from app.api.auth import (
-    get_current_user,
-    get_current_doctor_user,
+    get_current_user_session_or_bearer,
+    get_current_doctor_user_session_or_bearer,
+    get_current_user_from_session_cookie,
     check_clinician_phi_access,
     auth_service,
 )
@@ -207,7 +208,7 @@ async def get_my_alerts(
     acknowledged: Optional[bool] = Query(None),
     severity: Optional[str] = Query(None),
     alert_type: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -256,7 +257,7 @@ async def get_my_alerts(
 @router.patch("/alerts/{alert_id}/acknowledge", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -312,7 +313,7 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: int,
     update_data: AlertUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -389,7 +390,7 @@ async def resolve_alert(
 @router.post("/alerts", response_model=AlertResponse)
 async def create_alert(
     alert_data: AlertCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -441,7 +442,7 @@ async def get_user_alerts(
     per_page: int = Query(50, ge=1, le=200),
     acknowledged: Optional[bool] = Query(None),
     severity: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -494,7 +495,7 @@ async def get_user_alerts(
 async def get_alert_statistics(
     response: Response,
     days: int = Query(1, ge=1, le=90),
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -511,15 +512,24 @@ async def get_alert_statistics(
 @router.get("/alerts/stream")
 async def stream_alert_statistics(
     request: Request,
-    token: str = Query(..., min_length=1),
+    token: Optional[str] = Query(None, min_length=1),
     days: int = Query(7, ge=1, le=90),
     poll_seconds: float = Query(1.0, ge=0.5, le=10.0),
     db: Session = Depends(get_db),
 ):
     """Real-time stream that pushes alert updates to the clinician dashboard instantly.
     Uses Server-Sent Events (SSE) so the browser gets live updates without refreshing."""
-    # Verify the clinician's identity from the token in the URL
-    user = _get_doctor_user_from_token_query(token, db)
+    # Support both cookie-based dashboard auth and legacy token-query SSE auth.
+    if token:
+        user = _get_doctor_user_from_token_query(token, db)
+    else:
+        user = get_current_user_from_session_cookie(request, db)
+        if user.role not in [UserRole.CLINICIAN, UserRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Clinician access required for alert stream",
+            )
+
     logger.info(f"Alerts SSE connected for clinician/admin user {user.user_id}")
 
     async def event_generator():

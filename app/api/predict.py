@@ -56,7 +56,11 @@ from app.services.ml_prediction import get_ml_service, MLPredictionService, appl
 from app.services.recommendation_ranking import select_exercise
 from app.services.risk_drivers import build_drivers_from_features
 from app.services.confidence_scorer import compute_confidence_score
-from app.api.auth import get_current_user, get_current_doctor_user, check_clinician_phi_access
+from app.api.auth import (
+    get_current_user_session_or_bearer,
+    get_current_doctor_user_session_or_bearer,
+    check_clinician_phi_access,
+)
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -586,7 +590,7 @@ async def check_model_status():
 @router.post("/predict/risk", response_model=RiskPredictionResponse)
 async def predict_risk(
     request: RiskPredictionRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_session_or_bearer)
 ):
     """
     Predict cardiovascular risk for a workout session.
@@ -664,7 +668,7 @@ async def predict_risk(
 @router.get("/predict/user/{user_id}/risk")
 async def predict_user_risk_from_latest_session(
     user_id: int,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -682,7 +686,7 @@ async def predict_user_risk_from_latest_session(
     - Database query: Gets most recent session for the patient from AWS RDS
     
     ACCESS CONTROL:
-    - Requires get_current_doctor_user dependency (checks role = \"doctor\" or \"admin\")
+    - Requires get_current_doctor_user_session_or_bearer dependency (checks role = \"doctor\" or \"admin\")
     - Prevents patients from requesting predictions for other patients
     - Prevents unauthorized access to patient activity data
     
@@ -757,7 +761,7 @@ async def predict_user_risk_from_latest_session(
 # =============================================
 @router.get("/predict/my-risk")
 async def get_my_risk_history(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db),
     limit: int = 10
 ):
@@ -771,7 +775,7 @@ async def get_my_risk_history(
     - Mobile app displays this in \"History\" or \"Trends\" view
     
     ACCESS CONTROL:
-    - Requires authentication (get_current_user)
+    - Requires authentication (get_current_user_session_or_bearer)
     - Patient only sees their own history
     - Doctors can access their patient's history via different endpoint
     - No role restriction (both patient and clinician can view their own)
@@ -876,7 +880,7 @@ async def get_my_risk_history(
 # =============================================
 @router.post("/risk-assessments/compute", response_model=RiskAssessmentComputeResponse)
 async def compute_my_risk_assessment(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     vitals = _get_recent_vitals_window(db, current_user.user_id, window_minutes=30)
@@ -904,7 +908,7 @@ async def compute_my_risk_assessment(
 @router.post("/patients/{user_id}/risk-assessments/compute", response_model=RiskAssessmentComputeResponse)
 async def compute_patient_risk_assessment(
     user_id: int,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     patient = db.query(User).filter(User.user_id == user_id).first()
@@ -937,7 +941,7 @@ async def compute_patient_risk_assessment(
 # =============================================
 @router.get("/risk-assessments/latest")
 async def get_my_latest_risk_assessment(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     ra = (
@@ -970,7 +974,7 @@ async def get_my_latest_risk_assessment(
 @router.get("/patients/{user_id}/risk-assessments/latest")
 async def get_patient_latest_risk_assessment(
     user_id: int,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     patient = db.query(User).filter(User.user_id == user_id).first()
@@ -1007,7 +1011,7 @@ async def get_patient_latest_risk_assessment(
 # =============================================
 @router.get("/recommendations/latest", response_model=RecommendationResponse)
 async def get_my_latest_recommendation(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     rec = (
@@ -1046,7 +1050,7 @@ async def get_my_latest_recommendation(
 @router.get("/patients/{user_id}/recommendations/latest", response_model=RecommendationResponse)
 async def get_patient_latest_recommendation(
     user_id: int,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     patient = db.query(User).filter(User.user_id == user_id).first()
@@ -1089,7 +1093,7 @@ async def get_patient_latest_recommendation(
 async def complete_recommendation(
     recommendation_id: int,
     body: RecommendationCompleteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     rec = (
@@ -1143,7 +1147,7 @@ async def complete_recommendation(
 @router.get("/recovery/daily-score")
 async def get_daily_recovery_score(
     date_str: Optional[str] = Query(default=None, alias="date"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     target_date = _resolve_date(date_str)
@@ -1156,7 +1160,7 @@ async def get_daily_recovery_score(
 # =============================================
 @router.get("/recovery/weekly-scores")
 async def get_weekly_recovery_scores(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     today = datetime.now(timezone.utc).date()
@@ -1180,7 +1184,7 @@ async def get_weekly_recovery_scores(
 @router.post("/sleep")
 async def log_sleep(
     request: SleepLogRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     bedtime = request.bedtime
@@ -1225,7 +1229,7 @@ async def log_sleep(
 
 @router.get("/sleep/latest")
 async def get_latest_sleep(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     entry = (
@@ -1254,7 +1258,7 @@ async def get_latest_sleep(
 @router.get("/sleep")
 async def get_sleep_history(
     days: int = 7,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     days = max(1, min(days, 30))

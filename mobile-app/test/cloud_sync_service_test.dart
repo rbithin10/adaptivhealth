@@ -216,5 +216,46 @@ void main() {
 
       service.dispose();
     });
+
+    test('confirmed threshold critical pushes immediately without prediction', () async {
+      final dio = Dio();
+      String? pushedReason;
+      bool predictionIncluded = true;
+
+      dio.httpClientAdapter = _QueueHttpClientAdapter([
+        (options) async => _ok(), // init probe
+        (options) async {
+          expect(options.path, '/vitals/critical-alert');
+          final payload = Map<String, dynamic>.from(options.data as Map);
+          pushedReason = payload['push_reason'] as String?;
+          predictionIncluded = payload.containsKey('prediction');
+          return _ok();
+        },
+      ]);
+
+      final service = CloudSyncService(dio);
+      await service.initialize();
+
+      await service.queuePrediction(
+        prediction: null,
+        vitals: _vitals(),
+        alerts: const [
+          {
+            'alert_type': 'threshold_critical_confirmed',
+            'severity': 'critical',
+          },
+        ],
+        immediateCriticalPush: true,
+        immediateCriticalReason: 'confirmed_threshold_critical',
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(pushedReason, 'confirmed_threshold_critical');
+      expect(predictionIncluded, isFalse);
+      expect(service.lastQueueEventType, 'critical_push_success');
+
+      service.dispose();
+    });
   });
 }

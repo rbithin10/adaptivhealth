@@ -51,7 +51,13 @@ from app.schemas.user import (
 )
 from app.schemas.medical_history import MedicalProfileSummary
 from app.services.encryption import encryption_service
-from app.api.auth import get_current_user, get_current_admin_user, get_current_doctor_user, get_current_admin_or_doctor_user, check_clinician_phi_access
+from app.api.auth import (
+    get_current_user_session_or_bearer,
+    get_current_admin_user_session_or_bearer,
+    get_current_doctor_user_session_or_bearer,
+    get_current_admin_or_doctor_user_session_or_bearer,
+    check_clinician_phi_access,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -185,7 +191,7 @@ def _build_medical_profile_summaries(user_ids: list[int], db: Session) -> dict[i
 # Roles: ALL authenticated users
 # =============================================
 @router.get("/me", response_model=UserProfileResponse)
-async def get_my_profile(current_user: User = Depends(get_current_user)):
+async def get_my_profile(current_user: User = Depends(get_current_user_session_or_bearer)):
     """
     Get current user's profile information.
     
@@ -220,7 +226,7 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
 @router.put("/me", response_model=UserResponse)
 async def update_my_profile(
     user_data: UserUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -268,7 +274,7 @@ async def update_my_profile(
 @router.put("/me/medical-history")
 async def update_medical_history(
     medical_data: MedicalHistoryUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -300,7 +306,7 @@ async def update_medical_history(
 # =============================================
 @router.get("/me/clinician")
 async def get_my_assigned_clinician(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -351,7 +357,7 @@ async def list_users(
     per_page: int = Query(50, ge=1, le=500, description="Items per page"),
     role: Optional[UserRole] = Query(None, description="Filter by role"),
     search: Optional[str] = Query(None, description="Search by name or email"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -415,7 +421,7 @@ async def list_users(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
-    current_user: User = Depends(get_current_admin_or_doctor_user),
+    current_user: User = Depends(get_current_admin_or_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -450,7 +456,7 @@ async def get_user(
 async def update_user(
     user_id: int,
     user_data: UserUpdate,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_admin_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -497,7 +503,7 @@ async def update_user(
 @router.post("/")
 async def create_user(
     user_data: UserCreateAdmin,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_admin_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -557,7 +563,7 @@ async def create_user(
 @router.delete("/{user_id}")
 async def deactivate_user(
     user_id: int,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_admin_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -597,7 +603,7 @@ async def deactivate_user(
 async def admin_reset_user_password(
     user_id: int,
     body: dict,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_admin_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -659,7 +665,7 @@ async def admin_reset_user_password(
 @router.get("/{user_id}/medical-history")
 async def get_user_medical_history(
     user_id: int,
-    current_user: User = Depends(get_current_doctor_user),
+    current_user: User = Depends(get_current_doctor_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """
@@ -702,7 +708,7 @@ async def get_user_medical_history(
 async def assign_clinician_to_patient(
     user_id: int,
     clinician_id: int,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_admin_user_session_or_bearer),
     db: Session = Depends(get_db)
 ):
     """

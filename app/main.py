@@ -144,6 +144,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # typ
 
 # CORS middleware for web dashboard and mobile app
 # Using regex to allow any localhost/127.0.0.1 port for development
+# Dashboard cookie-session auth requires allow_credentials=True (localhost:3000 included by regex).
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(
