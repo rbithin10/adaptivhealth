@@ -15,15 +15,26 @@ Adaptiv Health is a clinical-grade health monitoring system designed for:
 
 ## How to Access the Project Code
 
-The source code for AdaptivHealth is publicly available on GitHub at:
+Repository Link: https://github.com/Massoud3/AdaptivHealth
 
+Steps to copy to GitHub account:
+
+1.Log in to your GitHub account
+
+2.Go to: https://github.com/new/import
+
+3.In "Your source repository URL", paste:
 https://github.com/Massoud3/AdaptivHealth
 
-To copy/clone the repository, run the following command:
+4.Set the repository name (e.g. AdaptivHealth)
 
-```bash
-git clone https://github.com/Massoud3/AdaptivHealth.git
-```
+5.Set visibility to Public or Private
+
+6.Click "Begin import"
+
+
+
+
 
 ## ----------Quick Start------------
 
