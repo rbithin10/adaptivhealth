@@ -13,14 +13,50 @@ Adaptiv Health is a clinical-grade health monitoring system designed for:
 
 ------------------------------------
 
-## Quick Start
+## How to Access the Project Code
+
+The source code for AdaptivHealth is publicly available on GitHub at:
+
+https://github.com/Massoud3/AdaptivHealth
+
+To copy/clone the repository, run the following command:
+
 ```bash
+git clone https://github.com/Massoud3/AdaptivHealth.git
+```
+
+## ----------Quick Start------------
+
+```bash
+#Dashboard for doc
 Dashboard available at dashboard-adaptivhealthuowd.xyz
 
+      LoginCredentials
+      admin 
+      #username: admin@test.com
+      #password: password123
+      Doctor
+      #username: doctor@test 
+      #password: password123
+
+***********************************
+# mobile app for patient
 cd\mobile-app
+
 flutter pub get
+
 flutter run -d chrome --dart-define=API_BASE_URL=https://api.back-adaptivhealthuowd.xyz/api/v1
+
+      LoginCredntials
+      Patient
+      #username: patient1@test.com
+      #password: password123
+
+#start mock simulator in profile screen
+**********************************
+
 ```
+
 
 Mobile app-- release build apk availble at mobile-app\build\outputs\flutter-apk
 
