@@ -50,7 +50,7 @@ type TimeRange = 'today' | '1week' | '2weeks' | '1month' | '3months';
 // Convert the selected time range to a number of days for the API.
 const rangeToDays = (range: TimeRange) => {
   switch (range) {
-    case 'today':   return 1;
+    case 'today':   return 7;
     case '2weeks':  return 14;
     case '1month':  return 30;
     case '3months': return 90;
@@ -1463,7 +1463,7 @@ const PatientDetailPage: React.FC = () => {
                 </span>
               </div>
 
-              {medicalProfile?.has_document_storage_warning && (
+              {false && medicalProfile?.has_document_storage_warning && (
                 <div
                   style={{
                     marginBottom: '14px',

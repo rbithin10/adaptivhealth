@@ -67,11 +67,22 @@ const VitalsPanel: React.FC<VitalsPanelProps> = ({
   const nowMs = Date.now();
   const cutoffMs = nowMs - rangeDays[timeRange] * 24 * 60 * 60 * 1000;
 
-  const visibleVitals = sortedVitals.filter((v) => {
+  const filteredVitals = sortedVitals.filter((v) => {
     const ts = Date.parse(v.timestamp);
     if (!Number.isFinite(ts)) return false;
     return ts >= cutoffMs && ts <= nowMs;
   });
+
+  // For "today": if there are no readings within the last 24 hours, fall back to
+  // the most recent calendar day that has data so the chart is never blank when
+  // the Current Vitals cards above already show a reading.
+  const visibleVitals = React.useMemo(() => {
+    if (timeRange !== 'today' || filteredVitals.length > 0) return filteredVitals;
+    if (sortedVitals.length === 0) return [];
+    const latestTs = Date.parse(sortedVitals[sortedVitals.length - 1].timestamp);
+    const latestDate = new Date(latestTs).toDateString();
+    return sortedVitals.filter((v) => new Date(Date.parse(v.timestamp)).toDateString() === latestDate);
+  }, [timeRange, filteredVitals, sortedVitals]);
 
   const chartData = visibleVitals.map((v) => ({
     time: timeRange === 'today'
