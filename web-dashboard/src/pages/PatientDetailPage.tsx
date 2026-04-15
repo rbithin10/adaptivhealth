@@ -1476,7 +1476,7 @@ const PatientDetailPage: React.FC = () => {
                     fontWeight: 600,
                   }}
                 >
-                  {medicalProfile.missing_document_count || 0} uploaded document(s) are missing from storage. Re-upload to restore viewing.
+                  {medicalProfile?.missing_document_count || 0} uploaded document(s) are missing from storage. Re-upload to restore viewing.
                 </div>
               )}
 
